@@ -5,6 +5,7 @@ PYTHON_VERSION := 3.13
 VENV := .venv
 BIN := $(VENV)/bin
 SRC_DIR := src
+UV := env -u VIRTUAL_ENV uv
 
 # Terminal Colors
 # ---------------
@@ -94,12 +95,12 @@ check-uv: ## 🔧 Verify UV package manager is available
 .PHONY: sync
 sync: check-uv ## 📦 Sync dependencies and create virtual environment
 	@printf '%b\n' "$(BLUE)ℹ️  Syncing dependencies with UV...$(END)"
-	@uv sync --all-packages --all-groups || { \
+	@$(UV) sync --all-packages --all-groups || { \
 		printf '%b\n' "$(RED)❌ Failed to sync packages$(END)"; \
 		exit 1; \
 	}
 	@printf '%b\n' "$(BLUE)ℹ️  Installing QS-Trader in editable mode...$(END)"
-	@uv pip install -e . --quiet || { \
+	@$(UV) pip install -e . --quiet || { \
 		printf '%b\n' "$(RED)❌ Failed to install package$(END)"; \
 		exit 1; \
 	}
@@ -108,12 +109,12 @@ sync: check-uv ## 📦 Sync dependencies and create virtual environment
 .PHONY: upgrade
 upgrade: check-uv ## 🔄 Upgrade all packages to latest versions
 	@printf '%b\n' "$(BLUE)ℹ️  Upgrading all packages with UV...$(END)"
-	@uv lock --upgrade || { \
+	@$(UV) lock --upgrade || { \
 		printf '%b\n' "$(RED)❌ Failed to upgrade packages$(END)"; \
 		exit 1; \
 	}
 	@printf '%b\n' "$(BLUE)ℹ️  Syncing upgraded dependencies...$(END)"
-	@uv sync --all-packages --all-groups || { \
+	@$(UV) sync --all-packages --all-groups || { \
 		printf '%b\n' "$(RED)❌ Failed to sync upgraded packages$(END)"; \
 		exit 1; \
 	}
@@ -122,7 +123,7 @@ upgrade: check-uv ## 🔄 Upgrade all packages to latest versions
 .PHONY: install-hooks
 install-hooks: sync ## 🪝 Install pre-commit hooks
 	@printf '%b\n' "$(BLUE)ℹ️  Installing pre-commit hooks...$(END)"
-	@uv run pre-commit install || { \
+	@$(UV) run pre-commit install || { \
 		printf '%b\n' "$(RED)❌ Failed to install pre-commit hooks$(END)"; \
 		exit 1; \
 	}
@@ -131,7 +132,7 @@ install-hooks: sync ## 🪝 Install pre-commit hooks
 .PHONY: pre-commit
 pre-commit: sync ## 🔍 Run pre-commit hooks manually
 	@printf '%b\n' "$(BLUE)ℹ️  Running pre-commit hooks...$(END)"
-	@uv run pre-commit run --all-files || { \
+	@$(UV) run pre-commit run --all-files || { \
 		printf '%b\n' "$(RED)❌ Pre-commit hooks failed$(END)"; \
 		exit 1; \
 	}
@@ -164,38 +165,38 @@ clean: ## 🧹 Clean workspace (remove cache, temp files, and scaffolded project
 .PHONY: format
 format: sync ## 🎨 Format code with ruff, isort, and markdown (matches pre-commit)
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting Python code with ruff (fix + format)...$(END)"
-	@uv run ruff check --fix --target-version py313 $(SRC_DIR)/
-	@uv run ruff format --target-version py313 $(SRC_DIR)/
+	@$(UV) run ruff check --fix --target-version py313 $(SRC_DIR)/
+	@$(UV) run ruff format --target-version py313 $(SRC_DIR)/
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting imports with isort...$(END)"
-	@uv run isort $(SRC_DIR)/
+	@$(UV) run isort $(SRC_DIR)/
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting Markdown files...$(END)"
-	@uv run mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
+	@$(UV) run mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
 	@printf '%b\n' "$(GREEN)✅ Code and markdown formatting completed$(END)"
 
 .PHONY: lint
 lint: sync ## 🔍 Lint code and fix auto-fixable issues (matches pre-commit)
 	@printf '%b\n' "$(BLUE)ℹ️  Linting code...$(END)"
-	@uv run ruff check --fix --target-version py313 $(SRC_DIR)/
+	@$(UV) run ruff check --fix --target-version py313 $(SRC_DIR)/
 	@printf '%b\n' "$(GREEN)✅ Code linting completed$(END)"
 
 .PHONY: lint-check
 lint-check: sync ## 📋 Check code without making changes (matches pre-commit)
 	@printf '%b\n' "$(BLUE)ℹ️  Checking code quality...$(END)"
-	@uv run ruff check --target-version py313 $(SRC_DIR)/
-	@uv run ruff format --target-version py313 --check $(SRC_DIR)/
-	@uv run isort --check-only $(SRC_DIR)/
+	@$(UV) run ruff check --target-version py313 $(SRC_DIR)/
+	@$(UV) run ruff format --target-version py313 --check $(SRC_DIR)/
+	@$(UV) run isort --check-only $(SRC_DIR)/
 	@printf '%b\n' "$(GREEN)✅ Code quality check passed$(END)"
 
 .PHONY: format-md
 format-md: sync ## 📝 Format Markdown files only
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting Markdown files...$(END)"
-	@uv run mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
+	@$(UV) run mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
 	@printf '%b\n' "$(GREEN)✅ Markdown formatting completed$(END)"
 
 .PHONY: type-check
 type-check: sync ## 🔬 Run type checking with MyPy
 	@printf '%b\n' "$(BLUE)ℹ️  Running type checks with MyPy...$(END)"
-	@uv run mypy $(SRC_DIR)/ || { \
+	@$(UV) run mypy $(SRC_DIR)/ || { \
 		printf '%b\n' "$(RED)❌ Type checking failed$(END)"; \
 		exit 1; \
 	}
@@ -217,7 +218,7 @@ qa: quality test ## 🔍 Full quality assurance (code quality + tests)
 .PHONY: build
 build: clean qa ## 📦 Build package (clean + qa + uv build)
 	@printf '%b\n' "$(BLUE)ℹ️  Building package with uv...$(END)"
-	@uv build
+	@$(UV) build
 	@printf '%b\n' "$(GREEN)✅ Package built successfully$(END)"
 	@printf '%b\n' "$(CYAN)📦 Distribution files:$(END)"
 	@ls -lh dist/
@@ -314,7 +315,7 @@ release: ## 🚀 Create GitHub release (usage: make release VERSION=x.y.z)
 .PHONY: test
 test: sync ## 🧪 Run all tests with coverage
 	@printf '%b\n' "$(BLUE)ℹ️  Running all tests with coverage...$(END)"
-	@uv run pytest --cov --cov-report=term-missing --cov-report=html || { \
+	@$(UV) run pytest --cov --cov-report=term-missing --cov-report=html || { \
 		printf '%b\n' "$(RED)❌ Tests failed$(END)"; \
 		exit 1; \
 	}
@@ -323,7 +324,7 @@ test: sync ## 🧪 Run all tests with coverage
 .PHONY: test-fast
 test-fast: sync ## ⚡ Run tests without coverage (faster)
 	@printf '%b\n' "$(BLUE)ℹ️  Running tests (fast mode)...$(END)"
-	@uv run pytest -v || { \
+	@$(UV) run pytest -v || { \
 		printf '%b\n' "$(RED)❌ Tests failed$(END)"; \
 		exit 1; \
 	}
