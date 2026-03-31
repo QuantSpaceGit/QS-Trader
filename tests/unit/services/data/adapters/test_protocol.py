@@ -4,8 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Iterator, Optional, Tuple
 
-from qtrader.events.events import CorporateActionEvent, PriceBarEvent
-from qtrader.services.data.adapters.protocol import IDataAdapter
+from qs_trader.events.events import CorporateActionEvent, PriceBarEvent
+from qs_trader.services.data.adapters.protocol import IDataAdapter
 
 # mypy: check-untyped-defs
 

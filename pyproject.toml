@@ -3,14 +3,14 @@
 ################################################################################
 
 [project]
-name = "qtrader"
+name = "QS-Trader"
 version = "0.2.0-beta.5"
 description = "Quantitative Trading Environment"
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
-authors = [{ name = "QTrader", email = "quant@qtrader.app" }]
-maintainers = [{ name = "QTrader", email = "quant@qtrader.app" }]
+authors = [{ name = "QS-Trader", email = "quant@quantspace.io" }]
+maintainers = [{ name = "QS-Trader", email = "quant@quantspace.io" }]
 keywords = [
     "trading",
     "backtesting",
@@ -54,7 +54,7 @@ dependencies = [
 ]
 
 [project.scripts]
-qtrader = "qtrader.cli:main"
+qs-trader = "qs_trader.cli:main"
 
 [dependency-groups]
 dev = [
@@ -89,13 +89,13 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatchling.build.targets.wheel]
-packages = ["src/qtrader"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/qs_trader"]
 
-[tool.hatchling.build.targets.wheel.force-include]
-"src/qtrader/scaffold" = "qtrader/scaffold"
-"src/qtrader/templates" = "qtrader/templates"
-"src/qtrader/services/data" = "qtrader/services/data"
+[tool.hatch.build.targets.wheel.force-include]
+"src/qs_trader/scaffold" = "qs_trader/scaffold"
+"src/qs_trader/templates" = "qs_trader/templates"
+"src/qs_trader/services/data" = "qs_trader/services/data"
 
 [tool.uv]
 package = true # Enable package installation for entry points

@@ -14,8 +14,8 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from qtrader.libraries.performance.models import DrawdownPeriod, FullMetrics, PeriodMetrics, StrategyPerformance
-from qtrader.services.reporting.formatters import (
+from qs_trader.libraries.performance.models import DrawdownPeriod, FullMetrics, PeriodMetrics, StrategyPerformance
+from qs_trader.services.reporting.formatters import (
     _create_drawdown_table,
     _create_period_table,
     _create_risk_adjusted_table,

@@ -6,7 +6,7 @@ from logging.handlers import RotatingFileHandler
 
 import pytest
 
-from qtrader.system import LoggerFactory, LoggingConfig
+from qs_trader.system import LoggerFactory, LoggingConfig
 
 
 @pytest.fixture(autouse=True)
@@ -114,7 +114,7 @@ def test_file_logging_requires_path():
     LoggerFactory.configure(config)
     result_config = LoggerFactory.get_config()
     assert result_config.file_path is not None
-    assert str(result_config.file_path) == "logs/qtrader.log"
+    assert str(result_config.file_path) == "logs/qs_trader.log"
 
 
 def test_file_logging_creates_directory(tmp_path):
@@ -167,7 +167,7 @@ def test_different_log_levels():
     """Test different log level configurations."""
     from typing import cast
 
-    from qtrader.system.log_system import LogLevel
+    from qs_trader.system.log_system import LogLevel
 
     for level_str in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
         LoggerFactory.reset()

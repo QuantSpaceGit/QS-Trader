@@ -8,8 +8,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.libraries.performance.calculators import PeriodAggregationCalculator, StrategyPerformanceCalculator
-from qtrader.libraries.performance.models import PeriodMetrics, StrategyPerformance, TradeRecord
+from qs_trader.libraries.performance.calculators import PeriodAggregationCalculator, StrategyPerformanceCalculator
+from qs_trader.libraries.performance.models import PeriodMetrics, StrategyPerformance, TradeRecord
 
 
 class TestPeriodAggregationCalculator:

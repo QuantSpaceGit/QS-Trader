@@ -2,10 +2,10 @@
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import IndicatorEvent
-from qtrader.libraries.strategies import StrategyConfig
-from qtrader.services.strategy.context import Context
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import IndicatorEvent
+from qs_trader.libraries.strategies import StrategyConfig
+from qs_trader.services.strategy.context import Context
 
 
 @pytest.fixture

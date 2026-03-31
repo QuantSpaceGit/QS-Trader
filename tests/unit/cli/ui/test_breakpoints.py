@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.cli.ui.breakpoints import (
+from qs_trader.cli.ui.breakpoints import (
     BreakpointContext,
     DateBreakpoint,
     SignalBreakpoint,
@@ -398,7 +398,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_init_with_break_on(self):
         """Test debugger initializes with break_on rules."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Act
         debugger = InteractiveDebugger(
@@ -412,7 +412,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_init_without_break_on_is_step_through(self):
         """Test debugger without break_on is in step-through mode."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Act
         debugger = InteractiveDebugger(enabled=False)
@@ -423,7 +423,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_should_pause_before_events_in_event_mode(self):
         """Test should_pause_before_events returns False in event-triggered mode."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(break_on=["signal"], enabled=True)
@@ -437,7 +437,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_should_pause_after_events_with_signal(self):
         """Test should_pause_after_events triggers on signal."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(break_on=["signal"], enabled=True)
@@ -456,7 +456,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_should_pause_after_events_without_signal(self):
         """Test should_pause_after_events returns False when no signals."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(break_on=["signal"], enabled=True)
@@ -473,7 +473,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_set_event_bus(self):
         """Test set_event_bus stores event bus reference."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(break_on=["signal"], enabled=True)
@@ -488,7 +488,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_on_signal_event_collects_signals(self):
         """Test _on_signal_event collects signals."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(enabled=False)
@@ -503,7 +503,7 @@ class TestInteractiveDebuggerBreakpoints:
 
     def test_combined_break_at_and_break_on(self):
         """Test break_at and break_on work together."""
-        from qtrader.cli.ui.interactive import InteractiveDebugger
+        from qs_trader.cli.ui.interactive import InteractiveDebugger
 
         # Arrange
         debugger = InteractiveDebugger(

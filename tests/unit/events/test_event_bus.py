@@ -11,9 +11,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.events.event_bus import EventBus, SubscriptionToken
-from qtrader.events.event_store import InMemoryEventStore
-from qtrader.events.events import BacktestStartedEvent, BarCloseEvent, BaseEvent, CorporateActionEvent, PriceBarEvent
+from qs_trader.events.event_bus import EventBus, SubscriptionToken
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import BacktestStartedEvent, BarCloseEvent, BaseEvent, CorporateActionEvent, PriceBarEvent
 
 # ============================================
 # Fixtures

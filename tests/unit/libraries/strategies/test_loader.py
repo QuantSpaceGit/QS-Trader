@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.libraries.strategies import StrategyConfig, StrategyLoader
-from qtrader.libraries.strategies.loader import StrategyLoadError
+from qs_trader.libraries.strategies import StrategyConfig, StrategyLoader
+from qs_trader.libraries.strategies.loader import StrategyLoadError
 
 
 @pytest.fixture
@@ -168,8 +168,8 @@ class TestErrorHandling:
         # Arrange - create two strategies with same name
         (tmp_path / "strategy1.py").write_text(
             """
-from qtrader.libraries.strategies import Strategy, StrategyConfig, Context
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Strategy, StrategyConfig, Context
+from qs_trader.events.events import PriceBarEvent
 
 class DupConfig(StrategyConfig):
     name: str = "duplicate"
@@ -187,8 +187,8 @@ class Strategy1(Strategy):
 
         (tmp_path / "strategy2.py").write_text(
             """
-from qtrader.libraries.strategies import Strategy, StrategyConfig, Context
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Strategy, StrategyConfig, Context
+from qs_trader.events.events import PriceBarEvent
 
 class DupConfig2(StrategyConfig):
     name: str = "duplicate"  # Same name!
@@ -233,8 +233,8 @@ class TestLoaderState:
         # Arrange - create another strategy in different dir
         (tmp_path / "extra.py").write_text(
             """
-from qtrader.libraries.strategies import Strategy, StrategyConfig, Context
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Strategy, StrategyConfig, Context
+from qs_trader.events.events import PriceBarEvent
 
 class ExtraConfig(StrategyConfig):
     name: str = "extra_strategy"
@@ -273,8 +273,8 @@ class TestRecursiveLoading:
 
         (subdir / "nested.py").write_text(
             """
-from qtrader.libraries.strategies import Strategy, StrategyConfig, Context
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Strategy, StrategyConfig, Context
+from qs_trader.events.events import PriceBarEvent
 
 class NestedConfig(StrategyConfig):
     name: str = "nested"
@@ -304,8 +304,8 @@ class NestedStrategy(Strategy):
 
         (subdir / "nested.py").write_text(
             """
-from qtrader.libraries.strategies import Strategy, StrategyConfig, Context
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Strategy, StrategyConfig, Context
+from qs_trader.events.events import PriceBarEvent
 
 class NestedConfig(StrategyConfig):
     name: str = "nested"

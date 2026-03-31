@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from qtrader.engine.engine import BacktestEngine
+from qs_trader.engine.engine import BacktestEngine
 
 
 class TestReportingIntegration:
@@ -23,7 +23,7 @@ class TestReportingIntegration:
         config = buy_hold_backtest_config
 
         # Create engine with mocked system config
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
 
             # Run backtest
@@ -74,7 +74,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             result = engine.run()
 
@@ -117,7 +117,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             result = engine.run()
 
@@ -157,7 +157,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             _ = engine.run()
 
@@ -208,7 +208,7 @@ class TestReportingIntegration:
         """
         config = zero_trades_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             result = engine.run()
 
@@ -252,7 +252,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             result = engine.run()
 
@@ -295,7 +295,7 @@ class TestReportingIntegration:
         config = buy_hold_backtest_config
         config.reporting.max_equity_points = 50  # Force sampling
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             result = engine.run()
 
@@ -329,7 +329,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             _ = engine.run()
 
@@ -414,7 +414,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             _ = engine.run()
 
@@ -476,7 +476,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             _ = engine.run()
 
@@ -533,7 +533,7 @@ class TestReportingIntegration:
         """
         config = buy_hold_backtest_config
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             engine = BacktestEngine.from_config(config)
             _ = engine.run()
 

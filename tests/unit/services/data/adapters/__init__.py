@@ -1,1 +1,1 @@
-"""Tests for qtrader.adapters package."""
+"""Tests for qs_trader.adapters package."""

@@ -2,7 +2,7 @@
 
 ## Overview
 
-QTrader uses a plugin architecture for data adapters. This guide explains how to create custom adapters for your own data sources.
+QS-Trader uses a plugin architecture for data adapters. This guide explains how to create custom adapters for your own data sources.
 
 ## Quick Start
 
@@ -12,7 +12,7 @@ First, scaffold a custom library or create your own directory structure:
 
 ```bash
 # Option A: Generate library structure with templates
-qtrader init-library ./library --type adapter
+qs-trader init-library ./library --type adapter
 
 # Option B: Create directory manually
 mkdir -p library/adapters
@@ -25,7 +25,7 @@ Then create your adapter class in `library/adapters/`:
 
 from datetime import datetime
 from typing import Iterator, Optional
-from qtrader.events.events import PriceBarEvent, CorporateActionEvent
+from qs_trader.events.events import PriceBarEvent, CorporateActionEvent
 
 class MyCustomAdapter:
     """
@@ -164,8 +164,8 @@ data_sources:
 ### 4. Use in Code
 
 ```python
-from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.models import Instrument
+from qs_trader.services.data.adapters.resolver import DataSourceResolver
+from qs_trader.services.data.models import Instrument
 
 # Resolver auto-discovers your adapter
 resolver = DataSourceResolver()
@@ -418,7 +418,7 @@ class APIAdapter:
 ```python
 # test_my_adapter.py
 from my_library.adapters.my_custom_adapter import MyCustomAdapter
-from qtrader.services.data.models import Instrument
+from qs_trader.services.data.models import Instrument
 
 def test_adapter():
     config = {
@@ -457,7 +457,7 @@ if __name__ == '__main__':
 # 4. Class name matches expected registry name
 
 # Debug:
-from qtrader.libraries.registry import get_adapter_registry
+from qs_trader.libraries.registry import get_adapter_registry
 registry = get_adapter_registry()
 registry.discover(custom_path='my_library/adapters')
 print(registry.list_components())  # Should show your adapter
@@ -491,7 +491,7 @@ from my_library.adapters.models import MyBar  # Can cause circular import
 
 ## See Also
 
-- [Built-in Yahoo CSV Adapter](../../src/qtrader/services/data/adapters/builtin/yahoo_csv.py)
-- [IDataAdapter Protocol](../../src/qtrader/services/data/adapters/protocol.py)
+- [Built-in Yahoo CSV Adapter](../../src/qs_trader/services/data/adapters/builtin/yahoo_csv.py)
+- [IDataAdapter Protocol](../../src/qs_trader/services/data/adapters/protocol.py)
 - [Data Sources Configuration](../../config/data_sources.yaml)
 - [Implementation Details](ADAPTER_PLUGIN_IMPLEMENTATION.md)

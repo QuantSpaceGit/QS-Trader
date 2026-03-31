@@ -1,0 +1,105 @@
+# Naive Risk Policy
+# ==================
+# Simple policy for testing and development.
+# Minimal constraints - suitable for buy-and-hold and SMA crossover example strategies.
+
+
+portfolio_risk_policy:
+  # Metadata
+  name: "naive"
+  description: "Simple policy for testing - minimal risk controls"
+  version: "1.0.0"
+  date_created: "2025-11-05"
+  author: "QS-Trader"
+  policy_scope: "portfolio"
+
+  # Evaluation
+  evaluation:
+    mode: "end_of_day"
+    clock_alignment: "exchange_calendar"
+
+  # Strategy Budgets
+  # Omitted - uses automatic default budget at 95% weight
+  budgets: []
+
+  # Sizing
+  sizing:
+    algorithm: "fixed_equity_pct"
+    fixed_equity_pct: 1.00 # Use 100% of allocated capital (95% of equity due to 5% cash buffer)
+    volatility_targeting:
+      target_volatility_pct: null
+    kelly_criterion:
+      fraction: null
+
+  # Cash Management
+  cash_management:
+    cash_buffer_pct: 0.05 # Keep 5% cash unallocated
+
+  limits:
+    # Liquidity
+    liquidity:
+      max_participation_adv: 0.50 # Relaxed for testing
+      min_ticket_usd: 10 # Very low minimum for testing
+
+    # Leverage
+    leverage:
+      allow_leveraged_positions: false # Cash account only
+      max_gross_leverage: 1.0 # No leverage
+      max_net_leverage: 1.0 # Fully directional
+
+    # Shorting
+    shorting:
+      allow_short_positions: false # Long-only for simplicity
+
+    # Margin Policy
+    margin_policy:
+      allow_negative_cash: false
+      initial_margin_rate: null
+      short_margin_rate: null
+
+    # Concentration
+    concentration:
+      max_sector_exposure_pct: null # No sector limits
+      max_industry_exposure_pct: null # No industry limits
+      max_country_exposure_pct: null # No country limits
+      max_asset_exposure_pct: null # No asset class limits
+      max_position_size_pct: 1.0 # No single position limit - allows full concentration
+
+    # Portfolio Drawdown
+    portfolio_drawdown:
+      max_drawdown_pct: null # No drawdown limits
+      daily_loss_limit_pct: null # No daily loss limits
+
+    # Position Count
+    position_count:
+      max_positions: null # No position count limit
+
+    # Diversification
+    diversification:
+      max_correlation_between_positions: null # No correlation checks
+
+  # Drawdown Controls
+  drawdown_controls:
+    thresholds: [] # No drawdown throttling
+    multipliers: []
+
+  # Strategy Limits
+  strategy_limits:
+    defaults:
+      max_drawdown_pct: null
+      enforce_stop_loss: false
+      max_stop_loss_pct: null
+      enforce_take_profit: false
+      min_take_profit_pct: null
+    strategy_overrides: {}
+
+  # Execution Controls
+  execution_controls:
+    max_slippage_pct: null # No slippage limits
+    max_commission_pct: null # No commission limits
+    max_order_size_pct_of_adv: null # No ADV limits
+
+  # Rebalancing
+  rebalancing:
+    rebalance_on_risk_breach: false
+    rebalance_strategy: null

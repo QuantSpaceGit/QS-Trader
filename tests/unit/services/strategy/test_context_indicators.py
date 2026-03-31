@@ -6,7 +6,7 @@ Tests the enhanced Context.track_indicators() API with placements and colors.
 
 from unittest.mock import MagicMock
 
-from qtrader.services.strategy.context import Context
+from qs_trader.services.strategy.context import Context
 
 
 class TestTrackIndicatorsWithMetadata:

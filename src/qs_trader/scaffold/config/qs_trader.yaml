@@ -1,0 +1,211 @@
+# QS-Trader System Configuration
+# ================================================================================
+# THE SYSTEM - Consolidated configuration for all services and the engine
+#
+# This file defines HOW QS-Trader operates - the trading system infrastructure.
+# All backtests will use these settings for fair comparison.
+#
+# Philosophy: "In real life, the system is one"
+# - ONE execution system with ONE commission model
+# - ONE data source configuration
+# - ONE risk management framework
+# - ONE portfolio accounting method
+#
+# What varies per backtest: dates, universe, capital, strategies (see backtest YAMLs)
+# What's fixed (here): commission, slippage, data sources, risk limits
+# ================================================================================
+
+# ============================================================
+# Data Service Configuration
+# ============================================================
+data:
+  # Data source configuration file (maps logical sources to adapters)
+  sources_config: "config/data_sources.yaml"
+
+  # Market timezone
+  default_timezone: "America/New_York"
+
+  # Price decimal precision (number of decimals for OHLC prices)
+  # This is used as the default price_scale for emitted bar events
+  # After backward adjustment, prices are quantized to this precision
+  # Example: 6 decimals means prices like 123.456789 (not 123.4567891234567)
+  price_decimals: 2
+
+  # Validate data integrity on load
+  validate_on_load: true
+
+  # Cache configuration (future)
+  cache:
+    enabled: false
+    cache_dir: ".cache/qs_trader"
+    max_size_mb: 1000
+
+# ============================================================
+# Portfolio Service Configuration
+# ============================================================
+portfolio:
+  # Lot tracking method for long positions
+  # Options: fifo (first in first out), lifo (last in first out)
+  lot_method_long: "fifo"
+
+  # Lot tracking method for short positions
+  # Options: fifo, lifo (currently only lifo supported)
+  lot_method_short: "lifo"
+
+  # Maximum ledger entries to track
+  max_ledger_entries: 10_000
+
+# ============================================================
+# Execution Service Configuration
+# ============================================================
+execution:
+  # Fill policy for order execution
+  fill_policy: "conservative" # Options: conservative, aggressive, realistic
+
+  # Slippage for different order types (basis points)
+  slippage:
+    market_order_bps: 5 # Market orders
+    limit_order_bps: 0 # Limit orders (only fill if price touched)
+    stop_order_bps: 5 # Stop orders
+    moc_slip_bps: 5 # Market-on-close orders
+    mode: "conservative" # conservative, aggressive, realistic
+
+  # Commission calculation
+  commission:
+    model: "per_share"
+    per_share: 0.0005
+    minimum: 1.00
+    maximum: null
+
+  # Order queue management
+  queue_bars: 3 # Maximum bars to keep unfilled orders in queue
+
+  # Volume constraints
+  max_volume_participation: 0.10 # Max 10% of bar volume per fill
+
+# ============================================================
+# Custom Libraries Configuration
+# ============================================================
+# OPTIONAL: Point to your custom implementations of:
+#   Strategies, Risk Policies, Indicators, Data Adapters, Metrics
+#
+# Use null for components you don't customize (QS-Trader will use built-in only)
+# Use relative or absolute paths for custom implementations
+#
+# Quick Start:
+#   1. Run: qs-trader init-library ./library --type strategy
+#   2. Update path below: strategies: "./library/strategies"
+#   3. Implement your strategy in library/strategies/my_strategy.py
+#
+# Example paths:
+#   "./library/strategies"        - Local to this project
+#   "~/my-qs-trader-lib/strategies" - Reusable across projects
+#
+# Note: The library/ folder in this project was created by 'qs-trader init-project'
+#       and contains working example strategies you can use as templates.
+#
+custom_libraries:
+  strategies: ./library/strategies
+  risk_policies: ./library/risk_policies
+  indicators: ./library/indicators
+  adapters: ./library/adapters
+  metrics: ./library/metrics
+
+# ============================================================
+# Strategy Service Configuration
+# ============================================================
+strategy:
+  # Strategy loading and validation
+  validate_on_load: true
+
+  # Allow multiple strategies to run concurrently
+  allow_concurrent: true
+
+# ============================================================
+# Output & Results Configuration
+# ============================================================
+output:
+  # Base directory for experiment results
+  # Structure: {experiments_root}/{backtest_id}/runs/{timestamp}/
+  # Example: experiments/buy_and_hold/runs/20251105_121348/
+  experiments_root: "experiments"
+
+  # Event display format (used when replay_speed >= 0 in backtest config)
+  # Options:
+  #   "line" - Single line per event with colors (compact, default)
+  #   "table" - Rich table format (detailed, better for analysis)
+  display_format: "line"
+
+  # Event store configuration
+  event_store:
+    backend: "parquet" # Options: sqlite, parquet, memory
+    filename: "events.{backend}" # customize filename as needed. Extension based on backend, do not change {backend}
+
+    # Parquet-specific settings (only used when backend="parquet")
+    # Buffer holds events in memory before writing to disk (Parquet optimized for batch writes)
+    # Larger buffer: faster writes, better compression, higher memory use, more data at risk if crash
+    # Smaller buffer: lower memory, safer, but slower writes and slightly worse compression
+    # Default 10,000 events ≈ 10 seconds of backtest, flushes ~110 times for 1.1M events
+    max_buffer_size: 10_000 # Events to buffer before auto-flush
+
+    # Compression algorithm for Parquet files
+    # zstd:   Best compression (118x smaller than SQLite), fast decompression [RECOMMENDED]
+    # snappy: Faster compression, 3x larger files than zstd, good if CPU bottleneck
+    # gzip:   Medium compression (2x larger than zstd), slower than both
+    # none:   No compression, 17x larger than zstd, only for testing
+    # With zstd: 100 runs × 1.1M events = 270 MB total (vs 32 GB with SQLite!)
+    compression: "zstd" # Compression codec
+
+  # Timestamp format for run subdirectories (always used)
+  run_id_format: "%Y%m%d_%H%M%S" # Format: 20241024_142153
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+logging:
+  # Minimum log level filter (console output)
+  # INFO = User-friendly (summaries, signals, orders)
+  # DEBUG = Verbose developer mode (all internal operations)
+  # WARNING = Issues only
+  level: "INFO"
+
+  # Output format
+  format: "console" # Options: console, json
+
+  # Timestamp format for console output
+  timestamp_format: "compact" # Options: iso, compact, time, short
+
+  # Enable Rich event display formatting
+  # When true: Events (bar, signal, order, fill) are displayed with Rich formatting
+  #            regardless of log level (controlled by display_events in portfolio.yaml)
+  # When false: Events use standard structured log format
+  # Note: System logs (INFO/WARNING/ERROR) always respect the level setting above
+  enable_event_display: true
+
+  # Enable logging to file
+  enable_file: true
+
+  # Log file path (null = use default: logs/qs_trader.log)
+  file_path: null
+
+  # Minimum log level for file output (typically WARNING or higher)
+  file_level: "WARNING"
+
+  # File rotation settings
+  file_rotation: true
+  max_file_size_mb: 10
+  backup_count: 3
+
+  # Console output width (0 = no limit)
+  console_width: 0
+
+# ============================================================
+# User Preferences
+# ============================================================
+# is this in use?
+preferences:
+  # Display formats
+  date_format: "%Y-%m-%d"
+  currency_symbol: "$"
+  thousands_separator: ","
+  decimal_separator: "."

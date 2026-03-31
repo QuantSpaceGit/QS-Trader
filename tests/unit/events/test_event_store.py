@@ -11,14 +11,14 @@ from uuid import uuid4
 
 import pytest
 
-from qtrader.events.event_store import (
+from qs_trader.events.event_store import (
     InMemoryEventStore,
     ParquetEventStore,
     SQLiteEventStore,
     register_event_class,
     resolve_event_class,
 )
-from qtrader.events.events import BarCloseEvent, BaseEvent, CorporateActionEvent, PriceBarEvent
+from qs_trader.events.events import BarCloseEvent, BaseEvent, CorporateActionEvent, PriceBarEvent
 
 # ============================================
 # Fixtures

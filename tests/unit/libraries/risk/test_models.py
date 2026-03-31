@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.libraries.risk.models import (
+from qs_trader.libraries.risk.models import (
     ConcentrationLimit,
     LeverageLimit,
     RiskConfig,

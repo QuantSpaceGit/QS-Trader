@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio import PortfolioConfig, PortfolioService
-from qtrader.services.portfolio.models import LedgerEntryType
+from qs_trader.services.portfolio import PortfolioConfig, PortfolioService
+from qs_trader.services.portfolio.models import LedgerEntryType
 
 
 @pytest.fixture

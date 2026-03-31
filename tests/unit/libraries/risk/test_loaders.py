@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.libraries.risk.loaders import _parse_budgets
+from qs_trader.libraries.risk.loaders import _parse_budgets
 
 
 class TestParseBudgets:

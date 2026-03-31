@@ -1,6 +1,6 @@
 # Technical Indicators
 
-QTrader provides 22 technical indicators across 5 categories. All indicators follow a consistent API with support for both stateful (streaming) and stateless (batch) computation modes.
+QS-Trader provides 22 technical indicators across 5 categories. All indicators follow a consistent API with support for both stateful (streaming) and stateless (batch) computation modes.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ QTrader provides 22 technical indicators across 5 categories. All indicators fol
 ## Quick Start
 
 ```python
-from qtrader.libraries.indicators import RSI, MACD, ATR
+from qs_trader.libraries.indicators import RSI, MACD, ATR
 
 # Create indicator
 rsi = RSI(period=14)
@@ -94,7 +94,7 @@ SMA = (Sum of closes over period) / period
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import SMA
+from qs_trader.libraries.indicators import SMA
 
 sma = SMA(period=20)
 for bar in bars:
@@ -131,7 +131,7 @@ EMA = (Close - Previous EMA) × Multiplier + Previous EMA
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import EMA
+from qs_trader.libraries.indicators import EMA
 
 # Common EMA periods
 ema_fast = EMA(period=12)
@@ -173,7 +173,7 @@ Where Weight = period, period-1, ..., 2, 1
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import WMA
+from qs_trader.libraries.indicators import WMA
 
 wma = WMA(period=20)
 value = wma.update(bar)
@@ -205,7 +205,7 @@ DEMA = 2 × EMA(period) - EMA(EMA(period))
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import DEMA
+from qs_trader.libraries.indicators import DEMA
 
 dema = DEMA(period=20)
 value = dema.update(bar)
@@ -232,7 +232,7 @@ TEMA = 3 × EMA - 3 × EMA(EMA) + EMA(EMA(EMA))
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import TEMA
+from qs_trader.libraries.indicators import TEMA
 
 tema = TEMA(period=20)
 value = tema.update(bar)
@@ -259,7 +259,7 @@ HMA = WMA(2 × WMA(period/2) - WMA(period), sqrt(period))
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import HMA
+from qs_trader.libraries.indicators import HMA
 
 hma = HMA(period=20)
 value = hma.update(bar)
@@ -286,7 +286,7 @@ SMMA = (Previous SMMA × (period - 1) + Current Price) / period
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import SMMA
+from qs_trader.libraries.indicators import SMMA
 
 smma = SMMA(period=20)
 value = smma.update(bar)
@@ -322,7 +322,7 @@ RSI = 100 - (100 / (1 + RS))
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import RSI
+from qs_trader.libraries.indicators import RSI
 
 rsi = RSI(period=14)
 for bar in bars:
@@ -376,7 +376,7 @@ Histogram = MACD Line - Signal Line
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import MACD
+from qs_trader.libraries.indicators import MACD
 
 macd = MACD(fast_period=12, slow_period=26, signal_period=9)
 for bar in bars:
@@ -429,7 +429,7 @@ Compares closing price to high-low range over period (0-100).
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import Stochastic
+from qs_trader.libraries.indicators import Stochastic
 
 stoch = Stochastic(k_period=14, d_period=3)
 for bar in bars:
@@ -473,7 +473,7 @@ CCI = (Typical Price - SMA(Typical Price)) / (constant × Mean Deviation)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import CCI
+from qs_trader.libraries.indicators import CCI
 
 cci = CCI(period=20)
 for bar in bars:
@@ -512,7 +512,7 @@ ROC = ((Current Close - Close N periods ago) / Close N periods ago) × 100
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import ROC
+from qs_trader.libraries.indicators import ROC
 
 roc = ROC(period=12)
 for bar in bars:
@@ -549,7 +549,7 @@ Momentum oscillator similar to Stochastic but inverted (-100 to 0).
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import WilliamsR
+from qs_trader.libraries.indicators import WilliamsR
 
 williams = WilliamsR(period=14)
 for bar in bars:
@@ -592,7 +592,7 @@ ATR = Smoothed average of True Range (Wilder's smoothing)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import ATR
+from qs_trader.libraries.indicators import ATR
 
 atr = ATR(period=14)
 for bar in bars:
@@ -645,7 +645,7 @@ Lower Band = Middle - (std_dev × Standard Deviation)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import BollingerBands
+from qs_trader.libraries.indicators import BollingerBands
 
 bb = BollingerBands(period=20, std_dev=2.0)
 for bar in bars:
@@ -693,7 +693,7 @@ StdDev = sqrt(Σ(Close - Mean)² / period)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import StdDev
+from qs_trader.libraries.indicators import StdDev
 
 stddev = StdDev(period=20)
 for bar in bars:
@@ -738,7 +738,7 @@ VWAP = Σ(Typical Price × Volume) / Σ(Volume)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import VWAP
+from qs_trader.libraries.indicators import VWAP
 
 vwap = VWAP()
 for bar in bars:
@@ -786,7 +786,7 @@ If Close = Previous Close: OBV = Previous OBV
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import OBV
+from qs_trader.libraries.indicators import OBV
 
 obv = OBV()
 prev_obv = None
@@ -838,7 +838,7 @@ A/D = Previous A/D + Money Flow Volume
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import AD
+from qs_trader.libraries.indicators import AD
 
 ad = AD()
 prev_ad = None
@@ -879,7 +879,7 @@ CMF = Σ(Money Flow Volume over period) / Σ(Volume over period)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import CMF
+from qs_trader.libraries.indicators import CMF
 
 cmf = CMF(period=20)
 for bar in bars:
@@ -944,7 +944,7 @@ ADX = Smoothed(DX)
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import ADX
+from qs_trader.libraries.indicators import ADX
 
 adx = ADX(period=14)
 for bar in bars:
@@ -1029,7 +1029,7 @@ Aroon Oscillator = Aroon Up - Aroon Down
 **Example:**
 
 ```python
-from qtrader.libraries.indicators import Aroon
+from qs_trader.libraries.indicators import Aroon
 
 aroon = Aroon(period=25)
 for bar in bars:
@@ -1128,7 +1128,7 @@ for i, (rsi_val, macd_val) in enumerate(zip(rsi_values, macd_values)):
 ### Error Handling
 
 ```python
-from qtrader.libraries.indicators import RSI
+from qs_trader.libraries.indicators import RSI
 
 # Invalid parameters raise ValueError
 try:
@@ -1172,7 +1172,7 @@ ______________________________________________________________________
 
 ## Additional Resources
 
-- [QTrader Main Documentation](../../README.md)
+- [QS-Trader Main Documentation](../../README.md)
 - [Strategy Development Guide](../strategies/README.md)
 - [Backtesting Guide](../cli/backtest.md)
 
@@ -1187,4 +1187,4 @@ To add new indicators:
 1. Add comprehensive tests
 1. Update this documentation
 
-See existing indicator implementations in `src/qtrader/libraries/indicators/buildin/` for examples.
+See existing indicator implementations in `src/qs_trader/libraries/indicators/buildin/` for examples.

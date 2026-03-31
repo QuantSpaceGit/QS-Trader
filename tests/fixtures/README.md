@@ -1,4 +1,4 @@
-# Test Fixtures for QTrader
+# Test Fixtures for QS-Trader
 
 This directory contains **fixed, controlled test fixtures** for integration and unit tests.
 
@@ -79,7 +79,7 @@ portfolio_risk_policy:
 The risk policy loader searches in this order:
 
 1. **Test fixtures**: `tests/fixtures/risk_policies/{name}.yaml` (highest priority)
-1. **Built-in**: `src/qtrader/libraries/risk/builtin/{name}.yaml`
+1. **Built-in**: `src/qs_trader/libraries/risk/builtin/{name}.yaml`
 1. **Custom**: `my_library/risk_policies/{name}.yaml` (user-modifiable)
 
 This ensures test fixtures always take precedence in test environments.
@@ -87,5 +87,5 @@ This ensures test fixtures always take precedence in test environments.
 ## See Also
 
 - User-modifiable policies: `my_library/risk_policies/`
-- Built-in policies: `src/qtrader/libraries/risk/builtin/`
+- Built-in policies: `src/qs_trader/libraries/risk/builtin/`
 - Risk policy documentation: `docs/packages/risk_library.md`

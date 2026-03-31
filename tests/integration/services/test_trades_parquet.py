@@ -3,13 +3,13 @@
 from decimal import Decimal
 from pathlib import Path
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import FillEvent, PriceBarEvent
-from qtrader.services.portfolio.models import PortfolioConfig
-from qtrader.services.portfolio.service import PortfolioService
-from qtrader.services.reporting.config import ReportingConfig
-from qtrader.services.reporting.service import ReportingService
-from qtrader.system import LoggerFactory
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import FillEvent, PriceBarEvent
+from qs_trader.services.portfolio.models import PortfolioConfig
+from qs_trader.services.portfolio.service import PortfolioService
+from qs_trader.services.reporting.config import ReportingConfig
+from qs_trader.services.reporting.service import ReportingService
+from qs_trader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 

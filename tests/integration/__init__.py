@@ -1,1 +1,1 @@
-"""Integration tests for QTrader."""
+"""Integration tests for QS-Trader."""

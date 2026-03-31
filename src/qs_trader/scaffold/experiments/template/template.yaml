@@ -1,0 +1,234 @@
+# Portfolio Configuration Template
+# This file demonstrates all available configuration options for backtests
+
+# ==============================================================================
+# BACKTEST IDENTIFICATION
+# ==============================================================================
+backtest_id: "my_backtest" # Descriptive identifier for organizing results
+# This creates a subdirectory: output/backtests/{backtest_id}/{timestamp}/
+# Example: output/backtests/my_backtest/20251105_121348/
+# Will be sanitized to filesystem-safe format (lowercase, alphanumeric + underscores)
+
+# ==============================================================================
+# BACKTEST PARAMETERS
+# ==============================================================================
+start_date: "2019-01-02" # ISO format: YYYY-MM-DD
+end_date: "2021-12-31" # ISO format: YYYY-MM-DD
+initial_equity: 100_000 # Starting capital in USD
+
+# ==============================================================================
+# ADJUSTMENT MODE CONFIGURATION
+# ==============================================================================
+# Controls which price fields each service group uses (2-group architecture)
+# This allows mixing adjustment modes: e.g., strategy uses split-adjusted,
+# portfolio uses total-return for smoother equity curves
+
+# Group 1: Strategy & Indicators
+# Strategies can use ANY OHLC field (open, high, low, close) from this mode
+strategy_adjustment_mode: "split_adjusted"
+# Options:
+#   "split_adjusted" - Use open/high/low/close fields (shows dividend drops)
+#   "total_return"   - Use open_adj/high_adj/low_adj/close_adj fields (smoothed)
+# Default: "split_adjusted"
+
+# Group 2: Manager/Execution/Portfolio/Reporting
+# Services can use ANY OHLC field from this mode (e.g., execution uses next open)
+portfolio_adjustment_mode: "split_adjusted"
+# Options:
+#   "split_adjusted" - Process dividend cash-ins, use regular OHLC fields
+#   "total_return"   - Skip dividend cash-ins (prevent double-counting), use *_adj fields
+# Default: "split_adjusted"
+#
+# Important: When portfolio_adjustment_mode="total_return":
+# - Dividend events are automatically skipped (no cash-in)
+# - Prevents double-counting since total-return prices already include dividends
+# - Results in smoother equity curves without dividend gap jumps
+#
+# Typical configurations:
+# 1. Both split_adjusted (default):
+#    - Strategies see dividend drops, portfolio processes dividend cash
+#    - Realistic modeling of dividend income
+# 2. Both total_return:
+#    - Smooth prices everywhere, no dividend processing
+#    - Cleaner equity curves, easier to analyze trends
+# 3. Mixed (strategy=split_adjusted, portfolio=total_return):
+#    - Strategy trades on actual price movements including drops
+#    - Portfolio accounting uses smooth total-return prices
+
+# Replay speed for live visualization (optional)
+# -1.0 = silent mode (no event display)
+#  0.0 = display events immediately (no delay)
+#  positive = delay in seconds per event (e.g., 0.25 = 250ms, 1.0 = 1 second)
+# This does NOT affect backtest execution, only visualization
+replay_speed: 0.0
+
+# Events to display during backtest (only used if replay_speed >= 0)
+# Omit this field or set to empty list for silent mode
+# Available events:
+#   "bar" - Price bars (OHLCV data)
+#   "signal" - Strategy signals
+#   "order" - Order submissions
+#   "fill" - Order executions
+#   "corporate_action" - Stock splits, dividends
+#   "portfolio_state" - Portfolio value updates
+#   "bar_close" - End of bar processing
+#   "*" - All events (verbose)
+display_events:
+  - "bar"
+  - "signal"
+  - "order"
+  - "fill"
+  # - "corporate_action"  # Uncomment to see splits/dividends
+  # - "portfolio_state"   # Uncomment to see portfolio updates
+  # - "*"                 # Uncomment to see ALL events (very verbose)
+
+# ==============================================================================
+# DATA CONFIGURATION
+# ==============================================================================
+# Define which data sources to use and which symbols to load from each
+data:
+  sources:
+    # Each source references a registered data adapter (see data_sources.yaml)
+    - name: "yahoo-us-equity-1d-csv" # Data source name from registry
+      universe: ["AAPL", "MSFT", "GOOGL"] # Symbols to load from this source
+
+    # Example: Multiple data sources for different asset classes
+    # - name: "futures-feed"
+    #   universe: ["ES", "NQ"]
+    # - name: "options-feed"
+    #   universe: ["SPY"]
+
+# ==============================================================================
+# STRATEGY CONFIGURATION
+# ==============================================================================
+# List of strategies to run concurrently in the backtest
+strategies:
+  # Strategy 1: SMA Crossover
+  - strategy_id: "sma_crossover" # Must match registry name
+    universe: ["AAPL", "MSFT"] # Symbols this strategy trades
+    data_sources: ["yahoo-us-equity-1d-csv"] # Data feeds to use
+    configs: # Strategy-specific parameters
+      fast_period: 10
+      slow_period: 50
+      log_indicators: false # Enable indicator event logging (optional, default: false)
+
+  # Strategy 2: Momentum
+  # - strategy_id: "momentum"
+  #   universe: ["GOOGL"]
+  #   data_sources: ["standard-us-equity-1d-csv"]
+  #   configs:
+  #     lookback_period: 20
+  #     threshold: 0.05
+
+  # Example: Single strategy (simplest case)
+  # - strategy_id: "buy_and_hold"
+  #   universe: ["AAPL"]
+  #   data_sources: ["standard-us-equity-1d-csv"]
+  #   configs: {}
+
+  # ==============================================================================
+  # INDICATOR LOGGING (Optional)
+  # ==============================================================================
+  # Strategies can log indicator values during backtests for debugging and analysis.
+  # Enable via 'log_indicators: true' in strategy config.
+  #
+  # How it works:
+  # 1. Strategy calculates indicators (SMA, RSI, custom formulas, ML scores, etc.)
+  # 2. Strategy calls context.track_indicators({"indicator_name": value})
+  # 3. If log_indicators: true, StrategyService automatically emits IndicatorEvent
+  # 4. Events displayed in console (if display_events includes "indicator" or "*")
+  # 5. Events stored in EventStore for replay/analysis
+  #
+  # Example strategy code:
+  #   def on_bar(self, event, context):
+  #       bars = context.get_bars(event.symbol, n=20)
+  #       if bars is None or len(bars) < 20:
+  #           return
+  #
+  #       # Calculate indicators
+  #       fast_sma = sum(b.close for b in bars[-10:]) / 10
+  #       slow_sma = sum(b.close for b in bars) / 20
+  #       crossover = fast_sma > slow_sma
+  #
+  #       # Track for logging (one line, optional)
+  #       context.track_indicators({
+  #           "fast_sma": fast_sma,
+  #           "slow_sma": slow_sma,
+  #           "crossover": crossover,
+  #       })
+  #
+  #       # Trading logic...
+  #       if crossover:
+  #           context.emit_signal(...)
+  #
+  # Works with ANY indicator type:
+  # - Built-in technical indicators: SMA, EMA, RSI, MACD, Bollinger Bands
+  # - Custom formulas: proprietary momentum, volatility measures
+  # - ML model outputs: predictions, confidence scores, feature importance
+  # - Pattern detection: breakouts, support/resistance levels
+  # - Composite indicators: combining multiple signals
+  #
+  # Performance:
+  # - Zero overhead when log_indicators: false (default)
+  # - Minimal overhead when enabled (dict update + event emission)
+  # - No impact on strategy logic or signals
+  #
+  # Output format (console):
+  #   [timestamp] [strategy:SYMBOL] Indicators:
+  #   ├─ fast_sma: 150.2500
+  #   ├─ slow_sma: 148.5000
+  #   └─ crossover: True
+
+# ==============================================================================
+# RISK POLICY CONFIGURATION
+# ==============================================================================
+# Risk policies define position sizing, limits, and capital allocation
+# Policies are loaded from the risk library (builtin or custom)
+
+risk_policy:
+  # Option 1: Use a built-in risk policy (naive, conservative, aggressive)
+  name: "naive"
+  configs: {} # Optional: overrides for the policy (not yet implemented)
+
+# ==============================================================================
+# REPORTING CONFIGURATION (Optional)
+# ==============================================================================
+# Performance metrics calculation, output formats, and console display
+# This configuration is at the portfolio/backtest run level
+# Omit this entire section to disable performance reporting
+
+reporting:
+  # Live metrics during backtest
+  emit_metrics_events: false # Display performance metrics during backtest (every N bars)
+  event_frequency: 100 # Emit metrics event every N bars (if emit_metrics_events=true)
+
+  # Risk calculations
+  risk_free_rate: 0.02 # Annual risk-free rate (2%) for Sharpe/Sortino ratios
+
+  # Memory management
+  max_equity_points: 10000 # Maximum equity curve points (sampling if exceeded)
+
+  # Output files
+  write_json: true # Write performance.json summary report
+  write_parquet: true # Write Parquet time-series files
+  write_csv_timeline: true # Write human-friendly CSV timeline files (one per strategy)
+  write_html_report: true # Write interactive HTML report with charts
+  include_equity_curve: true # Include equity_curve.parquet
+  include_returns: true # Include returns.parquet
+  include_trades: true # Include trades.parquet
+  include_drawdowns: true # Include drawdowns.parquet
+
+  # Console display
+  display_final_report: true # Show rich-formatted report at end
+  report_detail_level: full # Detail level: "summary" | "standard" | "full"
+
+
+  # Note: Output directory comes from qs_trader.yaml (output.experiments_root)
+  # Ensures consistent output structure: output/backtests/{backtest_id}/{timestamp}/
+
+  # Benchmark (not yet implemented)
+  # benchmark_symbol: "SPY"  # Uncomment to compare against benchmark
+
+  # Option 2: Use a custom risk policy
+  # name: "my_custom_policy"  # Must exist in my_library/risk_policies/
+  # configs: {}

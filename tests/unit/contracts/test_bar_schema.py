@@ -15,7 +15,7 @@ def bar_schema():
     schema_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
-        / "qtrader"
+        / "qs_trader"
         / "contracts"
         / "schemas"
         / "data"
@@ -30,7 +30,7 @@ def bar_example():
     example_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
-        / "qtrader"
+        / "qs_trader"
         / "contracts"
         / "examples"
         / "data"

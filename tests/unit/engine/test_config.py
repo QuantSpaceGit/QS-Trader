@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.engine.config module.
+Unit tests for qs_trader.engine.config module.
 
 Tests cover configuration models, validation, and YAML loading.
 """
@@ -13,7 +13,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from qtrader.engine.config import (
+from qs_trader.engine.config import (
     BacktestConfig,
     ConfigLoadError,
     DataSelectionConfig,

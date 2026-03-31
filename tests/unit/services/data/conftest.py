@@ -2,7 +2,7 @@
 
 import pytest
 
-from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qs_trader.services.data.adapters.resolver import DataSourceResolver
 
 
 @pytest.fixture

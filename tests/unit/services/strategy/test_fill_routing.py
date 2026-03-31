@@ -11,9 +11,9 @@ from uuid import uuid4
 
 import pytest
 
-from qtrader.events import FillEvent
-from qtrader.events.event_bus import EventBus
-from qtrader.services.strategy.service import StrategyService
+from qs_trader.events import FillEvent
+from qs_trader.events.event_bus import EventBus
+from qs_trader.services.strategy.service import StrategyService
 
 from .test_service import MockStrategy, MockStrategyConfig
 

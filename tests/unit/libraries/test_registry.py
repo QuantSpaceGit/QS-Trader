@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.registry module.
+Unit tests for qs_trader.libraries.registry module.
 
 Tests the plugin registry system for auto-discovery and validation of:
 - Indicators (built-in and custom)
@@ -20,9 +20,9 @@ from typing import Any
 
 import pytest
 
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.indicators.base import BaseIndicator
-from qtrader.libraries.registry import (
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.indicators.base import BaseIndicator
+from qs_trader.libraries.registry import (
     BaseRegistry,
     ComponentNotFoundError,
     DuplicateComponentError,
@@ -33,8 +33,8 @@ from qtrader.libraries.registry import (
     get_indicator_registry,
     get_strategy_registry,
 )
-from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures - Mock Components
@@ -500,7 +500,7 @@ class TestIndicatorRegistry:
     def test_discover_buildin_indicators_from_real_path(self, indicator_registry: IndicatorRegistry) -> None:
         """discover should find built-in indicators from actual path."""
         # Arrange
-        buildin_path = Path(__file__).parent.parent.parent.parent / "src/qtrader/libraries/indicators/buildin"
+        buildin_path = Path(__file__).parent.parent.parent.parent / "src/qs_trader/libraries/indicators/buildin"
 
         # Act
         counts = indicator_registry.discover(buildin_path=buildin_path)

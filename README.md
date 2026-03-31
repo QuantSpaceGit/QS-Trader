@@ -1,8 +1,8 @@
-# QTrader
+# QS-Trader
 
 > Event-driven Python backtesting framework for quantitative trading strategies.
 
-QTrader helps you design, test, and iterate on trading ideas using historical market data. It provides an extensible, typed, and composable environment focused on correctness, transparency, and reproducibility.
+QS-Trader helps you design, test, and iterate on trading ideas using historical market data. It provides an extensible, typed, and composable environment focused on correctness, transparency, and reproducibility.
 
 ______________________________________________________________________
 
@@ -22,7 +22,7 @@ ______________________________________________________________________
 
 ## 1. Intro & Philosophy
 
-QTrader aims to:
+QS-Trader aims to:
 
 - Separate concerns cleanly (data, strategy, execution, portfolio, reporting).
 - Make strategy iteration fast: scaffold projects in seconds with `init-project`.
@@ -30,7 +30,7 @@ QTrader aims to:
 - Be transparent: everything is represented as explicit events you can inspect.
 - Remain extensible: plug in custom data adapters, indicators, strategies, risk policies.
 
-> 📦 This repository is the **package source**. End users create a *project* via `qtrader init-project`. The scaffolded project has its own structure (configs, strategies, data) distinct from this source tree.
+> 📦 This repository is the **package source**. End users create a _project_ via `qs-trader init-project`. The scaffolded project has its own structure (configs, strategies, data) distinct from this source tree.
 
 ______________________________________________________________________
 
@@ -94,7 +94,7 @@ ______________________________________________________________________
 
 ### Concept: Strategies vs Backtest Experiments
 
-QTrader treats a **strategy** and a **backtest configuration** (experiment) as distinct layers:
+QS-Trader treats a **strategy** and a **backtest configuration** (experiment) as distinct layers:
 
 - **Strategy (Code + StrategyConfig)**
 
@@ -136,9 +136,9 @@ strategies:
     universe: [AAPL, MSFT]
     data_sources: [yahoo-us-equity-1d-csv]
     config:
-      name: sma_crossover_fast   # overrides display identity
-      fast_period: 5             # overrides default 10
-      slow_period: 15            # overrides default 20
+      name: sma_crossover_fast # overrides display identity
+      fast_period: 5 # overrides default 10
+      slow_period: 15 # overrides default 20
 ```
 
 Step 3. Loader merges provided fields with defaults using Pydantic validation (type safety, forbidden extras if strategy enforces).
@@ -149,7 +149,7 @@ Strategic Philosophy:
 
 - “Acquire or build a robust strategy” → treat it like a model artifact with version and documentation.
 - “Run multiple experiments” → vary universes, dates, and parameter grids to understand stability, sensitivity, and regime performance.
-- Optimize *experiment design* separately from *strategy implementation* for clearer research iteration.
+- Optimize _experiment design_ separately from _strategy implementation_ for clearer research iteration.
 
 Suggested Workflow:
 
@@ -167,48 +167,48 @@ ______________________________________________________________________
 
 ### Installation
 
-QTrader requires Python 3.13+. We recommend using [uv](https://docs.astral.sh/uv/) for fast, reliable package management.
+QS-Trader requires Python 3.13+. We recommend using [uv](https://docs.astral.sh/uv/) for fast, reliable package management.
 
 #### Using uv (Recommended)
 
 ```bash
 # Install latest version from GitHub
-uv add git+https://github.com/QuantSpaceGit/QTrader.git
+uv add git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-uv add git+https://github.com/QuantSpaceGit/QTrader.git@v0.2.0-beta.3
+uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.3
 ```
 
 #### Using pip
 
 ```bash
 # Install latest version from GitHub
-pip install git+https://github.com/QuantSpaceGit/QTrader.git
+pip install git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-pip install git+https://github.com/QuantSpaceGit/QTrader.git@v0.2.0-beta.3
+pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.3
 ```
 
 #### Verify Installation
 
 ```bash
-qtrader --version
+qs-trader --version
 ```
 
 ### Initialize a New Project
 
 ```bash
-qtrader init-project <PATH>
+qs-trader init-project <PATH>
 cd <PATH>
 ```
 
 and you get:
 
 ```text
-|-- QTRADER_README.md              # Scaffold-specific README for this project
+|-- QS-TRADER_README.md              # Scaffold-specific README for this project
 |-- config                         # Global system & data-source configuration
 |   |-- data_sources.yaml          # Defines available datasets/adapters
-|   `-- qtrader.yaml               # Engine/system settings (execution, portfolio, paths)
+|   `-- qs-trader.yaml               # Engine/system settings (execution, portfolio, paths)
 |-- data                           # Local market data cache
 |   |-- sample-csv                 # Tiny bundled sample dataset
 |   |   |-- AAPL.csv               # Example OHLCV for AAPL
@@ -256,35 +256,35 @@ and you get:
 ### Run a Backtest (CLI)
 
 ```bash
-qtrader backtest experiments/buy_hold
-qtrader backtest experiments/sma_crossover
-qtrader backtest --help
+qs-trader backtest experiments/buy_hold
+qs-trader backtest experiments/sma_crossover
+qs-trader backtest --help
 ```
 
 Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, config snapshot).
 
 ### Interactive Debugging
 
-QTrader includes an interactive debugger for step-through strategy development:
+QS-Trader includes an interactive debugger for step-through strategy development:
 
 ```bash
 # Step-through mode: pause at each timestamp
-qtrader backtest experiments/sma_crossover --interactive
+qs-trader backtest experiments/sma_crossover --interactive
 
 # Start debugging from a specific date
-qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
+qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
 
 # Event-triggered mode: pause only on signals
-qtrader backtest experiments/sma_crossover --interactive --break-on signal
+qs-trader backtest experiments/sma_crossover --interactive --break-on signal
 
 # Pause only on BUY signals
-qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY
+qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
 
 # Combined: skip warmup, then pause on signals
-qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
+qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
 
 # Control detail level (bars, full, strategy)
-qtrader backtest experiments/sma_crossover --interactive --inspect full
+qs-trader backtest experiments/sma_crossover --interactive --inspect full
 ```
 
 **Debugging Modes:**
@@ -317,8 +317,8 @@ For detailed usage guide, see [docs/cli/interactive.md](docs/cli/interactive.md)
 ### Programmatic API
 
 ```python
-from qtrader.engine import BacktestEngine
-from qtrader.engine.config import BacktestConfig
+from qs-trader.engine import BacktestEngine
+from qs-trader.engine.config import BacktestConfig
 
 config = BacktestConfig.from_yaml("experiments/buy_hold/buy_hold.yaml")
 engine = BacktestEngine(config)
@@ -330,16 +330,16 @@ print(results.final_value, results.total_return)
 
 ```bash
 # Run a backtest
-qtrader backtest experiments/sma_crossover/
+qs-trader backtest experiments/sma_crossover/
 
 # Update Yahoo CSV data incrementally (auto symbol discovery)
-qtrader data yahoo-update --days 365
+qs-trader data yahoo-update --days 365
 
 # Generate component templates
-qtrader init-library ./library --type strategy --type indicator
+qs-trader init-library ./library --type strategy --type indicator
 
 # Show data source names
-qtrader data list
+qs-trader data list
 ```
 
 ______________________________________________________________________
@@ -348,13 +348,13 @@ ______________________________________________________________________
 
 ### Core Commands
 
-| Command                                                      | Purpose                                      |
-| ------------------------------------------------------------ | -------------------------------------------- |
-| `qtrader init-project <path>`                                | Scaffold a new backtesting project           |
-| `qtrader backtest <experiment dirpath>`                      | Run a configured backtest                    |
-| `qtrader data yahoo-update [--days N] [--symbols AAPL MSFT]` | Download/refresh local Yahoo OHLCV CSVs      |
-| `qtrader data list`                                          | List configured data adapters/sources        |
-| `qtrader init-library <path> [--type ...]`                   | Generate template code for custom components |
+| Command                                                        | Purpose                                      |
+| -------------------------------------------------------------- | -------------------------------------------- |
+| `qs-trader init-project <path>`                                | Scaffold a new backtesting project           |
+| `qs-trader backtest <experiment dirpath>`                      | Run a configured backtest                    |
+| `qs-trader data yahoo-update [--days N] [--symbols AAPL MSFT]` | Download/refresh local Yahoo OHLCV CSVs      |
+| `qs-trader data list`                                          | List configured data adapters/sources        |
+| `qs-trader init-library <path> [--type ...]`                   | Generate template code for custom components |
 
 ### Interactive Debugging Options
 
@@ -369,13 +369,13 @@ ______________________________________________________________________
 
 ```bash
 # Step-through from a specific date
-qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --inspect full
+qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --inspect full
 
 # Event-triggered: pause only on BUY signals
-qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY
+qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
 
 # Combined: skip warmup, then pause on any signal
-qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
+qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
 ```
 
 ### Documentation References
@@ -391,13 +391,13 @@ ______________________________________________________________________
 
 ### Strategies & Indicators
 
-Use `qtrader init-library` to create template files then implement logic in `on_bar` / indicator calculate methods.
+Use `qs-trader init-library` to create template files then implement logic in `on_bar` / indicator calculate methods.
 
 Minimal custom strategy example:
 
 ```python
-from qtrader.libraries.strategies import Strategy, StrategyConfig
-from qtrader.services.strategy.models import SignalIntention
+from qs-trader.libraries.strategies import Strategy, StrategyConfig
+from qs-trader.services.strategy.models import SignalIntention
 
 class MyStrategyConfig(StrategyConfig):
     name: str = "my_strategy"
@@ -419,7 +419,7 @@ CONFIG = MyStrategyConfig()  # Required for discovery
 Implement the adapter protocol to load proprietary data and emit events.
 
 ```python
-from qtrader.services.data.adapters.protocol import IDataAdapter
+from qs-trader.services.data.adapters.protocol import IDataAdapter
 
 class MyAdapter(IDataAdapter):
     def read_bars(self, start_date: str, end_date: str):
@@ -433,7 +433,7 @@ class MyAdapter(IDataAdapter):
 ### Custom Library Layout
 
 ```
-my-qtrader-extensions/
+my-qs-trader-extensions/
 ├── strategies/
 ├── indicators/
 ├── adapters/
@@ -457,7 +457,7 @@ ______________________________________________________________________
 ### Source Layout (Package Repository)
 
 ```
-src/qtrader/
+src/qs-trader/
 ├── engine/      # Orchestration & backtest engine
 ├── services/    # data, strategy, execution, portfolio, reports
 ├── events/      # Event definitions & bus/store

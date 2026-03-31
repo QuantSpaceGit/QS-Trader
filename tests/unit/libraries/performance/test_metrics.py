@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from qtrader.libraries.performance.metrics import (
+from qs_trader.libraries.performance.metrics import (
     calculate_cagr,
     calculate_calmar_ratio,
     calculate_drawdown_periods,
@@ -16,7 +16,7 @@ from qtrader.libraries.performance.metrics import (
     calculate_volatility,
     calculate_win_rate,
 )
-from qtrader.libraries.performance.models import TradeRecord
+from qs_trader.libraries.performance.models import TradeRecord
 
 
 class TestReturnMetrics:

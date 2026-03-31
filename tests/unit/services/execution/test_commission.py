@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.execution.commission import CommissionCalculator
-from qtrader.services.execution.config import CommissionConfig
+from qs_trader.services.execution.commission import CommissionCalculator
+from qs_trader.services.execution.config import CommissionConfig
 
 
 class TestCommissionConfigValidation:

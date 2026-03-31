@@ -13,11 +13,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.services.data.interface import IDataService
-from qtrader.services.data.models import Bar
-from qtrader.services.execution.config import ExecutionConfig, SlippageConfig
-from qtrader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
-from qtrader.services.execution.service import ExecutionService
+from qs_trader.services.data.interface import IDataService
+from qs_trader.services.data.models import Bar
+from qs_trader.services.execution.config import ExecutionConfig, SlippageConfig
+from qs_trader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
+from qs_trader.services.execution.service import ExecutionService
 
 
 @pytest.fixture

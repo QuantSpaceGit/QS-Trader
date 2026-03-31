@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.engine.config import (
+from qs_trader.engine.config import (
     BacktestConfig,
     DataSelectionConfig,
     DataSourceConfig,

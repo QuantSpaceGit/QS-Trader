@@ -6,25 +6,25 @@ Test the interactive debugging feature with the SMA crossover experiment:
 
 ```bash
 # Basic interactive mode - pause at each timestamp
-uv run qtrader backtest experiments/sma_crossover --interactive
+uv run qs-trader backtest experiments/sma_crossover --interactive
 
 # Start from a specific date
-uv run qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
 
 # Event-triggered mode - pause only on signals
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal
 
 # Pause only on BUY signals
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
 
 # Combined: skip warmup, then pause on signals
-uv run qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
 
 # Show detailed inspection (all bar data)
-uv run qtrader backtest experiments/sma_crossover --interactive --inspect full
+uv run qs-trader backtest experiments/sma_crossover --interactive --inspect full
 
 # Show only strategy-level data (indicators, signals)
-uv run qtrader backtest experiments/sma_crossover --interactive --inspect strategy
+uv run qs-trader backtest experiments/sma_crossover --interactive --inspect strategy
 ```
 
 ## Debugging Modes
@@ -34,13 +34,13 @@ uv run qtrader backtest experiments/sma_crossover --interactive --inspect strate
 When using `--interactive` without `--break-on`, the debugger pauses at every timestamp, allowing you to step through the backtest manually:
 
 ```bash
-uv run qtrader backtest experiments/sma_crossover --interactive
+uv run qs-trader backtest experiments/sma_crossover --interactive
 ```
 
 Use `--break-at DATE` to skip the warmup period and start pausing from a specific date:
 
 ```bash
-uv run qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
 ```
 
 ### Event-Triggered Mode
@@ -49,14 +49,14 @@ When using `--break-on`, the debugger runs continuously and only pauses when spe
 
 ```bash
 # Pause on any signal
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal
 
 # Pause on specific signal types
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal:SELL
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal:SELL
 
 # Multiple breakpoints (OR logic - pauses when any triggers)
-uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY --break-on signal:SELL
+uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY --break-on signal:SELL
 ```
 
 **Available Signal Intentions:**
@@ -119,7 +119,7 @@ At each timestamp, the debugger displays:
 ### Step-Through Mode
 
 ```
-$ uv run qtrader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
+$ uv run qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
 
 [...backtest initialization output...]
 
@@ -148,7 +148,7 @@ Bars (1 symbols):
 ### Event-Triggered Mode
 
 ```
-$ uv run qtrader backtest experiments/sma_crossover --interactive --break-on signal:BUY
+$ uv run qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
 
 [...backtest initialization output...]
 

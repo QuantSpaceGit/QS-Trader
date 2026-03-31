@@ -19,7 +19,7 @@ ______________________________________________________________________
 
 ## Overview
 
-The QTrader events module provides a production-ready event system with:
+The QS-Trader events module provides a production-ready event system with:
 
 - **Schema-based validation**: JSON Schema validation for all events
 - **Type safety**: Pydantic models with Python type hints
@@ -118,7 +118,7 @@ ______________________________________________________________________
 ### Schema Loading
 
 ```python
-SCHEMA_PACKAGE = "qtrader.contracts.schemas"
+SCHEMA_PACKAGE = "qs_trader.contracts.schemas"
 
 @lru_cache(maxsize=128)
 def load_and_compile_schema(schema_name: str):
@@ -415,7 +415,7 @@ ______________________________________________________________________
 ```python
 from datetime import datetime, timezone
 from decimal import Decimal
-from qtrader.events.events import PriceBarEvent
+from qs_trader.events.events import PriceBarEvent
 
 # Equity bar with local timestamps
 event = PriceBarEvent(
@@ -459,7 +459,7 @@ print(event.close)   # Decimal('154.50')
 ### Creating a Corporate Action Event
 
 ```python
-from qtrader.events.events import CorporateActionEvent
+from qs_trader.events.events import CorporateActionEvent
 
 event = CorporateActionEvent(
     event_type="corporate_action",
@@ -488,7 +488,7 @@ event = CorporateActionEvent(
 ### Creating Control Events
 
 ```python
-from qtrader.events.events import (
+from qs_trader.events.events import (
     BarCloseEvent,
     BacktestStartedEvent,
     BacktestEndedEvent,
@@ -758,21 +758,21 @@ ______________________________________________________________________
 
 ### JSON Schemas
 
-- `src/qtrader/contracts/schemas/envelope.v1.json` - Envelope validation schema
-- `src/qtrader/contracts/schemas/bar.v1.json` - Price bar domain schema
-- `src/qtrader/contracts/schemas/corporate_action.v1.json` - Corporate action schema
+- `src/qs_trader/contracts/schemas/envelope.v1.json` - Envelope validation schema
+- `src/qs_trader/contracts/schemas/bar.v1.json` - Price bar domain schema
+- `src/qs_trader/contracts/schemas/corporate_action.v1.json` - Corporate action schema
 
 ### Examples
 
-- `src/qtrader/contracts/examples/envelope.v1.example.json` - Envelope example
-- `src/qtrader/contracts/examples/data/bar.v1.example.json` - Price bar example
-- `src/qtrader/contracts/examples/data/corporate_action.v1.example.json` - Corporate action example
-- `src/qtrader/contracts/examples/strategy/signal.v1.example.json` - Signal example
-- `src/qtrader/contracts/examples/execution/fill.v1.example.json` - Fill example
+- `src/qs_trader/contracts/examples/envelope.v1.example.json` - Envelope example
+- `src/qs_trader/contracts/examples/data/bar.v1.example.json` - Price bar example
+- `src/qs_trader/contracts/examples/data/corporate_action.v1.example.json` - Corporate action example
+- `src/qs_trader/contracts/examples/strategy/signal.v1.example.json` - Signal example
+- `src/qs_trader/contracts/examples/execution/fill.v1.example.json` - Fill example
 
 ### Source Code
 
-- `src/qtrader/events/events.py` - Event classes and validation logic
+- `src/qs_trader/events/events.py` - Event classes and validation logic
 - `tests/unit/events/` - Event validation tests
 - `tests/unit/contracts/` - Contract schema tests
 
@@ -876,7 +876,7 @@ ______________________________________________________________________
 
 **A:**
 
-1. Create JSON schema in `src/qtrader/contracts/schemas/{name}.v1.json`
+1. Create JSON schema in `src/qs_trader/contracts/schemas/{name}.v1.json`
 1. Create Pydantic model inheriting from `ValidatedEvent`
 1. Set `SCHEMA_BASE = "{name}"`
 1. Add tests in `tests/unit/events/`
@@ -892,9 +892,9 @@ ______________________________________________________________________
 For questions, issues, or contributions:
 
 - Review related documentation (see [Related Documentation](#related-documentation))
-- Check examples in `src/qtrader/contracts/examples/` directory and test files in `tests/unit/events/`
+- Check examples in `src/qs_trader/contracts/examples/` directory and test files in `tests/unit/events/`
 - Run tests to see working code: `pytest tests/unit/events/ -v`
-- Consult JSON schemas in `src/qtrader/contracts/schemas/`
+- Consult JSON schemas in `src/qs_trader/contracts/schemas/`
 
 ______________________________________________________________________
 

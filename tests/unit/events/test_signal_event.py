@@ -20,8 +20,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.events import SignalEvent
-from qtrader.services.strategy.models import SignalIntention
+from qs_trader.events.events import SignalEvent
+from qs_trader.services.strategy.models import SignalIntention
 
 
 class TestSignalEventCreation:

@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.events import (
+from qs_trader.events.events import (
     BacktestStartedEvent,
     BarCloseEvent,
     BaseEvent,

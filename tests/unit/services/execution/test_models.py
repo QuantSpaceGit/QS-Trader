@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.execution.models import Fill, FillDecision, Order, OrderSide, OrderState, OrderType, TimeInForce
+from qs_trader.services.execution.models import Fill, FillDecision, Order, OrderSide, OrderState, OrderType, TimeInForce
 
 
 class TestOrderState:

@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.engine.engine module.
+Unit tests for qs_trader.engine.engine module.
 
 Tests cover BacktestEngine initialization, configuration loading, and execution.
 Note: Tests focus on minimal DataService-only implementation.
@@ -12,16 +12,16 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.engine.config import (
+from qs_trader.engine.config import (
     BacktestConfig,
     DataSelectionConfig,
     DataSourceConfig,
     RiskPolicyConfig,
     StrategyConfigItem,
 )
-from qtrader.engine.engine import BacktestEngine, BacktestResult
-from qtrader.events.event_bus import EventBus
-from qtrader.events.event_store import InMemoryEventStore
+from qs_trader.engine.engine import BacktestEngine, BacktestResult
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.event_store import InMemoryEventStore
 
 # ============================================================================
 # Fixtures
@@ -239,11 +239,11 @@ class TestBacktestEngineInit:
 class TestBacktestEngineFromConfig:
     """Test suite for BacktestEngine.from_config factory method."""
 
-    @patch("qtrader.engine.engine.get_system_config")
-    @patch("qtrader.system.log_system.LoggerFactory")
-    @patch("qtrader.engine.engine.DataService")
-    @patch("qtrader.engine.engine.EventBus")
-    @patch("qtrader.engine.engine.SQLiteEventStore")
+    @patch("qs_trader.engine.engine.get_system_config")
+    @patch("qs_trader.system.log_system.LoggerFactory")
+    @patch("qs_trader.engine.engine.DataService")
+    @patch("qs_trader.engine.engine.EventBus")
+    @patch("qs_trader.engine.engine.SQLiteEventStore")
     def test_from_config_creates_engine(
         self,
         mock_sqlite_store,
@@ -277,11 +277,11 @@ class TestBacktestEngineFromConfig:
         # Logger configuration happens successfully (verified by log output in test)
         mock_event_bus.attach_store.assert_called_once()
 
-    @patch("qtrader.engine.engine.get_system_config")
-    @patch("qtrader.system.log_system.LoggerFactory")
-    @patch("qtrader.engine.engine.DataService")
-    @patch("qtrader.engine.engine.EventBus")
-    @patch("qtrader.engine.engine.ParquetEventStore")
+    @patch("qs_trader.engine.engine.get_system_config")
+    @patch("qs_trader.system.log_system.LoggerFactory")
+    @patch("qs_trader.engine.engine.DataService")
+    @patch("qs_trader.engine.engine.EventBus")
+    @patch("qs_trader.engine.engine.ParquetEventStore")
     def test_from_config_creates_results_directory(
         self,
         mock_parquet_store,
@@ -314,11 +314,11 @@ class TestBacktestEngineFromConfig:
         assert engine._results_dir is not None
         assert engine._results_dir.exists()
 
-    @patch("qtrader.engine.engine.get_system_config")
-    @patch("qtrader.system.log_system.LoggerFactory")
-    @patch("qtrader.engine.engine.DataService")
-    @patch("qtrader.engine.engine.EventBus")
-    @patch("qtrader.engine.engine.ParquetEventStore")
+    @patch("qs_trader.engine.engine.get_system_config")
+    @patch("qs_trader.system.log_system.LoggerFactory")
+    @patch("qs_trader.engine.engine.DataService")
+    @patch("qs_trader.engine.engine.EventBus")
+    @patch("qs_trader.engine.engine.ParquetEventStore")
     def test_from_config_fallback_to_memory_store_on_error(
         self,
         mock_parquet_store,
@@ -340,7 +340,7 @@ class TestBacktestEngineFromConfig:
         mock_system_config.output.experiments_root = str(tmp_path / "output")
 
         # Act
-        with patch("qtrader.engine.engine.InMemoryEventStore") as mock_memory_store:
+        with patch("qs_trader.engine.engine.InMemoryEventStore") as mock_memory_store:
             mock_memory_store.return_value = Mock()
             engine = BacktestEngine.from_config(sample_backtest_config)
 
@@ -348,11 +348,11 @@ class TestBacktestEngineFromConfig:
         assert engine._event_store is not None
         mock_memory_store.assert_called_once()
 
-    @patch("qtrader.engine.engine.get_system_config")
-    @patch("qtrader.system.log_system.LoggerFactory")
-    @patch("qtrader.engine.engine.DataService")
-    @patch("qtrader.engine.engine.EventBus")
-    @patch("qtrader.engine.engine.InMemoryEventStore")
+    @patch("qs_trader.engine.engine.get_system_config")
+    @patch("qs_trader.system.log_system.LoggerFactory")
+    @patch("qs_trader.engine.engine.DataService")
+    @patch("qs_trader.engine.engine.EventBus")
+    @patch("qs_trader.engine.engine.InMemoryEventStore")
     def test_from_config_uses_first_data_source(
         self,
         mock_memory_store,

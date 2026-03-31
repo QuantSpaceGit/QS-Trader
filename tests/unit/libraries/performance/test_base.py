@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from qtrader.libraries.performance.base import BacktestResult, BaseMetric
+from qs_trader.libraries.performance.base import BacktestResult, BaseMetric
 
 
 class TestBacktestResult:

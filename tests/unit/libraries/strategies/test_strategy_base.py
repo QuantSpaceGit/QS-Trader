@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.strategies.base module.
+Unit tests for qs_trader.libraries.strategies.base module.
 
 Tests the Strategy and StrategyConfig abstract classes:
 - Abstract method requirements
@@ -19,9 +19,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies.base import Strategy, StrategyConfig
-from qtrader.services.strategy.context import Context
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies.base import Strategy, StrategyConfig
+from qs_trader.services.strategy.context import Context
 
 # ============================================================================
 # Test Fixtures - Concrete Implementations

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from qtrader.services.data.source_validator import DataSourceValidationError, DataSourceValidator, validate_data_sources
+from qs_trader.services.data.source_validator import DataSourceValidationError, DataSourceValidator, validate_data_sources
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 # Strategy Package Documentation
 
-**Package**: `qtrader.services.strategy`\
+**Package**: `qs_trader.services.strategy`\
 **Purpose**: Event-driven strategy execution service with auto-discovery and lifecycle management\
 **Status**: Production Ready
 
@@ -8,7 +8,7 @@ ______________________________________________________________________
 
 ## Overview
 
-The strategy package provides a complete strategy execution framework for QTrader. It orchestrates strategy lifecycle, manages execution context, and routes market data and fill events to registered strategies.
+The strategy package provides a complete strategy execution framework for QS-Trader. It orchestrates strategy lifecycle, manages execution context, and routes market data and fill events to registered strategies.
 
 **Key Features**:
 
@@ -73,7 +73,7 @@ custom_libraries:
   metrics: null                         # null = use built-in only
 ```
 
-**Note**: Use `null` for components you don't customize. QTrader will only load built-in components. Set paths only for components you've created using `qtrader init-library` or `qtrader init-project`.
+**Note**: Use `null` for components you don't customize. QS-Trader will only load built-in components. Set paths only for components you've created using `qs-trader init-library` or `qs-trader init-project`.
 
 **Discovery Process**:
 
@@ -156,14 +156,14 @@ ______________________________________________________________________
 ## Package Structure
 
 ```
-src/qtrader/services/strategy/
+src/qs_trader/services/strategy/
 ├── __init__.py              # Public API exports
 ├── service.py               # StrategyService orchestrator
 ├── context.py               # StrategyContext per-strategy state
 ├── interface.py             # IStrategyService protocol
 └── config_loader.py         # Configuration loading
 
-src/qtrader/libraries/
+src/qs_trader/libraries/
 ├── registry.py              # Registry management
 └── strategies/
     ├── __init__.py
@@ -193,8 +193,8 @@ Event-driven strategy orchestrator with lifecycle management.
 **Purpose**: Coordinate strategy execution, route events, manage context.
 
 ```python
-from qtrader.services.strategy.service import StrategyService
-from qtrader.events.event_bus import EventBus
+from qs_trader.services.strategy.service import StrategyService
+from qs_trader.events.event_bus import EventBus
 
 # Initialize service
 bus = EventBus()
@@ -440,8 +440,8 @@ Execution context for a single strategy.
 **Purpose**: Provide strategies with bar caching, historical data access, and signal emission.
 
 ```python
-from qtrader.services.strategy.context import StrategyContext
-from qtrader.events.event_bus import EventBus
+from qs_trader.services.strategy.context import StrategyContext
+from qs_trader.events.event_bus import EventBus
 
 context = StrategyContext(
     strategy_id="momentum_20",
@@ -639,8 +639,8 @@ Abstract strategy class defining lifecycle contract.
 **Purpose**: Enforce strategy interface and provide common functionality.
 
 ```python
-from qtrader.libraries.strategies.base import BaseStrategy
-from qtrader.services.strategy.context import StrategyContext
+from qs_trader.libraries.strategies.base import BaseStrategy
+from qs_trader.services.strategy.context import StrategyContext
 
 class MyStrategy(BaseStrategy):
     """Custom trading strategy."""
@@ -807,7 +807,7 @@ Strategy discovery and loading via auto-discovery.
 Auto-discovers Strategy classes from Python files.
 
 ```python
-from qtrader.libraries.strategies.loader import StrategyLoader
+from qs_trader.libraries.strategies.loader import StrategyLoader
 from pathlib import Path
 
 loader = StrategyLoader()
@@ -854,7 +854,7 @@ Registry management for auto-discovered strategies.
 Auto-discovery registry for trading strategies.
 
 ```python
-from qtrader.libraries.registry import StrategyRegistry
+from qs_trader.libraries.registry import StrategyRegistry
 from pathlib import Path
 
 # Create registry
@@ -915,7 +915,7 @@ strategies:
 **Programmatic**:
 
 ```python
-from qtrader.engine.config import StrategyConfigItem
+from qs_trader.engine.config import StrategyConfigItem
 
 config = StrategyConfigItem(
     strategy_id="momentum_20",
@@ -933,9 +933,9 @@ ______________________________________________________________________
 
 ```python
 # library/strategies/buy_and_hold.py
-from qtrader.libraries.strategies.base import Strategy, StrategyConfig
-from qtrader.services.strategy.context import StrategyContext
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies.base import Strategy, StrategyConfig
+from qs_trader.services.strategy.context import StrategyContext
+from qs_trader.events.events import PriceBarEvent
 
 # 1. Strategy Config (must be named CONFIG)
 CONFIG = StrategyConfig(
@@ -968,8 +968,8 @@ class BuyAndHold(Strategy):
 
 ```python
 # Engine automatically uses system config path
-from qtrader.engine.engine import BacktestEngine
-from qtrader.engine.config import load_backtest_config
+from qs_trader.engine.engine import BacktestEngine
+from qs_trader.engine.config import load_backtest_config
 
 config = load_backtest_config("config/portfolio.yaml")
 with BacktestEngine.from_config(config) as engine:
@@ -986,9 +986,9 @@ ______________________________________________________________________
 
 ```python
 from decimal import Decimal
-from qtrader.libraries.strategies.base import BaseStrategy
-from qtrader.services.strategy.context import StrategyContext
-from qtrader.events.events import PriceBarEvent, FillEvent
+from qs_trader.libraries.strategies.base import BaseStrategy
+from qs_trader.services.strategy.context import StrategyContext
+from qs_trader.events.events import PriceBarEvent, FillEvent
 
 class SimpleMomentum(BaseStrategy):
     """Buy if price > N-day SMA, sell if below."""
@@ -1046,9 +1046,9 @@ ______________________________________________________________________
 ```python
 # library/strategies/simple_momentum.py
 from decimal import Decimal
-from qtrader.libraries.strategies.base import Strategy, StrategyConfig
-from qtrader.services.strategy.context import StrategyContext
-from qtrader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies.base import Strategy, StrategyConfig
+from qs_trader.services.strategy.context import StrategyContext
+from qs_trader.events.events import PriceBarEvent
 
 # Config (auto-discovered)
 CONFIG = StrategyConfig(
@@ -1089,8 +1089,8 @@ strategies:
 **3. Run backtest:**
 
 ```python
-from qtrader.engine.config import load_backtest_config
-from qtrader.engine.engine import BacktestEngine
+from qs_trader.engine.config import load_backtest_config
+from qs_trader.engine.engine import BacktestEngine
 
 config = load_backtest_config("config/portfolio.yaml")
 
@@ -1235,8 +1235,8 @@ bars = self.context.get_bars(20)
 
 ```python
 # ✅ Good - Auto-discovery via system config
-from qtrader.system import get_system_config
-from qtrader.libraries.registry import StrategyRegistry
+from qs_trader.system import get_system_config
+from qs_trader.libraries.registry import StrategyRegistry
 
 system_config = get_system_config()
 strategies_path = Path(system_config.custom_libraries.strategies)
@@ -1340,7 +1340,7 @@ pytest tests/unit/services/strategy/test_service.py -v
 pytest tests/integration/strategy/ -v
 
 # With coverage
-pytest tests/unit/services/strategy/ --cov=src/qtrader/services/strategy --cov-report=html
+pytest tests/unit/services/strategy/ --cov=src/qs_trader/services/strategy --cov-report=html
 ```
 
 ______________________________________________________________________
@@ -1544,7 +1544,7 @@ ______________________________________________________________________
 
 ## API Reference Summary
 
-### Public API (`qtrader.services.strategy`)
+### Public API (`qs_trader.services.strategy`)
 
 **Service**:
 
@@ -1558,7 +1558,7 @@ ______________________________________________________________________
 
 - `IStrategyService` - Protocol definition
 
-**Base Classes** (`qtrader.libraries.strategies`):
+**Base Classes** (`qs_trader.libraries.strategies`):
 
 - `BaseStrategy` - Abstract strategy class
 - `load_strategies()` - Strategy discovery and loading
@@ -1566,12 +1566,12 @@ ______________________________________________________________________
 **Example Import**:
 
 ```python
-from qtrader.services.strategy import (
+from qs_trader.services.strategy import (
     StrategyService,
     StrategyContext,
     IStrategyService,
 )
-from qtrader.libraries.strategies import (
+from qs_trader.libraries.strategies import (
     BaseStrategy,
     load_strategies,
 )
@@ -1584,7 +1584,7 @@ ______________________________________________________________________
 ### Buy and Hold
 
 ```python
-# src/qtrader/libraries/strategies/buy_and_hold.py
+# src/qs_trader/libraries/strategies/buy_and_hold.py
 class BuyAndHold(BaseStrategy):
     """Buy on first bar and hold."""
 
@@ -1605,7 +1605,7 @@ class BuyAndHold(BaseStrategy):
 ### SMA Crossover
 
 ```python
-# src/qtrader/libraries/strategies/sma_crossover.py
+# src/qs_trader/libraries/strategies/sma_crossover.py
 class SMACrossover(BaseStrategy):
     """Buy when short SMA crosses above long SMA."""
 
@@ -1642,7 +1642,7 @@ class SMACrossover(BaseStrategy):
 ### Bollinger Breakout
 
 ```python
-# src/qtrader/libraries/strategies/bollinger_breakout.py
+# src/qs_trader/libraries/strategies/bollinger_breakout.py
 class BollingerBreakout(BaseStrategy):
     """Buy when price breaks above upper band."""
 

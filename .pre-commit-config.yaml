@@ -1,4 +1,4 @@
-# Pre-commit configuration for QTrader
+# Pre-commit configuration for QS-Trader
 # See https://pre-commit.com for more information
 
 repos:
@@ -38,9 +38,9 @@ repos:
       - id: check-toml
         types: [toml]
       - id: check-added-large-files
-        args: ['--maxkb=1000']
+        args: ["--maxkb=1000"]
       - id: mixed-line-ending
-        args: ['--fix=lf']
+        args: ["--fix=lf"]
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
 

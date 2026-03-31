@@ -1,0 +1,55 @@
+# Risk Policy Template
+# After 'qs-trader init-project', see library/risk_policies/ in your project for examples
+
+name: my_risk_policy
+description: Custom risk policy description
+
+# Position sizing - determines how much to trade
+sizing:
+  method: fixed_units # Options: fixed_units, fixed_value, percent_equity, volatility_scaled
+  value: 100 # Units to trade (adjust based on method)
+  # Optional parameters:
+  # max_value: 500  # Maximum position size
+  # target_risk: 0.02  # Target risk per trade (for volatility_scaled)
+  # volatility_window: 20  # Lookback period for volatility (for volatility_scaled)
+
+# Position limits - enforce portfolio constraints
+limits:
+  max_position_size: 1000 # Maximum units per position
+  max_portfolio_positions: 10 # Maximum concurrent positions
+  max_symbol_positions: 1 # Maximum positions per symbol (typically 1)
+  # Optional additional limits:
+  # max_sector_exposure: 0.3  # Maximum exposure to single sector (30%)
+  # max_portfolio_value: 100000  # Maximum total portfolio value
+  # max_single_position_value: 10000  # Maximum value per position
+# Optional: Stop loss configuration
+# Automatically close losing positions
+# stop_loss:
+#   method: fixed_percent  # Options: fixed_percent, fixed_value, trailing_percent, atr
+#   value: 0.02  # 2% stop loss
+#   # For trailing stops:
+#   # trailing_distance: 0.03  # 3% trailing distance
+#   # For ATR-based stops:
+#   # atr_multiplier: 2.0  # 2x ATR
+#   # atr_period: 14  # ATR period
+
+# Optional: Take profit configuration
+# Automatically close winning positions
+# take_profit:
+#   method: fixed_percent  # Options: fixed_percent, fixed_value, risk_reward
+#   value: 0.05  # 5% take profit
+#   # For risk/reward ratio:
+#   # risk_reward_ratio: 2.0  # 2:1 reward to risk
+
+# Optional: Time-based rules
+# time_rules:
+#   max_holding_period: 30  # Maximum days to hold a position
+#   no_overnight: false  # Close all positions at end of day
+#   trading_hours:
+#     start: "09:30"  # Start trading at 9:30 AM
+#     end: "16:00"    # Stop trading at 4:00 PM
+
+# Optional: Drawdown controls
+# drawdown:
+#   max_drawdown: 0.20  # Stop trading if portfolio drops 20%
+#   max_daily_loss: 0.05  # Stop trading if daily loss exceeds 5%

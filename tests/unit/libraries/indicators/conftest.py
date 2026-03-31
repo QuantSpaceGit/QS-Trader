@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.services.data.models import Bar
+from qs_trader.services.data.models import Bar
 
 
 def _create_bars(count: int, base_price: float = 50.0, trend: str = "flat") -> list[Bar]:
@@ -120,7 +120,7 @@ def minimal_bars() -> list[Bar]:
 @pytest.fixture(scope="module")
 def rsi_results(sample_bars) -> list[float | None]:
     """Pre-computed RSI results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.momentum import RSI
+    from qs_trader.libraries.indicators.buildin.momentum import RSI
 
     rsi = RSI(period=14)
     return rsi.calculate(sample_bars)
@@ -129,7 +129,7 @@ def rsi_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def cci_results(sample_bars) -> list[float | None]:
     """Pre-computed CCI results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.momentum import CCI
+    from qs_trader.libraries.indicators.buildin.momentum import CCI
 
     cci = CCI(period=14)
     return cci.calculate(sample_bars)
@@ -138,7 +138,7 @@ def cci_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def roc_results(sample_bars) -> list[float | None]:
     """Pre-computed ROC results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.momentum import ROC
+    from qs_trader.libraries.indicators.buildin.momentum import ROC
 
     roc = ROC(period=5)
     return roc.calculate(sample_bars)
@@ -147,7 +147,7 @@ def roc_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def williamsr_results(sample_bars) -> list[float | None]:
     """Pre-computed Williams %R results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.momentum import WilliamsR
+    from qs_trader.libraries.indicators.buildin.momentum import WilliamsR
 
     wr = WilliamsR(period=9)
     return wr.calculate(sample_bars)
@@ -156,7 +156,7 @@ def williamsr_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def atr_results(sample_bars) -> list[float | None]:
     """Pre-computed ATR results for sample_bars (period=5 to match test)."""
-    from qtrader.libraries.indicators.buildin.volatility import ATR
+    from qs_trader.libraries.indicators.buildin.volatility import ATR
 
     atr = ATR(period=5)
     return atr.calculate(sample_bars)
@@ -165,7 +165,7 @@ def atr_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def stddev_results(sample_bars) -> list[float | None]:
     """Pre-computed StdDev results for sample_bars (period=10 to match test)."""
-    from qtrader.libraries.indicators.buildin.volatility import StdDev
+    from qs_trader.libraries.indicators.buildin.volatility import StdDev
 
     stddev = StdDev(period=10)
     return stddev.calculate(sample_bars)
@@ -174,7 +174,7 @@ def stddev_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def bb_results(sample_bars) -> list[dict[str, float] | None]:
     """Pre-computed Bollinger Bands results for sample_bars (period=10 to match test)."""
-    from qtrader.libraries.indicators.buildin.volatility import BollingerBands
+    from qs_trader.libraries.indicators.buildin.volatility import BollingerBands
 
     bb = BollingerBands(period=10)
     return bb.calculate(sample_bars)
@@ -183,7 +183,7 @@ def bb_results(sample_bars) -> list[dict[str, float] | None]:
 @pytest.fixture(scope="module")
 def vwap_results(sample_bars) -> list[float | None]:
     """Pre-computed VWAP results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.volume import VWAP
+    from qs_trader.libraries.indicators.buildin.volume import VWAP
 
     vwap = VWAP()
     return vwap.calculate(sample_bars)
@@ -192,7 +192,7 @@ def vwap_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def obv_results(sample_bars) -> list[float | None]:
     """Pre-computed OBV results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.volume import OBV
+    from qs_trader.libraries.indicators.buildin.volume import OBV
 
     obv = OBV()
     return obv.calculate(sample_bars)
@@ -201,7 +201,7 @@ def obv_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def ad_results(sample_bars) -> list[float | None]:
     """Pre-computed A/D results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.volume import AD
+    from qs_trader.libraries.indicators.buildin.volume import AD
 
     ad = AD()
     return ad.calculate(sample_bars)
@@ -210,7 +210,7 @@ def ad_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def cmf_results(sample_bars) -> list[float | None]:
     """Pre-computed CMF results for sample_bars."""
-    from qtrader.libraries.indicators.buildin.volume import CMF
+    from qs_trader.libraries.indicators.buildin.volume import CMF
 
     cmf = CMF(period=20)
     return cmf.calculate(sample_bars)
@@ -219,7 +219,7 @@ def cmf_results(sample_bars) -> list[float | None]:
 @pytest.fixture(scope="module")
 def adx_results(sample_bars) -> list[dict[str, float] | None]:
     """Pre-computed ADX results for sample_bars (period=10 to match test)."""
-    from qtrader.libraries.indicators.buildin.trend import ADX
+    from qs_trader.libraries.indicators.buildin.trend import ADX
 
     adx = ADX(period=10)
     return adx.calculate(sample_bars)
@@ -228,7 +228,7 @@ def adx_results(sample_bars) -> list[dict[str, float] | None]:
 @pytest.fixture(scope="module")
 def aroon_results(sample_bars) -> list[dict[str, float] | None]:
     """Pre-computed Aroon results for sample_bars (period=10 to match test)."""
-    from qtrader.libraries.indicators.buildin.trend import Aroon
+    from qs_trader.libraries.indicators.buildin.trend import Aroon
 
     aroon = Aroon(period=10)
     return aroon.calculate(sample_bars)

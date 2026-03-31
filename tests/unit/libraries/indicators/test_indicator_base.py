@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.indicators.base module.
+Unit tests for qs_trader.libraries.indicators.base module.
 
 Tests the BaseIndicator abstract class contract:
 - Abstract method requirements
@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from qtrader.libraries.indicators.base import BaseIndicator
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators.base import BaseIndicator
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures - Concrete Implementation

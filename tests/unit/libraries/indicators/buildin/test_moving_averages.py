@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.indicators.buildin.moving_averages module.
+Unit tests for qs_trader.libraries.indicators.buildin.moving_averages module.
 
 Tests all moving average implementations:
 - SMA: Simple Moving Average
@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.libraries.indicators.buildin.moving_averages import DEMA, EMA, HMA, SMA, SMMA, TEMA, WMA
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators.buildin.moving_averages import DEMA, EMA, HMA, SMA, SMMA, TEMA, WMA
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

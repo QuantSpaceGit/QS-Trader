@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.indicators.buildin.volume module.
+Unit tests for qs_trader.libraries.indicators.buildin.volume module.
 
 Tests volume indicator implementations:
 - VWAP: Volume Weighted Average Price
@@ -18,8 +18,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.libraries.indicators.buildin.volume import AD, CMF, OBV, VWAP
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators.buildin.volume import AD, CMF, OBV, VWAP
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

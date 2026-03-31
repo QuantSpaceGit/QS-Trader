@@ -5,7 +5,7 @@ Tests the Rich table formatters and row builders.
 
 from rich.table import Table
 
-from qtrader.cli.ui.formatters import (
+from qs_trader.cli.ui.formatters import (
     add_bar_data,
     add_cache_info_row,
     add_update_result_row,

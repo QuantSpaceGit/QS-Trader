@@ -5,7 +5,7 @@ import shutil
 import pytest
 from click.testing import CliRunner
 
-from qtrader.cli.commands.init_library import init_library_command
+from qs_trader.cli.commands.init_library import init_library_command
 
 
 @pytest.fixture
@@ -159,10 +159,10 @@ class TestInitLibraryCommand:
         assert readme_path.exists()
 
         content = readme_path.read_text()
-        assert "Custom QTrader Library" in content
+        assert "Custom QS-Trader Library" in content
         assert "Structure" in content
         assert "Usage" in content
-        assert "config/qtrader.yaml" in content
+        assert "config/qs_trader.yaml" in content
 
     def test_template_files_valid_python(self, runner, temp_lib_dir):
         """Test that generated Python files are valid."""
@@ -232,5 +232,5 @@ class TestInitLibraryCommand:
 
         assert result.exit_code == 0
         assert "Next steps:" in result.output
-        assert "config/qtrader.yaml" in result.output
+        assert "config/qs_trader.yaml" in result.output
         assert "custom_libraries:" in result.output

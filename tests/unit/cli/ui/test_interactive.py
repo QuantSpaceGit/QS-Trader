@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.cli.ui.interactive import InteractiveDebugger
+from qs_trader.cli.ui.interactive import InteractiveDebugger
 
 
 class TestInteractiveDebuggerInitialization:
@@ -54,7 +54,7 @@ class TestInteractiveDebuggerInitialization:
     def test_init_enabled_logs_initialization(self):
         """Test enabled debugger logs initialization."""
         # Arrange & Act
-        with patch("qtrader.cli.ui.interactive.logger") as mock_logger:
+        with patch("qs_trader.cli.ui.interactive.logger") as mock_logger:
             InteractiveDebugger(enabled=True)
 
             # Assert

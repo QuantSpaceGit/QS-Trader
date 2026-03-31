@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import SignalEvent
-from qtrader.services.strategy.context import Context
-from qtrader.services.strategy.models import SignalIntention
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import SignalEvent
+from qs_trader.services.strategy.context import Context
+from qs_trader.services.strategy.models import SignalIntention
 
 
 @pytest.fixture
@@ -559,7 +559,7 @@ def test_emit_signal_tags_with_correct_strategy_id(event_bus):
 def test_cache_bar_stores_bar(context):
     """cache_bar stores bar in cache with backward-adjusted prices."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bar = PriceBarEvent(
         symbol="AAPL",
@@ -588,7 +588,7 @@ def test_cache_bar_stores_bar(context):
 def test_cache_bar_multiple_symbols(context):
     """cache_bar handles multiple symbols independently."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     aapl_bar = PriceBarEvent(
         symbol="AAPL",
@@ -631,7 +631,7 @@ def test_cache_bar_multiple_symbols(context):
 def test_cache_bar_sequential_bars(context):
     """cache_bar accumulates sequential bars in cache."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -663,7 +663,7 @@ def test_cache_bar_sequential_bars(context):
 def test_cache_bar_respects_max_bars_limit(event_bus):
     """_cache_bar respects max_bars limit and evicts oldest from adjusted cache."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     context = Context(strategy_id="test", event_bus=event_bus, max_bars=3)
 
@@ -698,7 +698,7 @@ def test_cache_bar_respects_max_bars_limit(event_bus):
 def test_get_price_returns_latest_close(context):
     """get_price returns close price of most recent bar."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bar = PriceBarEvent(
         symbol="AAPL",
@@ -732,7 +732,7 @@ def test_get_price_returns_none_for_no_data(context):
 def test_get_price_returns_latest_after_multiple_bars(context):
     """get_price returns most recent close after multiple bars."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -762,7 +762,7 @@ def test_get_price_returns_latest_after_multiple_bars(context):
 def test_get_price_different_symbols_independent(context):
     """get_price tracks prices per symbol independently."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     aapl_bar = PriceBarEvent(
         symbol="AAPL",
@@ -808,7 +808,7 @@ def test_get_price_different_symbols_independent(context):
 def test_get_bars_returns_last_n_bars(context):
     """get_bars returns last N bars in chronological order."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -842,7 +842,7 @@ def test_get_bars_returns_last_n_bars(context):
 def test_get_bars_returns_none_for_insufficient_data(context):
     """get_bars returns None when fewer than N bars cached."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -881,7 +881,7 @@ def test_get_bars_returns_none_for_no_data(context):
 def test_get_bars_default_n_equals_1(context):
     """get_bars defaults to n=1 (last bar only)."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -913,7 +913,7 @@ def test_get_bars_default_n_equals_1(context):
 def test_get_bars_chronological_order(context):
     """get_bars returns bars in chronological order (oldest first)."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bars = [
         PriceBarEvent(
@@ -944,7 +944,7 @@ def test_get_bars_chronological_order(context):
 def test_get_bars_different_symbols_independent(context):
     """get_bars tracks bars per symbol independently."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     aapl_bars = [
         PriceBarEvent(
@@ -995,7 +995,7 @@ def test_get_bars_different_symbols_independent(context):
 def test_get_bars_for_indicator_calculation(context):
     """get_bars can be used for SMA calculation."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     # Create 20 bars with incrementing close prices
     bars = [
@@ -1036,7 +1036,7 @@ def test_get_bars_for_indicator_calculation(context):
 def test_cache_bar_factor_change_preserves_other_metadata(context):
     """cache_bar re-adjustment preserves timestamps and other metadata."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bar1 = PriceBarEvent(
         symbol="AAPL",
@@ -1078,7 +1078,7 @@ def test_cache_bar_factor_change_preserves_other_metadata(context):
 def test_cache_bar_ignores_small_factor_differences(context):
     """cache_bar ignores floating point precision differences in factor."""
     # Arrange
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     bar1 = PriceBarEvent(
         symbol="AAPL",

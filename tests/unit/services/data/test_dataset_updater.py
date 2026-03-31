@@ -1,4 +1,4 @@
-"""Unit tests for qtrader.data.dataset_updater module.
+"""Unit tests for qs_trader.data.dataset_updater module.
 
 Tests the generic dataset updater functionality for incremental cache updates
 across all data adapters (Algoseek, Binance, etc.).
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qtrader.services.data.dataset_updater import DatasetUpdater, DatasetUpdateResult
+from qs_trader.services.data.dataset_updater import DatasetUpdater, DatasetUpdateResult
 
 
 class TestDatasetUpdateResult:
@@ -193,7 +193,7 @@ class TestDatasetUpdaterInitialization:
     def test_init_success(self, temp_config: Path, mock_adapter_with_update):
         """Test successful initialization with valid dataset."""
         # Arrange & Act
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset-with-cache": {
@@ -215,7 +215,7 @@ class TestDatasetUpdaterInitialization:
         """Test initialization fails with nonexistent dataset."""
         # Arrange & Act & Assert
         with (
-            patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class,
+            patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class,
             pytest.raises(ValueError, match="Dataset 'nonexistent' not found"),
         ):
             mock_resolver = MagicMock()
@@ -235,7 +235,7 @@ class TestDatasetUpdaterInitialization:
 
         # Act & Assert
         with (
-            patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class,
+            patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class,
             pytest.raises(ValueError, match="does not have read_bars"),
         ):
             mock_resolver = MagicMock()
@@ -252,7 +252,7 @@ class TestDatasetUpdaterInitialization:
     def test_init_loads_universe_symbols(self, temp_config: Path, mock_adapter_with_update):
         """Test that universe file is loaded during initialization."""
         # Arrange & Act
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             universe_file = temp_config.parent / "universe.csv"
             mock_resolver = MagicMock()
             mock_resolver.sources = {
@@ -280,7 +280,7 @@ class TestDatasetUpdaterCacheSupport:
     def test_supports_caching_true(self, temp_config: Path, mock_adapter_with_update):
         """Test detecting caching support when cache_root configured."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -302,7 +302,7 @@ class TestDatasetUpdaterCacheSupport:
     def test_supports_caching_false(self, temp_config: Path, mock_adapter_with_update):
         """Test detecting no caching support when cache_root absent."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -325,7 +325,7 @@ class TestDatasetUpdaterCacheSupport:
         """Test getting cache root when configured."""
         # Arrange
         cache_path = "/tmp/test_cache"
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -347,7 +347,7 @@ class TestDatasetUpdaterCacheSupport:
     def test_get_cache_root_none(self, temp_config: Path, mock_adapter_with_update):
         """Test getting cache root when not configured."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -381,7 +381,7 @@ class TestDatasetUpdaterCacheScanning:
             symbol_dir.mkdir()
             (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -407,7 +407,7 @@ class TestDatasetUpdaterCacheScanning:
     def test_scan_cached_symbols_no_cache_dir(self, temp_config: Path, mock_adapter_with_update):
         """Test scanning returns empty when cache directory doesn't exist."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -436,7 +436,7 @@ class TestDatasetUpdaterCacheScanning:
         (cache_dir / "AAPL").mkdir()
         (cache_dir / "TSLA").mkdir()
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -464,7 +464,7 @@ class TestDatasetUpdaterCacheScanning:
         symbol_dir.mkdir()
         (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -489,7 +489,7 @@ class TestDatasetUpdaterCacheScanning:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir(exist_ok=True)
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -521,7 +521,7 @@ class TestDatasetUpdaterUpdateSymbol:
         symbol_dir.mkdir()
         (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -559,7 +559,7 @@ class TestDatasetUpdaterUpdateSymbol:
     def test_update_symbol_error_handling(self, temp_config: Path, mock_adapter_with_update):
         """Test error handling when update fails."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -599,13 +599,13 @@ class TestDatasetUpdaterUpdateMultiple:
             symbol_dir.mkdir()
             (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DatasetUpdater.update_symbol") as mock_update:
+        with patch("qs_trader.services.data.dataset_updater.DatasetUpdater.update_symbol") as mock_update:
             mock_update.side_effect = [
                 DatasetUpdateResult("AAPL", True, bars_added=5),
                 DatasetUpdateResult("TSLA", True, bars_added=3),
             ]
 
-            with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+            with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
                 mock_resolver = MagicMock()
                 mock_resolver.sources = {
                     "test-dataset": {
@@ -640,14 +640,14 @@ class TestDatasetUpdaterUpdateMultiple:
             symbol_dir.mkdir()
             (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DatasetUpdater.update_symbol") as mock_update:
+        with patch("qs_trader.services.data.dataset_updater.DatasetUpdater.update_symbol") as mock_update:
             mock_update.side_effect = [
                 DatasetUpdateResult("AAPL", True, bars_added=5),
                 DatasetUpdateResult("NVDA", True, bars_added=3),
                 DatasetUpdateResult("TSLA", True, bars_added=7),
             ]
 
-            with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+            with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
                 mock_resolver = MagicMock()
                 mock_resolver.sources = {
                     "test-dataset": {
@@ -676,7 +676,7 @@ class TestDatasetUpdaterUpdateMultiple:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir(exist_ok=True)  # Empty cache
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -705,7 +705,7 @@ class TestDatasetUpdaterUniverseLoading:
         universe_file = tmp_path / "test_universe.csv"
         universe_file.write_text("SYMBOL,NAME,SECTOR\nAAPL,Apple Inc,Technology\nMSFT,Microsoft,Technology\n")
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -724,7 +724,7 @@ class TestDatasetUpdaterUniverseLoading:
     def test_load_universe_symbols_file_not_found(self, temp_config: Path, mock_adapter_with_update):
         """Test handling when universe file doesn't exist."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -743,7 +743,7 @@ class TestDatasetUpdaterUniverseLoading:
     def test_load_universe_symbols_no_config(self, temp_config: Path, mock_adapter_with_update):
         """Test when universe_file not configured."""
         # Arrange
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
@@ -771,7 +771,7 @@ class TestDatasetUpdaterDryRun:
         symbol_dir.mkdir()
         (symbol_dir / "data.parquet").touch()
 
-        with patch("qtrader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
+        with patch("qs_trader.services.data.dataset_updater.DataSourceResolver") as mock_resolver_class:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {

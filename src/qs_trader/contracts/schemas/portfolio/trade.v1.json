@@ -1,0 +1,117 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://qs-trader.dev/schemas/portfolio/trade.v1.json",
+    "title": "TradeEvent",
+    "description": "Event emitted when a trade opens or closes. Aggregates all fills belonging to a single trade for a strategy-symbol pair. Emitted by PortfolioService.",
+    "type": "object",
+    "required": [
+        "trade_id",
+        "timestamp",
+        "strategy_id",
+        "symbol",
+        "status",
+        "fills"
+    ],
+    "properties": {
+        "trade_id": {
+            "type": "string",
+            "pattern": "^T\\d{5}$",
+            "description": "Unique trade identifier (e.g., T00001). Sequential per backtest/session."
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of the last fill in this trade update (ISO8601 UTC with Z suffix)."
+        },
+        "strategy_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Strategy that generated the signals leading to this trade."
+        },
+        "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Instrument identifier (e.g., AAPL, SPY)."
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "open",
+                "closed"
+            ],
+            "description": "Trade status: 'open' means position is active, 'closed' means position returned to flat (0 quantity)."
+        },
+        "side": {
+            "type": "string",
+            "enum": [
+                "long",
+                "short"
+            ],
+            "description": "Trade direction: 'long' for buy-first trades, 'short' for sell-first trades."
+        },
+        "fills": {
+            "type": "array",
+            "minItems": 1,
+            "description": "All fill IDs that are part of this trade (entry and exit fills). References FillEvent.fill_id.",
+            "items": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Fill ID (UUID) from FillEvent."
+            }
+        },
+        "entry_price": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Average entry price for the trade. Null if trade status tracking is incomplete."
+        },
+        "exit_price": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Average exit price for the trade (last fill price when closing). Null for open trades."
+        },
+        "current_quantity": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Current position quantity (positive for long, negative for short, zero when closed)."
+        },
+        "realized_pnl": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Realized profit/loss when trade is closed. Null for open trades."
+        },
+        "commission_total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total commission paid across all fills in this trade."
+        },
+        "entry_timestamp": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp of the first fill (trade entry). Null if not tracked."
+        },
+        "exit_timestamp": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp of the closing fill. Null for open trades."
+        }
+    },
+    "additionalProperties": false
+}

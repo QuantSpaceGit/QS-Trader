@@ -9,8 +9,8 @@ from datetime import date, datetime
 from typing import Any, Iterator, List, Optional, Tuple
 from unittest.mock import MagicMock
 
-from qtrader.services.data.interface import IDataAdapter, IDataService
-from qtrader.services.data.models import Instrument
+from qs_trader.services.data.interface import IDataAdapter, IDataService
+from qs_trader.services.data.models import Instrument
 
 
 class TestIDataServiceProtocol:

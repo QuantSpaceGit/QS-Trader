@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from qtrader.services.reporting.writers import write_backtest_metadata
+from qs_trader.services.reporting.writers import write_backtest_metadata
 
 
 class TestWriteBacktestMetadata:

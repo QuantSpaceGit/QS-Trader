@@ -1,0 +1,69 @@
+# QS-Trader Data Sources Configuration
+#
+# Maps logical data sources (used in Instrument) to physical adapters.
+# Supports environment variable substitution using ${VAR_NAME} syntax.
+#
+# NAMING CONVENTION:
+#   Source names should follow: <provider>-<region>-<asset>-<freq>[-variant]
+#   Examples:
+#     - binance-crypto-1m
+#     - yahoo-csv
+#
+# METADATA FIELDS (for DataSourceSelector matching):
+#   - provider: Data provider name (yahoo, binance, etc.)
+#   - asset_class: equity, futures, options, crypto, forex, fixed_income
+#   - data_type: ohlcv, trades, quotes
+#   - frequency: Use format like 1m, 5m, 15m, 1h, 1d (not "daily", "hourly")
+#   - adapter: Adapter type (YahooCSV, etc.) - REQUIRED
+#   - region: US, EU, ASIA, etc. (optional)
+#   - adjusted: true/false - whether data is adjusted (optional, default false)
+#   - timezone: IANA timezone like "America/New_York" (optional)
+#   - price_currency: 3-letter currency code like "USD" (optional)
+#   - price_scale: Number of decimal places for prices (optional)
+#
+# Configuration precedence:
+#   1. Explicit path provided to DataSourceResolver
+#   2. ./config/data_sources.yaml (project-relative)
+#   3. ~/.qs_trader/data_sources.yaml (user home)
+
+data_sources:
+  # Yahoo Finance US Equity Daily CSV (partial adjustment: only adjusted close provided)
+  yahoo-us-equity-1d-csv:
+    provider: yahoo
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjusted: false # only Adj Close is total-return adjusted; other fields are raw split-adjusted
+    timezone: America/New_York
+    price_currency: USD
+    price_scale: 2
+    synthetic_adjust_ohlc: true # enable synthetic adjusted open/high/low based on Adj Close ratio
+
+    adapter: yahoo_csv
+    root_path: "data/us-equity-yahoo-csv" # Sample data included with AAPL
+    path_template: "{root_path}/{symbol}.csv"
+    # Add more CSV files here for additional symbols
+    # No symbol_map needed (file per symbol). Resolver supplies instrument.symbol.
+    # No caching supported for CSV adapter.
+
+  # Custom OHLCV CSV (simple format: Date,Open,High,Low,Close,Volume)
+  sample-csv-1d:
+    provider: custom
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjusted: false # split-adjusted prices only, no adjustment factors
+    timezone: America/New_York
+    price_currency: USD
+    price_scale: 2
+
+    adapter: ohlcvcsv
+    root_path: "data/sample-csv" # Simple OHLCV CSV files (AAPL.csv included)
+    path_template: "{root_path}/{symbol}.csv"
+    # CSV format: Date,Open,High,Low,Close,Volume
+    # File naming: {symbol}.csv (e.g., AAPL.csv)
+    # No adjustment factors or corporate actions
+    # No caching supported (designed for small datasets)
+# Additional data sources can be defined here

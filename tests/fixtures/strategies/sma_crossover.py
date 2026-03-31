@@ -6,9 +6,9 @@ This is a fixture for testing strategy auto-discovery.
 
 from decimal import Decimal
 
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
-from qtrader.services.strategy.models import SignalIntention
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.services.strategy.models import SignalIntention
 
 
 class SMAConfig(StrategyConfig):

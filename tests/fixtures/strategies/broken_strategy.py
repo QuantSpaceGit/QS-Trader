@@ -9,8 +9,8 @@ This file has import errors and should be skipped gracefully.
 # This import will fail
 from nonexistent_module import something_broken  # pyright: ignore[reportMissingImports]  # noqa: F401
 
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
 
 
 class BrokenStrategyConfig(StrategyConfig):

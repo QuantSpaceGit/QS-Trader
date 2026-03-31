@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from qtrader.services.data.dataset_updater import DatasetUpdateResult
-from qtrader.services.data.update_service import UpdateService
+from qs_trader.services.data.dataset_updater import DatasetUpdateResult
+from qs_trader.services.data.update_service import UpdateService
 
 
 class TestUpdateServiceInitialization:
@@ -18,7 +18,7 @@ class TestUpdateServiceInitialization:
     def test_init_creates_updater_with_dataset(self):
         """Test initialization creates DatasetUpdater with correct dataset."""
         # Arrange & Act
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             service = UpdateService("test-dataset-1d")
 
             # Assert
@@ -28,7 +28,7 @@ class TestUpdateServiceInitialization:
     def test_init_stores_dataset_name(self):
         """Test initialization stores dataset name."""
         # Arrange & Act
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Assert
@@ -41,7 +41,7 @@ class TestGetSymbolsToUpdate:
     def test_get_symbols_explicit_symbols_takes_priority(self):
         """Test explicit symbols parameter has highest priority."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.universe_symbols = ["TSLA", "NVDA"]
             mock_updater._scan_cached_symbols.return_value = ["META", "AMZN"]
@@ -60,7 +60,7 @@ class TestGetSymbolsToUpdate:
     def test_get_symbols_universe_second_priority(self):
         """Test universe.csv symbols are second priority."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             universe = ["AAPL", "MSFT", "GOOGL", "TSLA"]
             mock_updater.universe_symbols = universe
@@ -80,7 +80,7 @@ class TestGetSymbolsToUpdate:
     def test_get_symbols_cache_fallback(self):
         """Test cached symbols are used when no explicit or universe symbols."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             cached = ["META", "AMZN", "NFLX"]
             mock_updater.universe_symbols = []
@@ -99,7 +99,7 @@ class TestGetSymbolsToUpdate:
     def test_get_symbols_empty_when_none_found(self):
         """Test returns empty list when no symbols found."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.universe_symbols = []
             mock_updater._scan_cached_symbols.return_value = []
@@ -117,7 +117,7 @@ class TestGetSymbolsToUpdate:
     def test_get_symbols_empty_explicit_list_falls_back_to_universe(self):
         """Test empty explicit symbols list falls back to universe (empty list is falsy)."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.universe_symbols = ["AAPL"]
             mock_updater._scan_cached_symbols.return_value = ["MSFT"]
@@ -139,7 +139,7 @@ class TestUpdateSymbols:
     def test_update_symbols_delegates_to_updater(self):
         """Test update_symbols delegates to DatasetUpdater."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_results = [
                 DatasetUpdateResult("AAPL", True, 5),
@@ -163,7 +163,7 @@ class TestUpdateSymbols:
     def test_update_symbols_dry_run(self):
         """Test update_symbols passes dry_run flag correctly."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update_symbols.return_value = iter([])
             mock_updater_class.return_value = mock_updater
@@ -181,7 +181,7 @@ class TestUpdateSymbols:
     def test_update_symbols_verbose(self):
         """Test update_symbols passes verbose flag correctly."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update_symbols.return_value = iter([])
             mock_updater_class.return_value = mock_updater
@@ -199,7 +199,7 @@ class TestUpdateSymbols:
     def test_update_symbols_empty_list(self):
         """Test update_symbols handles empty symbol list."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update_symbols.return_value = iter([])
             mock_updater_class.return_value = mock_updater
@@ -230,7 +230,7 @@ class TestGetCacheMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text(json.dumps(metadata))
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = cache_root
             mock_updater_class.return_value = mock_updater
@@ -248,7 +248,7 @@ class TestGetCacheMetadata:
     def test_get_cache_metadata_no_cache_root(self):
         """Test returns None when cache root doesn't exist."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = None
             mock_updater_class.return_value = mock_updater
@@ -269,7 +269,7 @@ class TestGetCacheMetadata:
         cache_root = tmp_path / "cache"
         cache_root.mkdir()
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = cache_root
             mock_updater_class.return_value = mock_updater
@@ -294,7 +294,7 @@ class TestGetCacheMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text("{ invalid json")
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = cache_root
             mock_updater_class.return_value = mock_updater
@@ -320,7 +320,7 @@ class TestGetCacheMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text(json.dumps(metadata))
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = cache_root
             mock_updater_class.return_value = mock_updater
@@ -344,7 +344,7 @@ class TestGetCacheRoot:
         # Arrange
         cache_root = tmp_path / "cache"
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = cache_root
             mock_updater_class.return_value = mock_updater
@@ -361,7 +361,7 @@ class TestGetCacheRoot:
     def test_get_cache_root_returns_none(self):
         """Test get_cache_root returns None when no cache."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._get_cache_root.return_value = None
             mock_updater_class.return_value = mock_updater
@@ -383,7 +383,7 @@ class TestScanCachedSymbols:
         # Arrange
         cached_symbols = ["AAPL", "MSFT", "GOOGL"]
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._scan_cached_symbols.return_value = cached_symbols
             mock_updater_class.return_value = mock_updater
@@ -400,7 +400,7 @@ class TestScanCachedSymbols:
     def test_scan_cached_symbols_empty(self):
         """Test scan_cached_symbols returns empty list when no cache."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater._scan_cached_symbols.return_value = []
             mock_updater_class.return_value = mock_updater
@@ -432,7 +432,7 @@ class TestReadSymbolMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text(json.dumps(metadata))
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Act
@@ -452,7 +452,7 @@ class TestReadSymbolMetadata:
         cache_root = tmp_path / "cache"
         cache_root.mkdir()
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Act
@@ -476,7 +476,7 @@ class TestReadSymbolMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text("{ invalid json")
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Act
@@ -501,7 +501,7 @@ class TestReadSymbolMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text(json.dumps(metadata))
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Act
@@ -529,7 +529,7 @@ class TestReadSymbolMetadata:
         metadata_file = symbol_dir / ".metadata.json"
         metadata_file.write_text(json.dumps(metadata))
 
-        with patch("qtrader.services.data.update_service.DatasetUpdater"):
+        with patch("qs_trader.services.data.update_service.DatasetUpdater"):
             service = UpdateService("test-dataset")
 
             # Act
@@ -548,7 +548,7 @@ class TestIntegrationScenarios:
     def test_typical_update_workflow(self):
         """Test typical workflow: scan symbols, get metadata, update."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             cached_symbols = ["AAPL", "MSFT"]
             mock_updater.universe_symbols = []
@@ -577,7 +577,7 @@ class TestIntegrationScenarios:
     def test_explicit_symbols_override_workflow(self):
         """Test workflow with explicit symbol override."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             explicit = ["TSLA", "NVDA"]
             mock_updater.universe_symbols = ["AAPL", "MSFT"]
@@ -603,7 +603,7 @@ class TestIntegrationScenarios:
     def test_no_symbols_workflow(self):
         """Test workflow when no symbols found."""
         # Arrange
-        with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
+        with patch("qs_trader.services.data.update_service.DatasetUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.universe_symbols = []
             mock_updater._scan_cached_symbols.return_value = []

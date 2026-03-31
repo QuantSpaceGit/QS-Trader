@@ -2,8 +2,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.data.adapters.builtin.yahoo_csv import YahooCSVDataAdapter
-from qtrader.services.data.models import Instrument
+from qs_trader.services.data.adapters.builtin.yahoo_csv import YahooCSVDataAdapter
+from qs_trader.services.data.models import Instrument
 
 
 @pytest.fixture

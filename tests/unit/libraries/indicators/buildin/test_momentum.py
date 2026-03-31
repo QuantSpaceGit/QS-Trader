@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.indicators.buildin.momentum module.
+Unit tests for qs_trader.libraries.indicators.buildin.momentum module.
 
 Tests momentum indicator implementations:
 - RSI: Relative Strength Index
@@ -17,8 +17,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.libraries.indicators.buildin.momentum import CCI, MACD, ROC, RSI, Stochastic, WilliamsR
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators.buildin.momentum import CCI, MACD, ROC, RSI, Stochastic, WilliamsR
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

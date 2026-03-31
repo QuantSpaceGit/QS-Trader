@@ -1,17 +1,17 @@
-# QTrader CLI: Backtest Command
+# QS-Trader CLI: Backtest Command
 
 ## Overview
 
-The `qtrader backtest` command provides a simple, config-driven interface for running backtests from the command line. It loads backtest configuration from YAML files and executes simulations with optional CLI overrides for quick experimentation.
+The `qs-trader backtest` command provides a simple, config-driven interface for running backtests from the command line. It loads backtest configuration from YAML files and executes simulations with optional CLI overrides for quick experimentation.
 
 ## Basic Usage
 
 ```bash
 # Run backtest with configuration file
-qtrader backtest --file config/portfolio.yaml
+qs-trader backtest --file config/portfolio.yaml
 
 # Short form
-qtrader backtest -f config/portfolio.yaml
+qs-trader backtest -f config/portfolio.yaml
 ```
 
 ## Command Options
@@ -36,21 +36,21 @@ qtrader backtest -f config/portfolio.yaml
 
 ```bash
 # Run with config defaults
-qtrader backtest --file config/portfolio.yaml
+qs-trader backtest --file config/portfolio.yaml
 ```
 
 ### Silent Mode (Fastest)
 
 ```bash
 # No event display, maximum speed
-qtrader backtest -f config/portfolio.yaml --silent
+qs-trader backtest -f config/portfolio.yaml --silent
 ```
 
 ### Quick Date Range Tests
 
 ```bash
 # Test with shorter date range without modifying config
-qtrader backtest -f config/portfolio.yaml \
+qs-trader backtest -f config/portfolio.yaml \
     --start-date 2020-01-01 \
     --end-date 2020-03-31
 ```
@@ -59,17 +59,17 @@ qtrader backtest -f config/portfolio.yaml \
 
 ```bash
 # Slow motion display (0.5 seconds per event)
-qtrader backtest -f config/portfolio.yaml -r 0.5
+qs-trader backtest -f config/portfolio.yaml -r 0.5
 
 # Instant display (no delay)
-qtrader backtest -f config/portfolio.yaml -r 0
+qs-trader backtest -f config/portfolio.yaml -r 0
 ```
 
 ### Combined Overrides
 
 ```bash
 # Silent mode with custom date range
-qtrader backtest -f config/test.yaml --silent \
+qs-trader backtest -f config/test.yaml --silent \
     --start-date 2020-01-01 \
     --end-date 2020-01-31
 ```
@@ -101,7 +101,7 @@ The command displays:
 ### Example Output
 
 ```
-─────────────────────────────── QTrader Backtest ───────────────────────────────
+─────────────────────────────── QS-Trader Backtest ───────────────────────────────
 
 Loading configuration...
   Backtest ID: buy_and_hold
@@ -185,7 +185,7 @@ Event Store:     events.sqlite (1.23 MB)
 
 ```bash
 # Fast iteration: silent mode with short date ranges
-qtrader backtest -f config/test.yaml --silent \
+qs-trader backtest -f config/test.yaml --silent \
     --start-date 2020-01-01 --end-date 2020-01-31
 ```
 
@@ -193,21 +193,21 @@ qtrader backtest -f config/test.yaml --silent \
 
 ```bash
 # Slow motion display to watch event flow
-qtrader backtest -f config/portfolio.yaml -r 0.5
+qs-trader backtest -f config/portfolio.yaml -r 0.5
 ```
 
 ### Production Runs
 
 ```bash
 # Silent mode for full historical backtests
-qtrader backtest -f config/production.yaml --silent
+qs-trader backtest -f config/production.yaml --silent
 ```
 
 ### Quick Config Validation
 
 ```bash
 # Run 1 month to verify config loads correctly
-qtrader backtest -f config/new_strategy.yaml \
+qs-trader backtest -f config/new_strategy.yaml \
     --start-date 2020-01-01 --end-date 2020-01-31 --silent
 ```
 
@@ -218,14 +218,14 @@ The command provides helpful error messages for common issues:
 ### Missing Config File
 
 ```bash
-$ qtrader backtest --file nonexistent.yaml
+$ qs-trader backtest --file nonexistent.yaml
 Error: Invalid value for '--file': File 'nonexistent.yaml' does not exist.
 ```
 
 ### Config Loading Error
 
 ```bash
-$ qtrader backtest -f config/bad.yaml
+$ qs-trader backtest -f config/bad.yaml
 ✗ Backtest failed: Invalid config format
 [detailed traceback...]
 ```
@@ -243,10 +243,10 @@ Get detailed help anytime:
 
 ```bash
 # Main CLI help
-qtrader --help
+qs-trader --help
 
 # Backtest command help
-qtrader backtest --help
+qs-trader backtest --help
 ```
 
 ## Integration with `uv`
@@ -255,11 +255,11 @@ When using `uv` for project management:
 
 ```bash
 # Run with uv
-uv run qtrader backtest -f config/portfolio.yaml
+uv run qs-trader backtest -f config/portfolio.yaml
 
 # Or activate the environment first
 source .venv/bin/activate
-qtrader backtest -f config/portfolio.yaml
+qs-trader backtest -f config/portfolio.yaml
 ```
 
 ## Related

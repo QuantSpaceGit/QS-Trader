@@ -12,10 +12,10 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events import PortfolioPosition, StrategyGroup
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
-from qtrader.services.manager import ManagerService
+from qs_trader.events import PortfolioPosition, StrategyGroup
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
+from qs_trader.services.manager import ManagerService
 
 
 @pytest.fixture
@@ -138,7 +138,7 @@ class TestManagerServiceSignalToOrder:
         event_bus.subscribe("order", capture_order)
 
         # First, publish portfolio state with a long position
-        from qtrader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+        from qs_trader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
 
         portfolio_state = PortfolioStateEvent(
             portfolio_id="test_portfolio",
@@ -247,7 +247,7 @@ class TestManagerServiceSignalToOrder:
         event_bus.subscribe("order", capture_order)
 
         # First, publish portfolio state with a short position
-        from qtrader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+        from qs_trader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
 
         portfolio_state = PortfolioStateEvent(
             portfolio_id="test_portfolio",
@@ -473,7 +473,7 @@ class TestManagerServiceMultiStrategyBudgets:
     @pytest.fixture
     def multi_strategy_service(self, event_bus):
         """Create ManagerService with explicit multi-strategy budgets."""
-        from qtrader.libraries.risk.models import (
+        from qs_trader.libraries.risk.models import (
             ConcentrationLimit,
             LeverageLimit,
             RiskConfig,
@@ -825,7 +825,7 @@ def test_partial_close_respects_lot_size_constraints(event_bus):
     Related: Risk library integration, venue constraint enforcement
     """
     # Arrange: Create policy with options-like lot sizing
-    from qtrader.libraries.risk.models import (
+    from qs_trader.libraries.risk.models import (
         ConcentrationLimit,
         LeverageLimit,
         RiskConfig,
@@ -989,7 +989,7 @@ def test_multi_strategy_position_aggregation_for_concentration_limit(event_bus):
     Related: Multi-strategy refactoring, reliable risk checks
     """
     # Arrange: Create policy with 20% concentration limit
-    from qtrader.libraries.risk.models import (
+    from qs_trader.libraries.risk.models import (
         ConcentrationLimit,
         LeverageLimit,
         RiskConfig,
@@ -1165,7 +1165,7 @@ def test_partial_close_rounds_up_when_confidence_floors_to_zero(event_bus):
 
     Related: Multi-strategy refactoring, signal contract enforcement
     """
-    from qtrader.libraries.risk.models import (
+    from qs_trader.libraries.risk.models import (
         ConcentrationLimit,
         LeverageLimit,
         RiskConfig,

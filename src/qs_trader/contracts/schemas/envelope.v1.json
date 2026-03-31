@@ -1,0 +1,59 @@
+{
+  "$id": "com.qs_trader.events.envelope.v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event Envelope v1",
+  "description": "Standard envelope for all QS-Trader events - provides event metadata and tracing",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "source_service"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Unique identifier for this event instance"
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Type of event - must match schema base name (e.g., 'bar', 'corporate_action')"
+    },
+    "event_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema major version number"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when event occurred (RFC3339 with Z suffix)"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Links related events in a workflow/transaction"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "ID of the event that directly caused this event"
+    },
+    "source_service": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Service that emitted this event"
+    }
+  },
+  "additionalProperties": false
+}

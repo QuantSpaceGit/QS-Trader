@@ -1,1 +1,1 @@
-"""Tests for qtrader.services.data package."""
+"""Tests for qs_trader.services.data package."""

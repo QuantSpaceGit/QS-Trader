@@ -1,8 +1,8 @@
-# Corporate Actions Handling in QTrader
+# Corporate Actions Handling in QS-Trader
 
 ## Overview
 
-QTrader implements automatic corporate action processing through an event-driven architecture. When corporate actions occur (splits, dividends, etc.), the DataService publishes `CorporateActionEvent` objects which are handled by the PortfolioService to adjust positions, cash, and maintain accurate accounting.
+QS-Trader implements automatic corporate action processing through an event-driven architecture. When corporate actions occur (splits, dividends, etc.), the DataService publishes `CorporateActionEvent` objects which are handled by the PortfolioService to adjust positions, cash, and maintain accurate accounting.
 
 ## Architecture
 
@@ -325,7 +325,7 @@ This design choice allows:
 
 ## Data Schema Reference
 
-Corporate actions are validated against `src/qtrader/contracts/schemas/data/corporate_action.v1.json`.
+Corporate actions are validated against `src/qs_trader/contracts/schemas/data/corporate_action.v1.json`.
 
 Key fields:
 
@@ -533,6 +533,6 @@ The implementation follows a defensive error handling strategy:
 ## Related Documentation
 
 - [Corporate Actions Report](./CORPORATE_ACTIONS_REPORT.md) - Investigation that led to current implementation
-- [Event Schema](../src/qtrader/contracts/schemas/data/corporate_action.v1.json) - Complete schema definition
-- [Portfolio Service](../src/qtrader/services/portfolio/service.py) - Implementation code
+- [Event Schema](../src/qs_trader/contracts/schemas/data/corporate_action.v1.json) - Complete schema definition
+- [Portfolio Service](../src/qs_trader/services/portfolio/service.py) - Implementation code
 - [Integration Tests](../tests/integration/services/portfolio/test_corporate_actions_integration.py) - Test examples

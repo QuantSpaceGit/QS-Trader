@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.libraries.registry import StrategyRegistry
-from qtrader.libraries.strategies import Strategy, StrategyConfig
+from qs_trader.libraries.registry import StrategyRegistry
+from qs_trader.libraries.strategies import Strategy, StrategyConfig
 
 
 @pytest.fixture

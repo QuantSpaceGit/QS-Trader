@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events import OrderEvent
+from qs_trader.events import OrderEvent
 
 
 # Test fixtures for new required fields

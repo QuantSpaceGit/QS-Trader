@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio.models import PortfolioConfig
+from qs_trader.services.portfolio.models import PortfolioConfig
 
 
 @pytest.fixture

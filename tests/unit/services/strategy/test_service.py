@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
-from qtrader.services.strategy.service import StrategyService
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.services.strategy.service import StrategyService
 
 
 class MockStrategyConfig(StrategyConfig):
@@ -585,7 +585,7 @@ def test_setup_retry_strategy_receives_events(event_bus):
     # Arrange
     from decimal import Decimal
 
-    from qtrader.events.events import FillEvent, PriceBarEvent
+    from qs_trader.events.events import FillEvent, PriceBarEvent
 
     config = MockStrategyConfig(name="flaky_strategy")
     strategy = ErrorStrategy(config)
@@ -645,7 +645,7 @@ def test_quarantined_strategy_doesnt_receive_bars(event_bus):
     # Arrange
     from decimal import Decimal
 
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     config1 = MockStrategyConfig(name="good_strategy")
     good_strategy = MockStrategy(config1)
@@ -690,7 +690,7 @@ def test_quarantined_strategy_doesnt_receive_fills(event_bus):
     # Arrange
     from decimal import Decimal
 
-    from qtrader.events.events import FillEvent
+    from qs_trader.events.events import FillEvent
 
     config1 = MockStrategyConfig(name="good_strategy")
     good_strategy = MockStrategy(config1)
@@ -738,7 +738,7 @@ def test_quarantined_strategy_with_strategy_id_fill(event_bus):
     # Arrange
     from decimal import Decimal
 
-    from qtrader.events.events import FillEvent
+    from qs_trader.events.events import FillEvent
 
     config = MockStrategyConfig(name="error_strategy")
     error_strategy = ErrorStrategy(config)
@@ -837,7 +837,7 @@ def test_recreate_service_doesnt_duplicate_handlers(event_bus):
     # Arrange
     from decimal import Decimal
 
-    from qtrader.events.events import PriceBarEvent
+    from qs_trader.events.events import PriceBarEvent
 
     config = MockStrategyConfig(name="test_strategy")
 

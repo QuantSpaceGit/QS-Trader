@@ -15,7 +15,7 @@ portfolio_risk_policy:
   description: "Test fixture - minimal risk controls with 5% position sizing and shorting enabled"
   version: "1.0.0"
   date_created: "2025-11-10"
-  author: "QTrader Test Suite"
+  author: "QS-Trader Test Suite"
   policy_scope: "portfolio"
 
   # Evaluation

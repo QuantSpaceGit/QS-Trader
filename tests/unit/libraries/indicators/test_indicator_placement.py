@@ -5,7 +5,7 @@ Tests the new IndicatorPlacement enum and visualization metadata
 added to indicator classes.
 """
 
-from qtrader.libraries.indicators import ATR, EMA, RSI, SMA, BaseIndicator, BollingerBands, IndicatorPlacement, StdDev
+from qs_trader.libraries.indicators import ATR, EMA, RSI, SMA, BaseIndicator, BollingerBands, IndicatorPlacement, StdDev
 
 
 class TestIndicatorPlacement:

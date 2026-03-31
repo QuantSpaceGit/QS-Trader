@@ -1,12 +1,12 @@
-# Local project files (templates are in src/qtrader/scaffold/)
-/config/
+# Local project files (templates are in src/qs_trader/scaffold/)
+#/config/
 /library/
 /data/
 /output/
 /logs/
 /experiments/
 /examples/
-/QTRADER_README.md
+/QS-TRADER_README.md
 
 
 

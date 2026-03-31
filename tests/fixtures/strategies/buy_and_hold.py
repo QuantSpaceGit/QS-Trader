@@ -4,9 +4,9 @@ Simple strategy that buys on first bar and holds until end.
 Used in integration tests - not a user-facing strategy.
 """
 
-from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
-from qtrader.services.strategy.models import SignalIntention
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.services.strategy.models import SignalIntention
 
 
 class BuyAndHoldConfig(StrategyConfig):

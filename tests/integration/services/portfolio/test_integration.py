@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio import PortfolioConfig, PortfolioService
+from qs_trader.services.portfolio import PortfolioConfig, PortfolioService
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio.models import (
+from qs_trader.services.portfolio.models import (
     Ledger,
     LedgerEntry,
     LedgerEntryType,

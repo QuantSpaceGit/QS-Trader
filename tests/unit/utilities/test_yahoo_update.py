@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from qtrader.utilities.yahoo_update import (
+from qs_trader.utilities.yahoo_update import (
     BATCH_SIZE,
     MIN_REQUEST_INTERVAL,
     discover_symbols,
@@ -108,7 +108,7 @@ class TestMarketTiming:
         mock_time = datetime(2024, 11, 19, 17, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
         # Act & Assert
-        with patch("qtrader.utilities.yahoo_update.datetime") as mock_dt:
+        with patch("qs_trader.utilities.yahoo_update.datetime") as mock_dt:
             mock_dt.now.return_value = mock_time
             assert is_market_closed() is True
 
@@ -118,7 +118,7 @@ class TestMarketTiming:
         mock_time = datetime(2024, 11, 19, 16, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
         # Act & Assert
-        with patch("qtrader.utilities.yahoo_update.datetime") as mock_dt:
+        with patch("qs_trader.utilities.yahoo_update.datetime") as mock_dt:
             mock_dt.now.return_value = mock_time
             assert is_market_closed() is True
 
@@ -128,7 +128,7 @@ class TestMarketTiming:
         mock_time = datetime(2024, 11, 19, 15, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
         # Act & Assert
-        with patch("qtrader.utilities.yahoo_update.datetime") as mock_dt:
+        with patch("qs_trader.utilities.yahoo_update.datetime") as mock_dt:
             mock_dt.now.return_value = mock_time
             assert is_market_closed() is False
 
@@ -138,7 +138,7 @@ class TestMarketTiming:
         mock_time = datetime(2024, 11, 19, 17, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
         # Act
-        with patch("qtrader.utilities.yahoo_update.datetime") as mock_dt:
+        with patch("qs_trader.utilities.yahoo_update.datetime") as mock_dt:
             mock_dt.now.return_value = mock_time
             result = get_safe_end_date()
 
@@ -151,7 +151,7 @@ class TestMarketTiming:
         mock_time = datetime(2024, 11, 19, 14, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
         # Act
-        with patch("qtrader.utilities.yahoo_update.datetime") as mock_dt:
+        with patch("qs_trader.utilities.yahoo_update.datetime") as mock_dt:
             mock_dt.now.return_value = mock_time
             result = get_safe_end_date()
 
@@ -287,7 +287,7 @@ class TestFileOperations:
 class TestDataFetching:
     """Tests for Yahoo Finance data fetching."""
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
     def test_fetch_yahoo_data_success(self, mock_ticker_class: Mock, sample_price_dataframe: pd.DataFrame):
         """Test successful data fetch from Yahoo Finance."""
         # Arrange
@@ -309,7 +309,7 @@ class TestDataFetching:
         assert "Adj Close" in price_data.columns
         mock_ticker.history.assert_called_once()
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
     def test_fetch_yahoo_data_empty_result(self, mock_ticker_class: Mock):
         """Test fetch returns None for empty results."""
         # Arrange
@@ -324,7 +324,7 @@ class TestDataFetching:
         assert price_data is None
         assert dividends is None
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
     def test_fetch_yahoo_data_with_dividends(
         self, mock_ticker_class: Mock, sample_price_dataframe: pd.DataFrame, sample_dividends: pd.Series
     ):
@@ -348,8 +348,8 @@ class TestDataFetching:
         assert len(dividends) == 1  # Only non-zero dividends
         assert dividends.iloc[0] == 0.82
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
-    @patch("qtrader.utilities.yahoo_update.datetime")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.datetime")
     def test_fetch_yahoo_data_filters_intraday_when_market_open(self, mock_datetime: Mock, mock_ticker_class: Mock):
         """Test that intraday data is filtered out when market is still open."""
         # Arrange: Mock time to 2 PM ET (market open)
@@ -385,8 +385,8 @@ class TestDataFetching:
         assert "2024-12-05" in dates
         assert "2024-12-06" in dates
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
-    @patch("qtrader.utilities.yahoo_update.time.sleep")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.time.sleep")
     def test_fetch_yahoo_data_retry_on_rate_limit(self, mock_sleep: Mock, mock_ticker_class: Mock):
         """Test retry logic on rate limit error."""
         # Arrange
@@ -418,7 +418,7 @@ class TestDataFetching:
         assert mock_ticker.history.call_count == 2
         mock_sleep.assert_called_once()  # Should sleep before retry
 
-    @patch("qtrader.utilities.yahoo_update.yf.Ticker")
+    @patch("qs_trader.utilities.yahoo_update.yf.Ticker")
     def test_fetch_yahoo_data_max_retries_exceeded(self, mock_ticker_class: Mock):
         """Test max retries exceeded returns None."""
         # Arrange
@@ -427,7 +427,7 @@ class TestDataFetching:
         mock_ticker.history.side_effect = Exception("rate limit exceeded")
 
         # Act
-        with patch("qtrader.utilities.yahoo_update.time.sleep"):
+        with patch("qs_trader.utilities.yahoo_update.time.sleep"):
             price_data, dividends = fetch_yahoo_data("AAPL", retry_count=3)  # Already at max
 
         # Assert
@@ -538,7 +538,7 @@ class TestDataMerging:
         df = pd.read_csv(csv_path)
         assert len(df) == 3  # Original count unchanged
 
-    @patch("qtrader.utilities.yahoo_update.datetime")
+    @patch("qs_trader.utilities.yahoo_update.datetime")
     def test_merge_data_filters_future_dates_when_market_open(self, mock_datetime: Mock, temp_data_dir: Path):
         """Test that merge_data filters out dates beyond safe_end_date."""
         # Arrange: Mock time to 2 PM ET on Dec 9 (market open)
@@ -721,11 +721,11 @@ class TestConfigLoading:
             yaml.dump(test_config, f)
 
         # Act - mock the __file__ location to point to our temp project
-        module_file = project_dir / "src" / "qtrader" / "utilities" / "yahoo_update.py"
+        module_file = project_dir / "src" / "qs_trader" / "utilities" / "yahoo_update.py"
         module_file.parent.mkdir(parents=True)
         module_file.touch()
 
-        with patch("qtrader.utilities.yahoo_update.__file__", str(module_file)):
+        with patch("qs_trader.utilities.yahoo_update.__file__", str(module_file)):
             result = load_data_sources_config()
 
         # Assert
@@ -735,16 +735,16 @@ class TestConfigLoading:
         """Test loading config from user home directory."""
         # Arrange - create config in temp home directory
         home_dir = temp_data_dir / "home"
-        qtrader_dir = home_dir / ".qtrader"
-        qtrader_dir.mkdir(parents=True)
-        config_file = qtrader_dir / "data_sources.yaml"
+        qs_trader_dir = home_dir / ".qs_trader"
+        qs_trader_dir.mkdir(parents=True)
+        config_file = qs_trader_dir / "data_sources.yaml"
 
         test_config = {"data_sources": {"test": {"root_path": "home/path"}}}
         with config_file.open("w") as f:
             yaml.dump(test_config, f)
 
         # Act - mock home directory and make project config not exist
-        with patch("qtrader.utilities.yahoo_update.__file__", "/nonexistent/project/yahoo_update.py"):
+        with patch("qs_trader.utilities.yahoo_update.__file__", "/nonexistent/project/yahoo_update.py"):
             with patch("pathlib.Path.home", return_value=home_dir):
                 result = load_data_sources_config()
 
@@ -763,7 +763,7 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_valid_source(self, sample_data_sources_config: Dict[str, Any]):
         """Test extracting data directory from valid config."""
         # Arrange
-        with patch("qtrader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
             # Act
             result = get_yahoo_data_dir("yahoo-us-equity-1d-csv")
 
@@ -774,7 +774,7 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_absolute_path(self, sample_data_sources_config: Dict[str, Any]):
         """Test handling absolute path in config."""
         # Arrange
-        with patch("qtrader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
             # Act
             result = get_yahoo_data_dir("custom-dataset")
 
@@ -785,7 +785,7 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_missing_source(self, sample_data_sources_config: Dict[str, Any]):
         """Test getting data directory for non-existent source returns None."""
         # Arrange
-        with patch("qtrader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
             # Act
             result = get_yahoo_data_dir("nonexistent-source")
 
@@ -795,7 +795,7 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_no_config(self):
         """Test getting data directory when config loading fails returns None."""
         # Arrange
-        with patch("qtrader.utilities.yahoo_update.load_data_sources_config", return_value=None):
+        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=None):
             # Act
             result = get_yahoo_data_dir("yahoo-us-equity-1d-csv")
 
@@ -811,8 +811,8 @@ class TestConfigLoading:
 class TestSymbolUpdate:
     """Tests for complete symbol update workflow."""
 
-    @patch("qtrader.utilities.yahoo_update.fetch_yahoo_data")
-    @patch("qtrader.utilities.yahoo_update.time.sleep")
+    @patch("qs_trader.utilities.yahoo_update.fetch_yahoo_data")
+    @patch("qs_trader.utilities.yahoo_update.time.sleep")
     def test_update_symbol_success(
         self, mock_sleep: Mock, mock_fetch: Mock, temp_data_dir: Path, sample_price_dataframe: pd.DataFrame
     ):
@@ -830,7 +830,7 @@ class TestSymbolUpdate:
         assert result["action"] == "full_refresh"
         assert result["bars_added"] == 3
 
-    @patch("qtrader.utilities.yahoo_update.fetch_yahoo_data")
+    @patch("qs_trader.utilities.yahoo_update.fetch_yahoo_data")
     def test_update_symbol_incremental(
         self, mock_fetch: Mock, temp_data_dir: Path, sample_csv_data: str, sample_price_dataframe: pd.DataFrame
     ):
@@ -853,7 +853,7 @@ class TestSymbolUpdate:
         assert result["action"] == "incremental"
         assert result["bars_added"] == 1
 
-    @patch("qtrader.utilities.yahoo_update.fetch_yahoo_data")
+    @patch("qs_trader.utilities.yahoo_update.fetch_yahoo_data")
     def test_update_symbol_already_up_to_date(self, mock_fetch: Mock, temp_data_dir: Path, sample_csv_data: str):
         """Test update when data is already up to date."""
         # Arrange
@@ -862,7 +862,7 @@ class TestSymbolUpdate:
         dividends_path = temp_data_dir / "dividends_calendar.json"
 
         # Mock safe end date to be before last CSV date
-        with patch("qtrader.utilities.yahoo_update.get_safe_end_date", return_value="2020-01-05"):
+        with patch("qs_trader.utilities.yahoo_update.get_safe_end_date", return_value="2020-01-05"):
             # Act
             result = update_symbol("AAPL", temp_data_dir, dividends_path, rate_limit=False)
 
@@ -872,7 +872,7 @@ class TestSymbolUpdate:
         assert result["bars_added"] == 0
         mock_fetch.assert_not_called()
 
-    @patch("qtrader.utilities.yahoo_update.fetch_yahoo_data")
+    @patch("qs_trader.utilities.yahoo_update.fetch_yahoo_data")
     def test_update_symbol_fetch_failure(self, mock_fetch: Mock, temp_data_dir: Path):
         """Test symbol update when fetch fails."""
         # Arrange
@@ -886,9 +886,9 @@ class TestSymbolUpdate:
         assert result["success"] is False
         assert result["bars_added"] == 0
 
-    @patch("qtrader.utilities.yahoo_update.fetch_yahoo_data")
-    @patch("qtrader.utilities.yahoo_update.time.sleep")
-    @patch("qtrader.utilities.yahoo_update.time.time")
+    @patch("qs_trader.utilities.yahoo_update.fetch_yahoo_data")
+    @patch("qs_trader.utilities.yahoo_update.time.sleep")
+    @patch("qs_trader.utilities.yahoo_update.time.time")
     def test_update_symbol_with_rate_limiting(
         self,
         mock_time: Mock,
@@ -907,7 +907,7 @@ class TestSymbolUpdate:
         mock_time.side_effect = [5.0, 5.0]
 
         # Import and patch the global _last_request_time to simulate recent request
-        import qtrader.utilities.yahoo_update as yupdate
+        import qs_trader.utilities.yahoo_update as yupdate
 
         original_last_time = yupdate._last_request_time
         yupdate._last_request_time = 3.0  # Set to 2 seconds ago

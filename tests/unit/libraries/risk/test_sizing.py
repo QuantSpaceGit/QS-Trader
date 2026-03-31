@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.libraries.risk.tools.sizing import (
+from qs_trader.libraries.risk.tools.sizing import (
     calculate_equal_weight_size,
     calculate_fixed_fraction_size,
     validate_sizing_inputs,

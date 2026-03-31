@@ -14,11 +14,11 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import OrderEvent, PortfolioStateEvent, PriceBarEvent
-from qtrader.services.manager.service import ManagerService
-from qtrader.services.strategy.context import Context
-from qtrader.services.strategy.models import SignalIntention
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import OrderEvent, PortfolioStateEvent, PriceBarEvent
+from qs_trader.services.manager.service import ManagerService
+from qs_trader.services.strategy.context import Context
+from qs_trader.services.strategy.models import SignalIntention
 
 
 class TestSignalToOrderFlow:
@@ -233,7 +233,7 @@ class TestSignalToOrderFlow:
         context.cache_bar(bar)
 
         # Create portfolio state with positions for close signals
-        from qtrader.events.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+        from qs_trader.events.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
 
         portfolio_state = PortfolioStateEvent(
             portfolio_id="test_portfolio",

@@ -5,10 +5,10 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.data.models import Bar
-from qtrader.services.execution.config import ExecutionConfig, SlippageConfig
-from qtrader.services.execution.fill_policy import FillPolicy
-from qtrader.services.execution.models import Order, OrderSide, OrderType
+from qs_trader.services.data.models import Bar
+from qs_trader.services.execution.config import ExecutionConfig, SlippageConfig
+from qs_trader.services.execution.fill_policy import FillPolicy
+from qs_trader.services.execution.models import Order, OrderSide, OrderType
 
 
 def make_config(market_order_queue_bars: int = 1, slippage_bps: Decimal = Decimal("5")) -> ExecutionConfig:

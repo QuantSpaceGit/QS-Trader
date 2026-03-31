@@ -4,9 +4,9 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import PriceBarEvent
-from qtrader.services.strategy.context import Context
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.services.strategy.context import Context
 
 
 @pytest.fixture

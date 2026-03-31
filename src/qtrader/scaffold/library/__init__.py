@@ -1,1 +1,0 @@
-"""QTrader custom library."""

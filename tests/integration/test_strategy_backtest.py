@@ -10,8 +10,8 @@ from datetime import datetime
 from decimal import Decimal
 from unittest.mock import patch
 
-from qtrader.engine.engine import BacktestEngine
-from qtrader.events.events import SignalEvent
+from qs_trader.engine.engine import BacktestEngine
+from qs_trader.events.events import SignalEvent
 
 
 class TestStrategyIntegration:
@@ -50,7 +50,7 @@ class TestStrategyIntegration:
                 signals_collected.append(event)
 
         # Run backtest with mocked system config
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             with BacktestEngine.from_config(config) as engine:
                 # Subscribe to signal events
                 engine._event_bus.subscribe("signal", collect_signals)
@@ -96,7 +96,7 @@ class TestStrategyIntegration:
         config.start_date = datetime(2020, 8, 1)
         config.end_date = datetime(2020, 8, 15)
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             with BacktestEngine.from_config(config) as engine:
                 result = engine.run()
 
@@ -122,7 +122,7 @@ class TestStrategyIntegration:
         config.start_date = datetime(2020, 8, 1)
         config.end_date = datetime(2020, 8, 15)
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             with BacktestEngine.from_config(config) as engine:
                 # Check strategy service exists
                 assert engine._strategy_service is not None
@@ -146,7 +146,7 @@ class TestStrategyIntegration:
         config.start_date = datetime(2020, 8, 1)
         config.end_date = datetime(2020, 8, 15)
 
-        with patch("qtrader.engine.engine.get_system_config", return_value=mock_system_config):
+        with patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config):
             with BacktestEngine.from_config(config) as engine:
                 result = engine.run()
 

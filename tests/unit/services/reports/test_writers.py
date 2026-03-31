@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.events.event_store import InMemoryEventStore
-from qtrader.events.events import (
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import (
     FillEvent,
     IndicatorEvent,
     OrderEvent,
@@ -21,8 +21,8 @@ from qtrader.events.events import (
     PriceBarEvent,
     SignalEvent,
 )
-from qtrader.libraries.performance.models import DrawdownPeriod, EquityCurvePoint, FullMetrics, ReturnPoint, TradeRecord
-from qtrader.services.reporting.writers import (
+from qs_trader.libraries.performance.models import DrawdownPeriod, EquityCurvePoint, FullMetrics, ReturnPoint, TradeRecord
+from qs_trader.services.reporting.writers import (
     DecimalEncoder,
     write_drawdowns_json,
     write_equity_curve_json,

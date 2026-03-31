@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.cli.commands.backtest module.
+Unit tests for qs_trader.cli.commands.backtest module.
 
 Tests cover:
 - Basic command execution with required --file option
@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
-from qtrader.cli.commands.backtest import backtest_command
+from qs_trader.cli.commands.backtest import backtest_command
 
 
 @pytest.fixture
@@ -133,12 +133,12 @@ class TestBacktestCommandBasics:
         assert result.exit_code == 2
         assert "does not exist" in result.output.lower() or "invalid" in result.output.lower()
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_successful_backtest_execution(
         self,
         mock_get_sys_config,
@@ -193,12 +193,12 @@ class TestBacktestCommandBasics:
 class TestBacktestCommandOverrides:
     """Test CLI option overrides."""
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_silent_mode_override(
         self,
         mock_get_sys_config,
@@ -234,12 +234,12 @@ class TestBacktestCommandOverrides:
         assert mock_config.display_events is None
         assert "Silent mode" in result.output
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_replay_speed_override(
         self,
         mock_get_sys_config,
@@ -274,12 +274,12 @@ class TestBacktestCommandOverrides:
         assert mock_config.replay_speed == 0.25
         assert "0.25s per event" in result.output
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_date_overrides(
         self,
         mock_get_sys_config,
@@ -325,12 +325,12 @@ class TestBacktestCommandOverrides:
         assert "2020-06-01" in result.output
         assert "2020-09-30" in result.output
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_combined_overrides(
         self,
         mock_get_sys_config,
@@ -386,12 +386,12 @@ class TestBacktestCommandOverrides:
 class TestBacktestCommandDisplay:
     """Test command output display."""
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_memory_backend_display(
         self,
         mock_get_sys_config,
@@ -425,13 +425,13 @@ class TestBacktestCommandDisplay:
         assert result.exit_code == 0
         assert "memory (no files created)" in result.output
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
-    @patch("qtrader.cli.commands.backtest.os.path.getsize")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.os.path.getsize")
     def test_file_backend_display(
         self,
         mock_getsize,
@@ -500,10 +500,10 @@ class TestBacktestCommandDisplay:
 class TestBacktestCommandErrors:
     """Test error handling."""
 
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_config_loading_error(
         self,
         mock_get_sys_config,
@@ -522,12 +522,12 @@ class TestBacktestCommandErrors:
         assert "✗ Backtest failed:" in result.output
         assert "Invalid config format" in result.output
 
-    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
-    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_engine_initialization_error(
         self,
         mock_get_sys_config,
@@ -561,10 +561,10 @@ class TestBacktestCommandErrors:
         assert "✗ Backtest failed:" in result.output
         assert "Failed to initialize data service" in result.output
 
-    @patch("qtrader.cli.commands.backtest.BacktestEngine")
-    @patch("qtrader.cli.commands.backtest.load_backtest_config")
-    @patch("qtrader.cli.commands.backtest.reload_system_config")
-    @patch("qtrader.cli.commands.backtest.get_system_config")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
     def test_backtest_execution_error(
         self,
         mock_get_sys_config,

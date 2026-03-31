@@ -9,11 +9,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import PriceBarEvent
-from qtrader.services.data.config import BarSchemaConfig, DataConfig
-from qtrader.services.data.service import DataService
-from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import PriceBarEvent
+from qs_trader.services.data.config import BarSchemaConfig, DataConfig
+from qs_trader.services.data.service import DataService
+from qs_trader.services.data.source_selector import AssetClass, DataSourceSelector
 
 
 @pytest.fixture
@@ -231,7 +231,7 @@ class TestDataServiceFromBacktestConfig:
     def test_backtest_engine_creates_event_enabled_service(self, event_bus: EventBus, test_resolver) -> None:
         """Test BacktestEngine creates DataService with EventBus."""
         # Create DataService directly (BacktestEngine tested elsewhere)
-        from qtrader.services.data.config import DataConfig
+        from qs_trader.services.data.config import DataConfig
 
         config = DataConfig(
             mode="adjusted",

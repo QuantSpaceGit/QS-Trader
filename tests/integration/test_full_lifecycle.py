@@ -21,14 +21,14 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import FillEvent, OrderEvent, PortfolioStateEvent, PriceBarEvent, SignalEvent
-from qtrader.libraries.risk import load_policy
-from qtrader.services.execution.config import ExecutionConfig
-from qtrader.services.execution.service import ExecutionService
-from qtrader.services.manager.service import ManagerService
-from qtrader.services.portfolio.models import PortfolioConfig
-from qtrader.services.portfolio.service import PortfolioService
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import FillEvent, OrderEvent, PortfolioStateEvent, PriceBarEvent, SignalEvent
+from qs_trader.libraries.risk import load_policy
+from qs_trader.services.execution.config import ExecutionConfig
+from qs_trader.services.execution.service import ExecutionService
+from qs_trader.services.manager.service import ManagerService
+from qs_trader.services.portfolio.models import PortfolioConfig
+from qs_trader.services.portfolio.service import PortfolioService
 
 
 @pytest.fixture

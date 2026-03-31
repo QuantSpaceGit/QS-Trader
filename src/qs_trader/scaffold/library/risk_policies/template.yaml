@@ -1,0 +1,494 @@
+# yaml-language-server: disable
+# Risk Policy Template
+# =====================
+# This template shows how to create custom risk policies for QS-Trader.
+# Copy this file to create your own policy, then modify the values below.
+#
+# USER WORKFLOW:
+#   1. Copy this template to my_library/risk_policies/my_policy.yaml
+#   2. Edit the YAML configuration values to match your risk tolerance
+#   3. Reference the policy in config/portfolio.yaml:
+#      risk_policy:
+#        name: "my_policy"
+#   4. Run your backtest - ManagerService loads and applies the policy automatically
+#
+# IMPORTANT: You do NOT directly call risk functions in your code.
+# The risk library is used internally by ManagerService to:
+#   - Calculate position sizes based on your policy
+#   - Check limits before executing orders
+#   - Enforce risk controls automatically
+#
+
+portfolio_risk_policy:
+  #############################################################################
+  # Metadata
+  # -------------------------------------------------------------------------
+  # Basic information about your risk policy.
+  #############################################################################
+  name: "template" # Change this to your policy name (must match filename)
+  description: "Template risk policy - customize for your strategy"
+  version: "1.0.0"
+  date_created: "2025-01-01"
+  author: "Your Name"
+  policy_scope: "portfolio" # Currently only "portfolio" is supported
+
+  #############################################################################
+  # Evaluation / Clock
+  # -------------------------------------------------------------------------
+  # When should risk checks be performed?
+  #
+  # mode options:
+  #   - "end_of_day": Check limits at market close
+  #   - "bar_close": Check limits at each bar close (for intraday)
+  #   - "intraday": Check limits on every signal/order
+  #
+  # clock_alignment:
+  #   - "exchange_calendar": Use exchange trading hours
+  #############################################################################
+  evaluation:
+    mode: "end_of_day"
+    clock_alignment: "exchange_calendar"
+
+  #############################################################################
+  # Strategy Budgets (Capital Allocation)
+  # -------------------------------------------------------------------------
+  # Allocate portfolio capital across multiple strategies.
+  #
+  # Each strategy gets a dedicated capital pool based on its weight.
+  # Weights are fractions of total equity that sum to ≤ 1.0.
+  #
+  # IMPORTANT: If you omit this section, a single "default" budget at 95%
+  # weight will be created automatically, and all strategies will share it.
+  #
+  # Format:
+  #   budgets:
+  #     - strategy_id: "strategy_name"  # Must match strategy_id in portfolio.yaml
+  #       capital_weight: 0.30          # Fraction of equity (0.30 = 30%)
+  #
+  # Rules:
+  #   - capital_weight must be in [0.0, 1.0]
+  #   - Sum of all weights must be ≤ 1.0
+  #   - Remaining (1.0 - sum) stays as unallocated cash reserve
+  #   - Use "default" as strategy_id for unlisted strategies (fallback)
+  #
+  # Examples:
+  #
+  # Example 1: Equal allocation across 3 strategies
+  #   budgets:
+  #     - strategy_id: "sma_crossover"
+  #       capital_weight: 0.30  # 30% to SMA strategy
+  #     - strategy_id: "momentum"
+  #       capital_weight: 0.30  # 30% to momentum strategy
+  #     - strategy_id: "mean_reversion"
+  #       capital_weight: 0.30  # 30% to mean reversion
+  #   # Total: 90% allocated, 10% unallocated cash
+  #
+  # Example 2: Core-satellite approach
+  #   budgets:
+  #     - strategy_id: "buy_and_hold"
+  #       capital_weight: 0.60  # 60% core position
+  #     - strategy_id: "momentum"
+  #       capital_weight: 0.20  # 20% satellite 1
+  #     - strategy_id: "mean_reversion"
+  #       capital_weight: 0.15  # 15% satellite 2
+  #   # Total: 95% allocated, 5% unallocated cash
+  #
+  # Example 3: Single strategy with fallback
+  #   budgets:
+  #     - strategy_id: "main_strategy"
+  #       capital_weight: 0.70  # 70% to main strategy
+  #     - strategy_id: "default"
+  #       capital_weight: 0.20  # 20% fallback for any other strategies
+  #   # Total: 90% allocated, 10% unallocated cash
+  #
+  # Example 4: No explicit budgets (uses automatic default)
+  #   # Omit budgets section entirely
+  #   # System creates: budgets: [{"strategy_id": "default", "capital_weight": 0.95}]
+  #   # All strategies share 95% of equity
+  #############################################################################
+  budgets:
+    # UNCOMMENT AND CUSTOMIZE for multi-strategy portfolios:
+    # - strategy_id: "sma_crossover"
+    #   capital_weight: 0.30
+    # - strategy_id: "momentum"
+    #   capital_weight: 0.30
+    # - strategy_id: "default"
+    #   capital_weight: 0.35
+
+    # For single-strategy or shared allocation, you can omit this section entirely.
+    # The system will automatically create a "default" budget at 95% weight.
+
+  #############################################################################
+  # Sizing
+  # -------------------------------------------------------------------------
+  # How should position sizes be calculated from signal strengths?
+  #
+  # IMPORTANT: Two-Layer Allocation Model
+  # ======================================
+  # Position sizing happens in TWO steps:
+  #
+  # Step 1: Budget Layer (Capital Allocation)
+  #   allocated_capital = equity × budget_weight
+  #   Example: $100k equity × 95% budget = $95k allocated capital
+  #
+  # Step 2: Sizing Layer (Position Sizing)
+  #   position_size = allocated_capital × fixed_equity_pct × signal_strength
+  #   Example: $95k allocated × 100% sizing × 1.0 signal = $95k position
+  #
+  # Result: fixed_equity_pct applies to ALLOCATED CAPITAL, not total equity!
+  #   - fixed_equity_pct: 1.0 with 95% budget → 95% of equity (not 100%)
+  #   - fixed_equity_pct: 0.5 with 95% budget → 47.5% of equity (not 50%)
+  #   - fixed_equity_pct: 0.2 with 95% budget → 19% of equity (not 20%)
+  #
+  # The parameter name "fixed_equity_pct" is somewhat misleading - it's really
+  # a fraction of allocated capital, not total equity. Keep this in mind when
+  # configuring your policy.
+  #
+  # algorithm options:
+  #   - "fixed_equity_pct": Fixed fraction of allocated capital per position
+  #   - "volatility_targeting": Size based on volatility (future)
+  #   - "kelly_criterion": Kelly formula sizing (future)
+  #   - "risk_parity": Equal risk contribution (future)
+  #   - "equal_weighting": Equal weight across all positions
+  #
+  # For fixed_equity_pct:
+  #   Position size = allocated_capital × fixed_equity_pct × |signal_strength|
+  #   Example: 0.10 = 10% of allocated capital per full-strength (1.0) signal
+  #            0.05 = 5% of allocated capital per full-strength signal
+  #            1.00 = 100% of allocated capital (not 100% of equity!)
+  #
+  # Signal strength should be in [-1.0, 1.0]:
+  #   - 1.0 = maximum long position (100% of allocation)
+  #   - 0.5 = half-size long position (50% of allocation)
+  #   - -1.0 = maximum short position (if shorting allowed)
+  #############################################################################
+  sizing:
+    algorithm: "fixed_equity_pct"
+
+    # For fixed_equity_pct algorithm:
+    fixed_equity_pct: 0.10 # 10% of equity per position (adjust to your risk tolerance)
+
+    # For volatility_targeting algorithm (future):
+    volatility_targeting:
+      target_volatility_pct: null # e.g., 0.12 for 12% annualized volatility
+
+    # For kelly_criterion algorithm (future):
+    kelly_criterion:
+      fraction: 0.5 # Half-Kelly (recommended: 0.25-0.5 to reduce risk)
+
+  #############################################################################
+  # Cash & Liquidity
+  # -------------------------------------------------------------------------
+  # How much cash should be kept in reserve?
+  #
+  # cash_buffer_pct: Fraction of equity to keep as cash (not invested)
+  #   Example: 0.05 = 5% cash buffer, so max 95% of equity is invested
+  #            0.10 = 10% cash buffer, so max 90% of equity is invested
+  #
+  # This prevents being fully invested and unable to respond to new signals.
+  #############################################################################
+  cash_management:
+    cash_buffer_pct: 0.05 # Keep 5% cash (adjust based on strategy needs)
+
+  limits:
+    #############################################################################
+    # Liquidity Limits
+    # -------------------------------------------------------------------------
+    # Prevent orders that are too large relative to market liquidity.
+    #
+    # max_participation_adv: Maximum order size as fraction of Average Daily Volume
+    #   Example: 0.10 = Order can be at most 10% of daily volume
+    #            0.05 = Order can be at most 5% of daily volume
+    #
+    # min_ticket_usd: Minimum order size in USD (prevents tiny orders)
+    #############################################################################
+    liquidity:
+      max_participation_adv: 0.10 # Max 10% of daily volume per order
+      min_ticket_usd: 100 # Minimum $100 per order
+
+    #############################################################################
+    # Leverage Limits
+    # -------------------------------------------------------------------------
+    # Control total portfolio leverage.
+    #
+    # allow_leveraged_positions: Can positions exceed available cash?
+    #   false = Long-only cash account (most conservative)
+    #   true = Can use margin/leverage (requires margin_policy settings)
+    #
+    # max_gross_leverage: (sum of all position abs values) / equity
+    #   Example: 1.0 = No leverage, 100% gross exposure
+    #            2.0 = 200% gross exposure (e.g., 150% long + 50% short)
+    #
+    # max_net_leverage: |net exposure| / equity
+    #   Example: 1.0 = Net exposure ≤ 100% of equity
+    #            0.8 = Net exposure ≤ 80% of equity (partially hedged)
+    #############################################################################
+    leverage:
+      allow_leveraged_positions: false # false = cash account, true = margin
+      max_gross_leverage: 1.0 # 1.0 = No leverage (adjust if using margin)
+      max_net_leverage: 1.0 # 1.0 = Fully directional (adjust for hedging)
+
+    #############################################################################
+    # Shorting
+    # -------------------------------------------------------------------------
+    # Can you take short positions?
+    #
+    # allow_short_positions:
+    #   false = Long-only (most common for retail)
+    #   true = Can short (requires margin account and short_margin_rate)
+    #############################################################################
+    shorting:
+      allow_short_positions: false # false = long-only, true = allow shorts
+
+    #############################################################################
+    # Margin Policy
+    # -------------------------------------------------------------------------
+    # Settings for margin accounts (only if allow_leveraged_positions = true).
+    #
+    # allow_negative_cash: Can cash go negative (borrowed from broker)?
+    #   false = Cash must stay positive (most conservative)
+    #   true = Can borrow on margin (requires margin rates)
+    #
+    # initial_margin_rate: Initial margin requirement (e.g., 0.5 = 50% for equities)
+    # short_margin_rate: Short position margin requirement (e.g., 1.5 = 150% for shorts)
+    #
+    # Leave as null if using cash account (allow_leveraged_positions = false).
+    #############################################################################
+    margin_policy:
+      allow_negative_cash: false # false = no borrowing, true = allow margin
+      initial_margin_rate: null # e.g., 0.5 for 50% margin (set if using margin)
+      short_margin_rate: null # e.g., 1.5 for 150% short margin (set if shorting)
+
+    #############################################################################
+    # Concentration Limits
+    # -------------------------------------------------------------------------
+    # Prevent over-concentration in any single dimension.
+    #
+    # All values are fractions of equity (e.g., 0.20 = 20% of equity).
+    # Set to null to disable the limit.
+    #
+    # max_sector_exposure_pct: Max exposure to any single sector
+    #   Example: 0.30 = Max 30% in any sector (Tech, Healthcare, etc.)
+    #
+    # max_industry_exposure_pct: Max exposure to any single industry
+    #   Example: 0.20 = Max 20% in any industry (Software, Pharma, etc.)
+    #
+    # max_country_exposure_pct: Max exposure to any single country
+    #   Example: 0.80 = Max 80% in any country (useful for international portfolios)
+    #
+    # max_asset_exposure_pct: Max exposure to any single asset class
+    #   Example: 0.60 = Max 60% in equities (vs bonds, commodities, etc.)
+    #
+    # max_position_size_pct: Max exposure to any single symbol
+    #   Example: 0.10 = Max 10% per position (prevents single-stock risk)
+    #            1.0 = No limit (allows full equity in one position - risky!)
+    #############################################################################
+    concentration:
+      max_sector_exposure_pct: null # e.g., 0.30 for 30% max per sector
+      max_industry_exposure_pct: null # e.g., 0.20 for 20% max per industry
+      max_country_exposure_pct: null # e.g., 0.80 for 80% max per country
+      max_asset_exposure_pct: null # e.g., 0.60 for 60% max per asset class
+      max_position_size_pct: 0.20 # 20% max per position (ADJUST THIS!)
+
+    #############################################################################
+    # Portfolio Drawdown Limits
+    # -------------------------------------------------------------------------
+    # Stop trading if losses exceed thresholds.
+    #
+    # max_drawdown_pct: Stop all trading if drawdown exceeds this level
+    #   Example: 0.15 = Stop if portfolio falls 15% from peak
+    #            0.20 = Stop if portfolio falls 20% from peak
+    #
+    # daily_loss_limit_pct: Stop trading for the day if daily loss exceeds this
+    #   Example: 0.05 = Stop if portfolio falls 5% in one day
+    #            0.03 = Stop if portfolio falls 3% in one day
+    #
+    # Set to null to disable these circuit breakers.
+    #############################################################################
+    portfolio_drawdown:
+      max_drawdown_pct: null # e.g., 0.15 for 15% max drawdown
+      daily_loss_limit_pct: null # e.g., 0.05 for 5% daily loss limit
+
+    #############################################################################
+    # Position Count
+    # -------------------------------------------------------------------------
+    # Limit the number of simultaneous positions.
+    #
+    # max_positions: Maximum number of positions to hold at once
+    #   Example: 20 = Hold at most 20 positions
+    #            10 = Hold at most 10 positions (more concentrated)
+    #            null = No limit
+    #############################################################################
+    position_count:
+      max_positions: null # e.g., 20 for max 20 positions
+
+    #############################################################################
+    # Diversification
+    # -------------------------------------------------------------------------
+    # Prevent holding highly correlated positions.
+    #
+    # max_correlation_between_positions: Reject new positions if correlation
+    #   with existing positions exceeds this threshold
+    #   Example: 0.80 = Reject if correlation > 80%
+    #            0.70 = Reject if correlation > 70% (more diversification)
+    #
+    # Set to null to disable correlation checks.
+    # Note: Requires historical correlation matrix (future feature).
+    #############################################################################
+    diversification:
+      max_correlation_between_positions: null # e.g., 0.80 for max 80% correlation
+
+  #############################################################################
+  # Drawdown Throttling
+  # -------------------------------------------------------------------------
+  # Scale position sizes down during drawdowns (risk-on/risk-off).
+  #
+  # As drawdown increases, multiply position sizes by progressively smaller values.
+  #
+  # thresholds: Drawdown levels (fractions, e.g., 0.05 = 5% drawdown)
+  # multipliers: Sizing multipliers for each threshold (same length as thresholds)
+  #
+  # Example:
+  #   thresholds: [0.05, 0.10, 0.15]
+  #   multipliers: [0.7, 0.5, 0.0]
+  #
+  #   Means:
+  #   - 0-5% drawdown: Full position sizes (1.0x)
+  #   - 5-10% drawdown: 70% position sizes (0.7x)
+  #   - 10-15% drawdown: 50% position sizes (0.5x)
+  #   - >15% drawdown: No new positions (0.0x)
+  #
+  # Set to empty lists [] to disable throttling.
+  #############################################################################
+  drawdown_controls:
+    thresholds: [] # e.g., [0.05, 0.10, 0.15]
+    multipliers: [] # e.g., [0.7, 0.5, 0.0]
+
+  #############################################################################
+  # Strategy-Level Limits
+  # -------------------------------------------------------------------------
+  # Default limits for all strategies, with optional per-strategy overrides.
+  #
+  # defaults: Applied to all strategies unless overridden
+  #   max_drawdown_pct: Max drawdown for this strategy
+  #   enforce_stop_loss: Automatically close positions on stop loss
+  #   max_stop_loss_pct: Stop loss level (e.g., 0.05 = 5% loss)
+  #   enforce_take_profit: Automatically close positions on profit target
+  #   min_take_profit_pct: Profit target level (e.g., 0.10 = 10% gain)
+  #
+  # strategy_overrides: Per-strategy settings (keys = strategy names)
+  #   Example:
+  #     strategy_overrides:
+  #       momentum:
+  #         max_drawdown_pct: 0.10
+  #         enforce_stop_loss: true
+  #         max_stop_loss_pct: 0.05
+  #       buy_hold:
+  #         enforce_stop_loss: false
+  #############################################################################
+  strategy_limits:
+    defaults:
+      max_drawdown_pct: null
+      enforce_stop_loss: false
+      max_stop_loss_pct: null # e.g., 0.05 for 5% stop loss
+      enforce_take_profit: false
+      min_take_profit_pct: null # e.g., 0.10 for 10% profit target
+
+    # Per-strategy overrides (add your strategies here):
+    strategy_overrides: {}
+    #   your_strategy_name:
+    #     max_drawdown_pct: 0.10
+    #     enforce_stop_loss: true
+    #     max_stop_loss_pct: 0.05
+
+  #############################################################################
+  # Execution Risk Controls
+  # -------------------------------------------------------------------------
+  # Reject orders with excessive costs or slippage.
+  #
+  # max_slippage_pct: Reject orders if expected slippage exceeds this
+  #   Example: 0.01 = Reject if slippage > 1% (10 bps)
+  #
+  # max_commission_pct: Reject orders if commission exceeds this fraction of notional
+  #   Example: 0.001 = Reject if commission > 0.1% (10 bps)
+  #
+  # max_order_size_pct_of_adv: Reject orders larger than this fraction of ADV
+  #   Example: 0.20 = Reject if order > 20% of daily volume
+  #
+  # Set to null to disable these checks.
+  #############################################################################
+  execution_controls:
+    max_slippage_pct: null # e.g., 0.01 for 1% max slippage
+    max_commission_pct: null # e.g., 0.001 for 0.1% max commission
+    max_order_size_pct_of_adv: null # e.g., 0.20 for 20% ADV max
+
+  #############################################################################
+  # Rebalancing Behavior
+  # -------------------------------------------------------------------------
+  # What to do when risk limits are breached?
+  #
+  # rebalance_on_risk_breach: Should positions be automatically reduced?
+  #   false = Just reject new orders (most common)
+  #   true = Automatically sell positions to get back within limits
+  #
+  # rebalance_strategy: How to rebalance if rebalance_on_risk_breach = true
+  #   "proportional_reduction": Scale down all positions proportionally
+  #   "largest_first": Sell largest positions first
+  #   null: No rebalancing
+  #############################################################################
+  rebalancing:
+    rebalance_on_risk_breach: false
+    rebalance_strategy: null # "proportional_reduction" | "largest_first" | null
+
+###############################################################################
+# Quick Start Guide
+###############################################################################
+#
+# 1. Copy this template:
+#    cp my_library/risk_policies/template.yaml my_library/risk_policies/my_policy.yaml
+#
+# 2. Edit key parameters in my_policy.yaml:
+#    - name: Change to match filename (e.g., "my_policy")
+#    - sizing.fixed_equity_pct: Adjust position size (e.g., 0.05 = 5% per position)
+#    - concentration.max_position_size_pct: Set max per symbol (e.g., 0.20 = 20%)
+#    - cash_management.cash_buffer_pct: Set cash reserve (e.g., 0.10 = 10%)
+#
+# 3. Configure your portfolio to use this policy in config/portfolio.yaml:
+#    risk_policy:
+#      name: "my_policy"  # References my_library/risk_policies/my_policy.yaml
+#      config: {}         # Optional overrides
+#
+# 4. Run your backtest:
+#    The ManagerService will automatically:
+#      - Load your risk policy from my_library/risk_policies/my_policy.yaml
+#      - Use the policy configuration internally to size positions and check limits
+#      - Apply risk controls transparently during order processing
+#
+#    You do NOT need to import or call risk tools directly in your code.
+#    The risk library is an internal implementation detail used by ManagerService.
+#
+# 5. Common Configurations:
+#
+#    Conservative (retirement account):
+#      - fixed_equity_pct: 0.05 (5% per position)
+#      - max_position_size_pct: 0.10 (10% max per symbol)
+#      - cash_buffer_pct: 0.10 (10% cash)
+#      - allow_leveraged_positions: false
+#      - allow_short_positions: false
+#
+#    Moderate (growth account):
+#      - fixed_equity_pct: 0.10 (10% per position)
+#      - max_position_size_pct: 0.20 (20% max per symbol)
+#      - cash_buffer_pct: 0.05 (5% cash)
+#      - allow_leveraged_positions: false
+#      - allow_short_positions: false
+#
+#    Aggressive (actively managed):
+#      - fixed_equity_pct: 0.15 (15% per position)
+#      - max_position_size_pct: 0.30 (30% max per symbol)
+#      - cash_buffer_pct: 0.02 (2% cash)
+#      - allow_leveraged_positions: true
+#      - max_gross_leverage: 1.5 (150% gross exposure)
+#      - allow_short_positions: true
+#
+###############################################################################

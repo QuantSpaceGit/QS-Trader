@@ -21,9 +21,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.libraries.registry import AdapterRegistry, ComponentNotFoundError
-from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.models import Instrument
+from qs_trader.libraries.registry import AdapterRegistry, ComponentNotFoundError
+from qs_trader.services.data.adapters.resolver import DataSourceResolver
+from qs_trader.services.data.models import Instrument
 
 # ============================================================================
 # Test Fixtures
@@ -110,7 +110,7 @@ def test_resolver_init_discovers_adapters(temp_data_sources_config):
 def test_resolver_init_uses_system_config_for_adapters(temp_data_sources_config):
     """Test resolver uses system config custom_libraries.adapters path."""
     # Arrange
-    with patch("qtrader.services.data.adapters.resolver.get_system_config") as mock_get_config:
+    with patch("qs_trader.services.data.adapters.resolver.get_system_config") as mock_get_config:
         mock_config = Mock()
         mock_config.custom_libraries.adapters = "my_library/adapters"
         mock_get_config.return_value = mock_config

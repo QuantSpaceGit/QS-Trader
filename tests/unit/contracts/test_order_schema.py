@@ -15,7 +15,7 @@ def order_schema():
     schema_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
-        / "qtrader"
+        / "qs_trader"
         / "contracts"
         / "schemas"
         / "manager"
@@ -30,7 +30,7 @@ def order_example():
     example_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
-        / "qtrader"
+        / "qs_trader"
         / "contracts"
         / "examples"
         / "manager"

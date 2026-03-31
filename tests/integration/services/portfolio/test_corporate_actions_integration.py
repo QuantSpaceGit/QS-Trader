@@ -10,9 +10,9 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import CorporateActionEvent
-from qtrader.services.portfolio import PortfolioConfig, PortfolioService
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.events import CorporateActionEvent
+from qs_trader.services.portfolio import PortfolioConfig, PortfolioService
 
 
 @pytest.fixture

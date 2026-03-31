@@ -1,5 +1,5 @@
 """
-Unit tests for qtrader.libraries.indicators.buildin.volatility module.
+Unit tests for qs_trader.libraries.indicators.buildin.volatility module.
 
 Tests volatility indicator implementations:
 - ATR: Average True Range
@@ -17,8 +17,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.libraries.indicators.buildin.volatility import ATR, BollingerBands, StdDev
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators.buildin.volatility import ATR, BollingerBands, StdDev
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

@@ -11,7 +11,7 @@ Tests the minimal configuration structure supporting DataService-only engine:
 
 from pathlib import Path
 
-from qtrader.system.config import (
+from qs_trader.system.config import (
     DataServiceConfig,
     LoggingConfig,
     OutputConfig,
@@ -104,7 +104,7 @@ class TestLoggingConfig:
         assert config.format == "console"
         assert config.timestamp_format == "compact"
         assert config.enable_file is True
-        assert config.file_path == "logs/qtrader.log"
+        assert config.file_path == "logs/qs_trader.log"
         assert config.file_level == "WARNING"
         assert config.file_rotation is True
         assert config.max_file_size_mb == 10
@@ -165,7 +165,7 @@ class TestLoggingConfig:
         logger_config = config.to_logger_config()
 
         # Assert
-        assert logger_config.file_path == Path("logs/qtrader.log")
+        assert logger_config.file_path == Path("logs/qs_trader.log")
 
 
 class TestSystemConfig:
@@ -601,7 +601,7 @@ logging:
   format: console
   run_id_format: compact
   enable_file: true
-  file_path: logs/qtrader.log
+  file_path: logs/qs_trader.log
   file_level: WARNING
   file_rotation: true
   max_file_size_mb: 10
@@ -617,23 +617,23 @@ logging:
         assert config.data.sources_config == "config/sources.yaml"
         assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
-        assert config.logging.file_path == "logs/qtrader.log"
+        assert config.logging.file_path == "logs/qs_trader.log"
 
     def test_config_with_env_vars_substitution(self, tmp_path, monkeypatch):
         """Test end-to-end config loading with env var substitution."""
         # Arrange
-        monkeypatch.setenv("QTRADER_DATA_DIR", "/custom/data")
-        monkeypatch.setenv("QTRADER_OUTPUT_DIR", "/custom/output")
+        monkeypatch.setenv("QS_TRADER_DATA_DIR", "/custom/data")
+        monkeypatch.setenv("QS_TRADER_OUTPUT_DIR", "/custom/output")
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
         config_file = tmp_path / "env_config.yaml"
         config_file.write_text(
             """
 data:
-  sources_config: ${QTRADER_DATA_DIR}/sources.yaml
+  sources_config: ${QS_TRADER_DATA_DIR}/sources.yaml
 
 output:
-  experiments_root: ${QTRADER_OUTPUT_DIR}
+  experiments_root: ${QS_TRADER_OUTPUT_DIR}
 
 logging:
   level: ${LOG_LEVEL}

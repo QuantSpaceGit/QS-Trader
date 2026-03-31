@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.libraries.indicators import ADX, Aroon
-from qtrader.services.data.models import Bar
+from qs_trader.libraries.indicators import ADX, Aroon
+from qs_trader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

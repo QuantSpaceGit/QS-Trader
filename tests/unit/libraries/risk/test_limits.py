@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.libraries.risk.tools.limits import (
+from qs_trader.libraries.risk.tools.limits import (
     Position,
     ProposedOrder,
     check_all_limits,

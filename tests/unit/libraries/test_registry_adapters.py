@@ -1,5 +1,5 @@
 """
-Unit tests for AdapterRegistry in qtrader.libraries.registry module.
+Unit tests for AdapterRegistry in qs_trader.libraries.registry module.
 
 Tests the adapter plugin registry system for auto-discovery and validation of:
 - Built-in adapters (e.g., yahoo_csv)
@@ -21,14 +21,14 @@ from typing import Iterator, Optional
 
 import pytest
 
-from qtrader.events.events import CorporateActionEvent, PriceBarEvent
-from qtrader.libraries.registry import (
+from qs_trader.events.events import CorporateActionEvent, PriceBarEvent
+from qs_trader.libraries.registry import (
     AdapterRegistry,
     ComponentNotFoundError,
     DuplicateComponentError,
     get_adapter_registry,
 )
-from qtrader.services.data.models import Instrument
+from qs_trader.services.data.models import Instrument
 
 # ============================================================================
 # Test Fixtures - Mock Adapters
@@ -155,7 +155,7 @@ class TestBuiltinAdapter:
         yield {}
 
     def to_price_bar_event(self, bar):
-        from qtrader.events.events import PriceBarEvent
+        from qs_trader.events.events import PriceBarEvent
         return PriceBarEvent(timestamp=datetime.now(), symbol="TEST")
 
     def to_corporate_action_event(self, bar, prev_bar):
@@ -191,7 +191,7 @@ class MyCustomDataAdapter:
         yield {}
 
     def to_price_bar_event(self, bar):
-        from qtrader.events.events import PriceBarEvent
+        from qs_trader.events.events import PriceBarEvent
         return PriceBarEvent(timestamp=datetime.now(), symbol="CUSTOM")
 
     def to_corporate_action_event(self, bar, prev_bar):
@@ -574,7 +574,7 @@ class NestedAdapter:
     def read_bars(self, start_date, end_date):
         yield {}
     def to_price_bar_event(self, bar):
-        from qtrader.events.events import PriceBarEvent
+        from qs_trader.events.events import PriceBarEvent
         return PriceBarEvent(timestamp=datetime.now(), symbol="NESTED")
     def to_corporate_action_event(self, bar, prev_bar):
         return None
@@ -674,7 +674,7 @@ class LocalAdapter:
     def read_bars(self, start_date, end_date):
         yield {}
     def to_price_bar_event(self, bar):
-        from qtrader.events.events import PriceBarEvent
+        from qs_trader.events.events import PriceBarEvent
         return PriceBarEvent(timestamp=datetime.now(), symbol="LOCAL")
     def to_corporate_action_event(self, bar, prev_bar):
         return None
@@ -728,7 +728,7 @@ class CustomTestAdapter:
         yield {"date": "2023-01-01", "close": 100.0}
 
     def to_price_bar_event(self, bar):
-        from qtrader.events.events import PriceBarEvent
+        from qs_trader.events.events import PriceBarEvent
         return PriceBarEvent(timestamp=datetime.now(), symbol="TEST")
 
     def to_corporate_action_event(self, bar, prev_bar) -> Optional:

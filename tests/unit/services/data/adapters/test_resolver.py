@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.models import Instrument
-from qtrader.services.data.source_selector import AssetClass, DataSourceSelector, DataType
+from qs_trader.services.data.adapters.resolver import DataSourceResolver
+from qs_trader.services.data.models import Instrument
+from qs_trader.services.data.source_selector import AssetClass, DataSourceSelector, DataType
 
 
 @pytest.fixture
@@ -199,7 +199,7 @@ class TestResolverBySelectorFallback:
 
         with (
             patch.object(resolver, "_create_adapter") as mock_create,
-            patch("qtrader.services.data.adapters.resolver.logger") as mock_logger,
+            patch("qs_trader.services.data.adapters.resolver.logger") as mock_logger,
         ):
             # First call fails, second succeeds
             mock_create.side_effect = [
@@ -265,7 +265,7 @@ class TestResolverMultipleMatches:
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
 
-            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
+            with patch("qs_trader.services.data.adapters.resolver.logger") as mock_logger:
                 resolver.resolve_by_selector(selector, instrument)
 
                 # Should log multiple matches
@@ -471,7 +471,7 @@ class TestAdapterClassLoading:
 
     def test_load_unknown_adapter(self, temp_config: Path) -> None:
         """Test error when loading unknown adapter."""
-        from qtrader.libraries.registry import ComponentNotFoundError
+        from qs_trader.libraries.registry import ComponentNotFoundError
 
         resolver = DataSourceResolver(str(temp_config))
 

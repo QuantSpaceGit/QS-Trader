@@ -77,7 +77,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Documentation
 
-- Updated scaffold `QTRADER_README.md` to reflect experiment-centric structure and enhanced CLI/data acquisition guidance.
+- Updated scaffold `QS_TRADER_README.md` to reflect experiment-centric structure and enhanced CLI/data acquisition guidance.
 
 ## [0.2.0-beta.1] - 2025-11-19
 

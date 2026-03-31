@@ -12,12 +12,12 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.data.models import Bar
-from qtrader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
-from qtrader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
-from qtrader.services.execution.service import ExecutionService
-from qtrader.services.portfolio.models import PortfolioConfig
-from qtrader.services.portfolio.service import PortfolioService
+from qs_trader.services.data.models import Bar
+from qs_trader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
+from qs_trader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
+from qs_trader.services.execution.service import ExecutionService
+from qs_trader.services.portfolio.models import PortfolioConfig
+from qs_trader.services.portfolio.service import PortfolioService
 
 
 @pytest.fixture
