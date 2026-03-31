@@ -1,5 +1,5 @@
 ---
-description: Trader: generate pytest unit tests for selected module
+description: 'Trader: generate pytest unit tests for selected module'
 ---
 
 Create isolated unit tests using pytest for the selected code module following these guidelines:

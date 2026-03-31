@@ -1,5 +1,5 @@
 ---
-description: Trader: run make qa, then create scoped conventional commits
+description: 'Trader: run make qa, then create scoped conventional commits'
 ---
 
 Review the codebase changes and create logically separated commits based on the scope of work:

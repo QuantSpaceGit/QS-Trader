@@ -1,5 +1,5 @@
 ---
-description: Trader: Python code review — types, correctness, architecture, performance
+description: 'Trader: Python code review — types, correctness, architecture, performance'
 ---
 
 Review the code as a senior Python engineer specialising in quantitative trading systems.
