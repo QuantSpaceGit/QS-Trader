@@ -603,6 +603,102 @@ class TestDuckDBWriterEmptyData:
         assert row[3] is None
 
 
+class TestDuckDBWriterDeduplication:
+    """Tests that duplicate timestamps within a run are handled gracefully."""
+
+    def test_duplicate_equity_timestamps_last_wins(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """If the same timestamp appears twice, only the last point is persisted."""
+        ts = datetime(2020, 8, 3, 16, 0, 0, tzinfo=timezone.utc)
+        points = [
+            EquityCurvePoint.model_construct(
+                timestamp=ts,
+                equity=Decimal("100000"),
+                cash=Decimal("100000"),
+                positions_value=Decimal("0"),
+                num_positions=0,
+                gross_exposure=Decimal("0"),
+                net_exposure=Decimal("0"),
+                leverage=Decimal("0"),
+                drawdown_pct=Decimal("0"),
+                underwater=False,
+            ),
+            # Same timestamp, different equity (second event on same bar)
+            EquityCurvePoint.model_construct(
+                timestamp=ts,
+                equity=Decimal("99000"),
+                cash=Decimal("50000"),
+                positions_value=Decimal("49000"),
+                num_positions=1,
+                gross_exposure=Decimal("49000"),
+                net_exposure=Decimal("49000"),
+                leverage=Decimal("0.49"),
+                drawdown_pct=Decimal("1.00"),
+                underwater=True,
+            ),
+        ]
+        # Must not raise a PK constraint error
+        writer.save_run(
+            experiment_id="dup_test",
+            run_id="run_001",
+            metrics=sample_metrics,
+            equity_curve=points,
+            returns=[],
+            trades=[],
+            drawdowns=[],
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        rows = con.execute(
+            "SELECT equity, num_positions FROM equity_curve WHERE experiment_id = 'dup_test'"
+        ).fetchall()
+        con.close()
+
+        # Only one row per timestamp, last write wins (equity=99000)
+        assert len(rows) == 1
+        assert rows[0][0] == pytest.approx(99000.0)
+        assert rows[0][1] == 1
+
+    def test_duplicate_returns_timestamps_last_wins(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """If the same timestamp appears twice in returns, only the last point is persisted."""
+        ts = datetime(2020, 8, 4, 16, 0, 0, tzinfo=timezone.utc)
+        points = [
+            ReturnPoint.model_construct(
+                timestamp=ts,
+                period_return=Decimal("0.01"),
+                cumulative_return=Decimal("0.01"),
+                log_return=Decimal("0.00995"),
+            ),
+            ReturnPoint.model_construct(
+                timestamp=ts,
+                period_return=Decimal("0.02"),
+                cumulative_return=Decimal("0.02"),
+                log_return=Decimal("0.0198"),
+            ),
+        ]
+        writer.save_run(
+            experiment_id="dup_ret",
+            run_id="run_001",
+            metrics=sample_metrics,
+            equity_curve=[],
+            returns=points,
+            trades=[],
+            drawdowns=[],
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        rows = con.execute(
+            "SELECT period_return FROM returns WHERE experiment_id = 'dup_ret'"
+        ).fetchall()
+        con.close()
+
+        assert len(rows) == 1
+        assert rows[0][0] == pytest.approx(0.02)
+
+
 class TestDuckDBWriterFullRoundTrip:
     """End-to-end test with all data types populated."""
 

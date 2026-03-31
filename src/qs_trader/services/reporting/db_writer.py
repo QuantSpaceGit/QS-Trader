@@ -326,9 +326,18 @@ class DuckDBWriter:
         run_id: str,
         points: list[EquityCurvePoint],
     ) -> None:
-        """Batch-insert equity curve points."""
+        """Batch-insert equity curve points.
+
+        Deduplicates by timestamp (last-write-wins), since multiple portfolio
+        events can land on the same timestamp within a single bar.
+        """
         if not points:
             return
+        # Deduplicate: keep the last point at each timestamp (preserves
+        # final portfolio state when multiple events share a timestamp).
+        deduped: dict = {}
+        for p in points:
+            deduped[p.timestamp] = p
         rows = [
             (
                 experiment_id,
@@ -344,7 +353,7 @@ class DuckDBWriter:
                 _to_float(p.drawdown_pct),
                 p.underwater,
             )
-            for p in points
+            for p in deduped.values()
         ]
         con.executemany(
             """
@@ -365,9 +374,16 @@ class DuckDBWriter:
         run_id: str,
         points: list[ReturnPoint],
     ) -> None:
-        """Batch-insert return points."""
+        """Batch-insert return points.
+
+        Deduplicates by timestamp (last-write-wins) for consistency with
+        ``_insert_equity_curve``.
+        """
         if not points:
             return
+        deduped: dict = {}
+        for p in points:
+            deduped[p.timestamp] = p
         rows = [
             (
                 experiment_id,
@@ -377,7 +393,7 @@ class DuckDBWriter:
                 _to_float(p.cumulative_return),
                 _to_float(p.log_return),
             )
-            for p in points
+            for p in deduped.values()
         ]
         con.executemany(
             """
