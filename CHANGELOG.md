@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [0.2.0-beta.6] - 2026-03-31
 
+### Added
+
+- **DuckDB Database Output**: Optional persistence of backtest results to a DuckDB file
+  - New `DuckDBWriter` in `services/reporting/db_writer.py` writes run metrics, equity curves, returns, trades, and drawdowns
+  - Enabled via `output.database.enabled: true` in `qs_trader.yaml`
+  - Configurable database path via `output.database.path`
+  - Upsert semantics: re-running the same run replaces previous data
+  - Additive: does not replace existing file-based outputs (JSON/Parquet/HTML)
+  - Designed for downstream API consumption (e.g. QS-Datamaster `/backtest` router)
+  - 14 unit tests covering schema creation, persistence, upserts, and edge cases
+
 ### Changed
 
 - **Package Rename**: Complete rename from `qtrader` to `qs_trader` across entire codebase
