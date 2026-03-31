@@ -21,7 +21,13 @@ from qs_trader.events.events import (
     PriceBarEvent,
     SignalEvent,
 )
-from qs_trader.libraries.performance.models import DrawdownPeriod, EquityCurvePoint, FullMetrics, ReturnPoint, TradeRecord
+from qs_trader.libraries.performance.models import (
+    DrawdownPeriod,
+    EquityCurvePoint,
+    FullMetrics,
+    ReturnPoint,
+    TradeRecord,
+)
 from qs_trader.services.reporting.writers import (
     DecimalEncoder,
     write_drawdowns_json,

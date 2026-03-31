@@ -16,15 +16,12 @@ from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.service import ReportingService
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
 
 
-def _make_system_config_mock(
-    *, db_enabled: bool, db_path: str = "test.duckdb", config_root: Path | None = None
-):
+def _make_system_config_mock(*, db_enabled: bool, db_path: str = "test.duckdb", config_root: Path | None = None):
     """Create a mock SystemConfig with configurable database output."""
     mock = MagicMock()
     mock.output.database.enabled = db_enabled
@@ -136,14 +133,10 @@ class TestTimeSeriesGating:
         # get_curve should NOT have been called — time-series is gated
         svc._equity_calc.get_curve.assert_not_called()
 
-    def test_no_equity_when_parquet_true_but_include_equity_false_and_db_disabled(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_equity_when_parquet_true_but_include_equity_false_and_db_disabled(self, tmp_path: Path) -> None:
         """write_parquet=True but include_equity_curve=False and DB off → skip equity build."""
         svc = _build_reporting_service(tmp_path, write_parquet=True)
-        svc.config = svc.config.model_copy(
-            update={"include_equity_curve": False, "include_returns": False}
-        )
+        svc.config = svc.config.model_copy(update={"include_equity_curve": False, "include_returns": False})
         metrics = _minimal_metrics()
 
         svc._equity_calc = MagicMock()
@@ -209,7 +202,7 @@ class TestTimeSeriesGating:
                 "qs_trader.system.config.get_system_config",
                 return_value=sys_config,
             ),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter"),
         ):
             svc._write_outputs(metrics)
 
@@ -336,13 +329,7 @@ class TestPathologicalReturns:
         # Verify the produced ReturnPoint has log_return=None
         # returns_points is built as a local var; inspect via the written JSON
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -374,13 +361,7 @@ class TestPathologicalReturns:
             svc._write_outputs(metrics)
 
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -414,13 +395,7 @@ class TestPathologicalReturns:
             svc._write_outputs(metrics)
 
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -463,13 +438,7 @@ class TestDecimalPrecisionRegression:
             svc._write_outputs(metrics)
 
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -510,13 +479,7 @@ class TestCumulativeReturnCompounding:
             svc._write_outputs(metrics)
 
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -553,13 +516,7 @@ class TestCumulativeReturnCompounding:
             svc._write_outputs(metrics)
 
         returns_json = (
-            tmp_path
-            / "experiments"
-            / "test_exp"
-            / "runs"
-            / "20260101_000000"
-            / "timeseries"
-            / "returns.json"
+            tmp_path / "experiments" / "test_exp" / "runs" / "20260101_000000" / "timeseries" / "returns.json"
         )
         import json
 
@@ -642,8 +599,7 @@ class TestDuckDBNullLogReturn:
 
         con = duckdb.connect(db_path, read_only=True)
         row = con.execute(
-            "SELECT log_return FROM returns "
-            "WHERE experiment_id = 'test_exp' ORDER BY timestamp"
+            "SELECT log_return FROM returns WHERE experiment_id = 'test_exp' ORDER BY timestamp"
         ).fetchone()
         con.close()
 

@@ -24,7 +24,6 @@ from qs_trader.libraries.performance.models import (
 )
 from qs_trader.services.reporting.db_writer import DuckDBWriter
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -256,9 +255,7 @@ class TestDuckDBWriterSchemaCreation:
 class TestDuckDBWriterRunPersistence:
     """Tests for writing and reading run data."""
 
-    def test_run_summary_persisted(
-        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
-    ) -> None:
+    def test_run_summary_persisted(self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics) -> None:
         """Run summary row should contain correct metric values."""
         writer.save_run(
             experiment_id="buy_hold",
@@ -309,8 +306,7 @@ class TestDuckDBWriterRunPersistence:
         )
         con = duckdb.connect(str(db_path), read_only=True)
         rows = con.execute(
-            "SELECT timestamp, equity FROM equity_curve "
-            "WHERE experiment_id = 'buy_hold' ORDER BY timestamp"
+            "SELECT timestamp, equity FROM equity_curve WHERE experiment_id = 'buy_hold' ORDER BY timestamp"
         ).fetchall()
         con.close()
 
@@ -337,8 +333,7 @@ class TestDuckDBWriterRunPersistence:
         )
         con = duckdb.connect(str(db_path), read_only=True)
         rows = con.execute(
-            "SELECT period_return, cumulative_return FROM returns "
-            "WHERE experiment_id = 'buy_hold' ORDER BY timestamp"
+            "SELECT period_return, cumulative_return FROM returns WHERE experiment_id = 'buy_hold' ORDER BY timestamp"
         ).fetchall()
         con.close()
 
@@ -363,10 +358,7 @@ class TestDuckDBWriterRunPersistence:
             drawdowns=[],
         )
         con = duckdb.connect(str(db_path), read_only=True)
-        rows = con.execute(
-            "SELECT trade_id, symbol, side, pnl FROM trades "
-            "WHERE experiment_id = 'buy_hold'"
-        ).fetchall()
+        rows = con.execute("SELECT trade_id, symbol, side, pnl FROM trades WHERE experiment_id = 'buy_hold'").fetchall()
         con.close()
 
         assert len(rows) == 1
@@ -394,8 +386,7 @@ class TestDuckDBWriterRunPersistence:
         )
         con = duckdb.connect(str(db_path), read_only=True)
         rows = con.execute(
-            "SELECT drawdown_id, depth_pct, recovered FROM drawdowns "
-            "WHERE experiment_id = 'buy_hold'"
+            "SELECT drawdown_id, depth_pct, recovered FROM drawdowns WHERE experiment_id = 'buy_hold'"
         ).fetchall()
         con.close()
 
@@ -408,9 +399,7 @@ class TestDuckDBWriterRunPersistence:
 class TestDuckDBWriterUpsert:
     """Tests for upsert semantics."""
 
-    def test_rerun_replaces_data(
-        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
-    ) -> None:
+    def test_rerun_replaces_data(self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics) -> None:
         """Saving the same (experiment_id, run_id) twice should replace data, not duplicate."""
         writer.save_run(
             experiment_id="buy_hold",
@@ -440,9 +429,7 @@ class TestDuckDBWriterUpsert:
         assert len(rows) == 1
         assert abs(rows[0][0] - 10.00) < 0.01
 
-    def test_different_runs_coexist(
-        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
-    ) -> None:
+    def test_different_runs_coexist(self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics) -> None:
         """Different run_ids for the same experiment should both be stored."""
         writer.save_run(
             experiment_id="buy_hold",
@@ -504,9 +491,7 @@ class TestDuckDBWriterUpsert:
 class TestDuckDBWriterEmptyData:
     """Tests for edge cases with empty data."""
 
-    def test_empty_time_series(
-        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
-    ) -> None:
+    def test_empty_time_series(self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics) -> None:
         """Should handle empty equity curve, returns, trades, and drawdowns."""
         writer.save_run(
             experiment_id="empty_test",
@@ -650,9 +635,7 @@ class TestDuckDBWriterDeduplication:
         )
 
         con = duckdb.connect(str(db_path), read_only=True)
-        rows = con.execute(
-            "SELECT equity, num_positions FROM equity_curve WHERE experiment_id = 'dup_test'"
-        ).fetchall()
+        rows = con.execute("SELECT equity, num_positions FROM equity_curve WHERE experiment_id = 'dup_test'").fetchall()
         con.close()
 
         # Only one row per timestamp, last write wins (equity=99000)
@@ -690,9 +673,7 @@ class TestDuckDBWriterDeduplication:
         )
 
         con = duckdb.connect(str(db_path), read_only=True)
-        rows = con.execute(
-            "SELECT period_return FROM returns WHERE experiment_id = 'dup_ret'"
-        ).fetchall()
+        rows = con.execute("SELECT period_return FROM returns WHERE experiment_id = 'dup_ret'").fetchall()
         con.close()
 
         assert len(rows) == 1

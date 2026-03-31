@@ -763,7 +763,9 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_valid_source(self, sample_data_sources_config: Dict[str, Any]):
         """Test extracting data directory from valid config."""
         # Arrange
-        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch(
+            "qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config
+        ):
             # Act
             result = get_yahoo_data_dir("yahoo-us-equity-1d-csv")
 
@@ -774,7 +776,9 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_absolute_path(self, sample_data_sources_config: Dict[str, Any]):
         """Test handling absolute path in config."""
         # Arrange
-        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch(
+            "qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config
+        ):
             # Act
             result = get_yahoo_data_dir("custom-dataset")
 
@@ -785,7 +789,9 @@ class TestConfigLoading:
     def test_get_yahoo_data_dir_missing_source(self, sample_data_sources_config: Dict[str, Any]):
         """Test getting data directory for non-existent source returns None."""
         # Arrange
-        with patch("qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config):
+        with patch(
+            "qs_trader.utilities.yahoo_update.load_data_sources_config", return_value=sample_data_sources_config
+        ):
             # Act
             result = get_yahoo_data_dir("nonexistent-source")
 

@@ -351,12 +351,7 @@ logging:
         config_dir = project_root / "config"
         config_dir.mkdir(parents=True)
         project_config = config_dir / "qs_trader.yaml"
-        project_config.write_text(
-            "output:\n"
-            "  database:\n"
-            "    enabled: true\n"
-            "    path: data/project.duckdb\n"
-        )
+        project_config.write_text("output:\n  database:\n    enabled: true\n    path: data/project.duckdb\n")
 
         # Arrange – "home" config overrides only logging (does NOT set database.path)
         home_root = tmp_path / "home" / ".qs_trader"
@@ -396,12 +391,7 @@ logging:
         home_root = tmp_path / "home" / ".qs_trader"
         home_root.mkdir(parents=True)
         home_config = home_root / "qs_trader.yaml"
-        home_config.write_text(
-            "output:\n"
-            "  database:\n"
-            "    enabled: true\n"
-            "    path: data/home.duckdb\n"
-        )
+        home_config.write_text("output:\n  database:\n    enabled: true\n    path: data/home.duckdb\n")
 
         import yaml
 
@@ -428,15 +418,10 @@ logging:
         relative-path resolution, so ${HOME}/... was treated as a relative path
         and incorrectly anchored to the project root.
         """
-        import os
 
         import yaml
 
-        from qs_trader.system.config import (
-            _config_file_root,
-            _resolve_relative_path_settings,
-            _substitute_env_vars,
-        )
+        from qs_trader.system.config import _config_file_root, _resolve_relative_path_settings, _substitute_env_vars
 
         # Arrange – project root with a config that uses an env-var path
         project_root = tmp_path / "myproject"
@@ -448,10 +433,7 @@ logging:
         monkeypatch.setenv("QS_TEST_DB_HOME", str(fake_home))
 
         project_config.write_text(
-            "output:\n"
-            "  database:\n"
-            "    enabled: true\n"
-            "    path: ${QS_TEST_DB_HOME}/data/backtest.duckdb\n"
+            "output:\n  database:\n    enabled: true\n    path: ${QS_TEST_DB_HOME}/data/backtest.duckdb\n"
         )
 
         # Act – simulate the load() per-file processing order
@@ -466,12 +448,9 @@ logging:
         assert db_path.is_absolute(), "expanded env-var path must be absolute"
         expected = fake_home / "data" / "backtest.duckdb"
         assert db_path == expected, (
-            f"Expected {expected}, got {db_path}. "
-            "Env-var path must NOT be anchored to config_root."
+            f"Expected {expected}, got {db_path}. Env-var path must NOT be anchored to config_root."
         )
-        assert str(project_root) not in str(db_path), (
-            "project_root must not appear in an env-var-based absolute path"
-        )
+        assert str(project_root) not in str(db_path), "project_root must not appear in an env-var-based absolute path"
 
 
 class TestSystemConfigFromDict:
