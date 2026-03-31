@@ -350,6 +350,18 @@ def backtest_command(
         if latest_link.exists():
             console.print(f"[cyan]Latest Run:[/cyan]      runs/latest → {run_id}")
 
+        # Database output status
+        db_cfg = system_config.output.database
+        if db_cfg.enabled:
+            from pathlib import Path as _Path
+
+            _db_path = _Path(db_cfg.path)
+            if not _db_path.is_absolute():
+                _db_path = system_config.config_root / _db_path
+            console.print(f"[cyan]Database:[/cyan]        [green]enabled[/green] → {_db_path}")
+        else:
+            console.print("[cyan]Database:[/cyan]        [dim]disabled[/dim]")
+
         console.print()
         console.rule()
         console.print()

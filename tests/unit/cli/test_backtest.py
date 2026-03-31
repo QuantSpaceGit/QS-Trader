@@ -86,6 +86,7 @@ def mock_system_config():
     config.output.run_id_format = "%Y%m%d_%H%M%S"
     config.output.capture_git_info = False
     config.output.capture_environment = False
+    config.output.database.enabled = False
     return config
 
 
@@ -478,6 +479,7 @@ class TestBacktestCommandDisplay:
         system_config.output.run_id_format = "%Y%m%d_%H%M%S"
         system_config.output.capture_git_info = False
         system_config.output.capture_environment = False
+        system_config.output.database.enabled = False
 
         mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
