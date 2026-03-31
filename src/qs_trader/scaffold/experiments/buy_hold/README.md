@@ -5,5 +5,5 @@ Example using sample CSV data for testing.
 ## Usage
 
 ```bash
-qs-trader backtest experiments/buy_hold_sample
+qs-trader backtest experiments/buy_hold
 ```
