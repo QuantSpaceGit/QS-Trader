@@ -159,6 +159,16 @@ output:
   # Timestamp format for run subdirectories (always used)
   run_id_format: "%Y%m%d_%H%M%S" # Format: 20241024_142153
 
+  # Database persistence for API / Dashboard consumption (DuckDB)
+  # When enabled, each backtest run writes summary metrics, equity curves,
+  # returns, trades, and drawdowns to a DuckDB file alongside the regular
+  # file-based outputs (JSON/Parquet/HTML).
+  # Downstream services (e.g. QS-Datamaster /backtest router) can open this
+  # file read-only to serve data to dashboards without filesystem coupling.
+  database:
+    enabled: false # Set to true to activate DuckDB output
+    path: "data/backtest_runs.duckdb" # Relative to project root
+
 # ============================================================
 # Logging Configuration
 # ============================================================

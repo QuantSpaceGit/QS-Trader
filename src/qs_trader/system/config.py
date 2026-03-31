@@ -50,6 +50,19 @@ class EventStoreConfig:
 
 
 @dataclass
+class DatabaseOutputConfig:
+    """DuckDB database output configuration.
+
+    When enabled, backtest results are persisted to a DuckDB file
+    alongside the standard file-based outputs. This enables downstream
+    API services (e.g. QS-Datamaster) to serve backtest data to dashboards.
+    """
+
+    enabled: bool = False
+    path: str = "data/backtest_runs.duckdb"
+
+
+@dataclass
 class OutputConfig:
     """Output and results configuration for experiment-based organization.
 
@@ -64,6 +77,7 @@ class OutputConfig:
     run_id_format: str = "%Y%m%d_%H%M%S"
     display_format: Literal["line", "table"] = "line"
     event_store: EventStoreConfig = field(default_factory=EventStoreConfig)
+    database: DatabaseOutputConfig = field(default_factory=DatabaseOutputConfig)
 
     # Metadata capture toggles
     capture_git_info: bool = True
@@ -167,6 +181,10 @@ class SystemConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     custom_libraries: CustomLibrariesConfig = field(default_factory=CustomLibrariesConfig)
 
+    # Root directory for resolving relative paths in config (e.g. output.database.path).
+    # Set to the parent of the loaded config file, or CWD if no file was found.
+    config_root: Path = field(default_factory=Path.cwd)
+
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "SystemConfig":
         """
@@ -215,19 +233,40 @@ class SystemConfig:
             if home_config.exists():
                 search_paths.append(home_config)
 
-        # Load config files (later files override earlier)
+        # Load config files (later files override earlier).
+        # Relative path settings are resolved against their source file's root
+        # BEFORE merging, so each path stays anchored to the file that defined it.
+        first_project_root: Optional[Path] = None
         for path in search_paths:
             if path.exists():
+                file_root = _config_file_root(path)
+                if first_project_root is None:
+                    first_project_root = file_root
                 with open(path) as f:
                     loaded = yaml.safe_load(f)
                     if loaded:
+                        # Substitute env vars FIRST so that paths like
+                        # "${HOME}/data/backtest.duckdb" are already absolute
+                        # when _resolve_relative_path_settings checks
+                        # is_absolute().  The global substitution after the
+                        # merge loop is a harmless no-op for already-expanded
+                        # values but still covers any later-introduced keys.
+                        loaded = _substitute_env_vars(loaded)
+                        loaded = _resolve_relative_path_settings(loaded, file_root)
                         config_dict = _deep_merge(config_dict, loaded)
 
         # Substitute environment variables
         config_dict = _substitute_env_vars(config_dict)
 
         # Build config from dict
-        return cls._from_dict(config_dict)
+        instance = cls._from_dict(config_dict)
+
+        # config_root = root of the first (project) config file loaded, or CWD.
+        # Relative path settings in config_dict are already absolute by this point.
+        if first_project_root is not None:
+            instance.config_root = first_project_root
+
+        return instance
 
     @classmethod
     def _from_dict(cls, config_dict: dict[str, Any]) -> "SystemConfig":
@@ -251,11 +290,19 @@ class SystemConfig:
             filename=event_store_dict.get("filename", "events.{backend}"),
         )
 
+        # Database output configuration
+        database_dict = output_dict.get("database", {})
+        database = DatabaseOutputConfig(
+            enabled=database_dict.get("enabled", False),
+            path=database_dict.get("path", "data/backtest_runs.duckdb"),
+        )
+
         output = OutputConfig(
             experiments_root=output_dict.get("experiments_root", "experiments"),
             run_id_format=output_dict.get("run_id_format", "%Y%m%d_%H%M%S"),
             display_format=output_dict.get("display_format", "line"),
             event_store=event_store,
+            database=database,
             capture_git_info=output_dict.get("capture_git_info", True),
             capture_environment=output_dict.get("capture_environment", True),
         )
@@ -302,6 +349,61 @@ class SystemConfig:
             logging=logging,
             custom_libraries=custom_libraries,
         )
+
+
+def _config_file_root(path: Path) -> Path:
+    """Return the project root for a config file path.
+
+    For the conventional ``config/qs_trader.yaml`` layout the project root is
+    the parent of the ``config/`` directory.  For any other layout the parent
+    directory of the file itself is used.
+
+    Args:
+        path: Path to the config file.
+
+    Returns:
+        Resolved project root directory.
+    """
+    resolved = path.resolve()
+    if resolved.parent.name == "config":
+        return resolved.parent.parent
+    return resolved.parent
+
+
+def _resolve_relative_path_settings(config_dict: dict[str, Any], file_root: Path) -> dict[str, Any]:
+    """Resolve relative path settings against *file_root* before merging.
+
+    Called once per config file so that each path remains anchored to the
+    file that originally defined it, regardless of merge order.
+
+    Currently handles:
+    - ``output.database.path``
+
+    Args:
+        config_dict: Parsed YAML dict for a single config file.
+        file_root: Resolved project-root directory for this config file.
+
+    Returns:
+        A new dict with relative path values replaced by absolute paths.
+    """
+    output = config_dict.get("output")
+    if not isinstance(output, dict):
+        return config_dict
+
+    database = output.get("database")
+    if not isinstance(database, dict):
+        return config_dict
+
+    path_val = database.get("path")
+    if path_val and isinstance(path_val, str):
+        p = Path(path_val)
+        if not p.is_absolute():
+            resolved_path = str((file_root / p).resolve())
+            database = {**database, "path": resolved_path}
+            output = {**output, "database": database}
+            return {**config_dict, "output": output}
+
+    return config_dict
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

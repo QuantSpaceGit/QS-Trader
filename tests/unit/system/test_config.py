@@ -209,6 +209,7 @@ class TestSystemConfig:
         assert hasattr(config, "data")
         assert hasattr(config, "output")
         assert hasattr(config, "logging")
+        assert hasattr(config, "config_root")
 
         # Assert - Does NOT have old sections
         assert not hasattr(config, "portfolio")
@@ -297,6 +298,180 @@ logging:
         assert config.data.default_timezone == "America/New_York"
         assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
+
+    def test_config_root_set_to_parent_of_config_dir(self, tmp_path):
+        """Test config_root is set to the project root (parent of config/ directory)."""
+        # Arrange - Create config/qs_trader.yaml structure
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "qs_trader.yaml"
+        config_file.write_text("logging:\n  level: DEBUG\n")
+
+        # Act
+        config = SystemConfig.load(config_file)
+
+        # Assert - config_root = parent of the config/ dir = tmp_path
+        assert config.config_root == tmp_path
+
+    def test_config_root_set_to_file_parent_for_non_config_dir(self, tmp_path):
+        """Test config_root uses file's parent when not in a config/ directory."""
+        # Arrange
+        config_file = tmp_path / "custom.yaml"
+        config_file.write_text("logging:\n  level: DEBUG\n")
+
+        # Act
+        config = SystemConfig.load(config_file)
+
+        # Assert - config_root = parent of the file itself
+        assert config.config_root == tmp_path
+
+    def test_config_root_defaults_to_cwd_when_no_file(self, tmp_path):
+        """Test config_root defaults to CWD when no config file is found."""
+        # Arrange
+        nonexistent = tmp_path / "nonexistent.yaml"
+
+        # Act
+        config = SystemConfig.load(nonexistent)
+
+        # Assert - Falls back to Path.cwd()
+        from pathlib import Path
+
+        assert config.config_root == Path.cwd()
+
+    def test_merged_config_database_path_resolves_against_source_file(self, tmp_path):
+        """Regression: relative output.database.path resolves against the config
+        file that defined it, not against the last loaded config's root.
+
+        Reproduces the bug where a home config that overrides only ``logging``
+        caused data/project.duckdb to land under ~/.qs_trader/data/ instead of
+        the project root.
+        """
+        # Arrange – project config defines the DB path
+        project_root = tmp_path / "myproject"
+        config_dir = project_root / "config"
+        config_dir.mkdir(parents=True)
+        project_config = config_dir / "qs_trader.yaml"
+        project_config.write_text(
+            "output:\n"
+            "  database:\n"
+            "    enabled: true\n"
+            "    path: data/project.duckdb\n"
+        )
+
+        # Arrange – "home" config overrides only logging (does NOT set database.path)
+        home_root = tmp_path / "home" / ".qs_trader"
+        home_root.mkdir(parents=True)
+        home_config = home_root / "qs_trader.yaml"
+        home_config.write_text("logging:\n  level: DEBUG\n")
+
+        # Act – load project config first, then merge home config on top
+        import yaml
+
+        from qs_trader.system.config import _config_file_root, _deep_merge, _resolve_relative_path_settings
+
+        config_dict: dict = {}
+        for path in [project_config, home_config]:
+            with open(path) as f:
+                loaded = yaml.safe_load(f) or {}
+            file_root = _config_file_root(path)
+            loaded = _resolve_relative_path_settings(loaded, file_root)
+            config_dict = _deep_merge(config_dict, loaded)
+
+        # Assert – path is absolute and rooted at the project, not home dir
+        db_path = Path(config_dict["output"]["database"]["path"])
+        assert db_path.is_absolute(), "database.path must be absolute after resolution"
+        assert db_path == project_root / "data" / "project.duckdb"
+        assert str(home_root) not in str(db_path), "path must not be under the home config directory"
+
+    def test_database_path_from_home_config_resolves_against_home_root(self, tmp_path):
+        """When only the home config defines database.path, it resolves against
+        the home config's root, not the project root."""
+        # Arrange – project config does NOT set database.path
+        project_root = tmp_path / "myproject"
+        (project_root / "config").mkdir(parents=True)
+        project_config = project_root / "config" / "qs_trader.yaml"
+        project_config.write_text("logging:\n  level: INFO\n")
+
+        # Arrange – home config defines its own local DB path
+        home_root = tmp_path / "home" / ".qs_trader"
+        home_root.mkdir(parents=True)
+        home_config = home_root / "qs_trader.yaml"
+        home_config.write_text(
+            "output:\n"
+            "  database:\n"
+            "    enabled: true\n"
+            "    path: data/home.duckdb\n"
+        )
+
+        import yaml
+
+        from qs_trader.system.config import _config_file_root, _deep_merge, _resolve_relative_path_settings
+
+        config_dict: dict = {}
+        for path in [project_config, home_config]:
+            with open(path) as f:
+                loaded = yaml.safe_load(f) or {}
+            file_root = _config_file_root(path)
+            loaded = _resolve_relative_path_settings(loaded, file_root)
+            config_dict = _deep_merge(config_dict, loaded)
+
+        db_path = Path(config_dict["output"]["database"]["path"])
+        assert db_path.is_absolute()
+        # home_root is not in a config/ dir, so _config_file_root returns home_root itself
+        assert db_path == home_root / "data" / "home.duckdb"
+
+    def test_env_var_database_path_not_anchored_to_config_root(self, tmp_path, monkeypatch):
+        """An env-var-based path like ${HOME}/data/backtest.duckdb must resolve
+        to the expanded absolute path, NOT be prepended with config_root.
+
+        Regression test for: env-var substitution was previously done AFTER
+        relative-path resolution, so ${HOME}/... was treated as a relative path
+        and incorrectly anchored to the project root.
+        """
+        import os
+
+        import yaml
+
+        from qs_trader.system.config import (
+            _config_file_root,
+            _resolve_relative_path_settings,
+            _substitute_env_vars,
+        )
+
+        # Arrange – project root with a config that uses an env-var path
+        project_root = tmp_path / "myproject"
+        (project_root / "config").mkdir(parents=True)
+        project_config = project_root / "config" / "qs_trader.yaml"
+
+        fake_home = tmp_path / "fakehome"
+        fake_home.mkdir()
+        monkeypatch.setenv("QS_TEST_DB_HOME", str(fake_home))
+
+        project_config.write_text(
+            "output:\n"
+            "  database:\n"
+            "    enabled: true\n"
+            "    path: ${QS_TEST_DB_HOME}/data/backtest.duckdb\n"
+        )
+
+        # Act – simulate the load() per-file processing order
+        with open(project_config) as f:
+            loaded = yaml.safe_load(f) or {}
+        file_root = _config_file_root(project_config)
+        loaded = _substitute_env_vars(loaded)  # must happen BEFORE resolve
+        loaded = _resolve_relative_path_settings(loaded, file_root)
+
+        # Assert – path resolves to the env-var expansion, not project_root/...
+        db_path = Path(loaded["output"]["database"]["path"])
+        assert db_path.is_absolute(), "expanded env-var path must be absolute"
+        expected = fake_home / "data" / "backtest.duckdb"
+        assert db_path == expected, (
+            f"Expected {expected}, got {db_path}. "
+            "Env-var path must NOT be anchored to config_root."
+        )
+        assert str(project_root) not in str(db_path), (
+            "project_root must not appear in an env-var-based absolute path"
+        )
 
 
 class TestSystemConfigFromDict:
