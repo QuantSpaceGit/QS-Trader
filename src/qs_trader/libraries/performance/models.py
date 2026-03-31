@@ -224,4 +224,4 @@ class ReturnPoint(BaseModel):
     timestamp: datetime
     period_return: Decimal  # Single-period return
     cumulative_return: Decimal  # Cumulative from start
-    log_return: Decimal  # Natural log return for statistical calculations
+    log_return: Decimal | None = None  # Natural log return; None when growth <= 0 (e.g. -100% loss)

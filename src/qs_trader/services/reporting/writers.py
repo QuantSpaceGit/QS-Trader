@@ -143,7 +143,7 @@ def write_returns_json(returns: list[ReturnPoint], output_path: Path) -> None:
             "timestamp": r.timestamp.isoformat() if hasattr(r.timestamp, "isoformat") else str(r.timestamp),
             "period_return": float(r.period_return),
             "cumulative_return": float(r.cumulative_return),
-            "log_return": float(r.log_return),
+            "log_return": float(r.log_return) if r.log_return is not None else None,
         }
         for r in returns
     ]

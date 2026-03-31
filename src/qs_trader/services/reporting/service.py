@@ -23,6 +23,7 @@ from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEven
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore
+    from qs_trader.system.config import SystemConfig
 
 from qs_trader.libraries.performance.calculators import (
     DrawdownCalculator,
@@ -864,81 +865,107 @@ class ReportingService:
 
         output_path = self.config.get_output_path(self.output_dir)
 
+        # Resolve system config once for both gating and database writing.
+        from qs_trader.system.config import get_system_config
+
+        system_config = None
+        db_enabled = False
+        try:
+            system_config = get_system_config()
+            db_enabled = system_config.output.database.enabled
+        except Exception:
+            self.logger.warning(
+                "reporting.system_config_unavailable",
+                reason="Could not load system config; database output disabled for this run",
+            )
+
+        # Only build each time-series when at least one consumer needs it
+        needs_equity = db_enabled or (self.config.write_parquet and self.config.include_equity_curve)
+        needs_returns = db_enabled or (self.config.write_parquet and self.config.include_returns)
+        equity_points: list[EquityCurvePoint] = []
+        returns_points: list[ReturnPoint] = []
+
+        if needs_equity and self._last_portfolio_state:
+            portfolio_states = self._load_portfolio_states_from_events()
+
+            for timestamp, equity in self._equity_calc.get_curve():
+                portfolio_state = portfolio_states.get(timestamp)
+                if portfolio_state is None:
+                    portfolio_state = self._last_portfolio_state
+                    self.logger.warning(
+                        "equity_curve.missing_portfolio_state",
+                        timestamp=str(timestamp),
+                        using_fallback=True,
+                    )
+                dd_pct = self._calculate_drawdown_at_timestamp(timestamp, equity)
+                underwater = equity < self._get_peak_equity_at_timestamp(timestamp)
+
+                point = EquityCurvePoint(
+                    timestamp=timestamp,
+                    equity=equity,
+                    cash=portfolio_state.cash_balance,
+                    positions_value=portfolio_state.total_market_value,
+                    num_positions=sum(len(sg.positions) for sg in portfolio_state.strategies_groups),
+                    gross_exposure=portfolio_state.gross_exposure,
+                    net_exposure=portfolio_state.net_exposure,
+                    leverage=portfolio_state.leverage,
+                    drawdown_pct=dd_pct,
+                    underwater=underwater,
+                )
+                equity_points.append(point)
+
+        if needs_returns and self._returns_calc.returns:
+            equity_curve_data = self._equity_calc.get_curve()
+            cumulative_growth = Decimal("1")
+            for i, (timestamp, _) in enumerate(equity_curve_data[1:], 1):
+                period_return = self._returns_calc.returns[i - 1]
+                cumulative_growth *= Decimal("1") + period_return
+                # Domain check in Decimal space to avoid float rounding
+                # near -100% (e.g. Decimal("-0.9999999999999999999999999999")
+                # rounds to -1.0 in float but is still > -1 in Decimal).
+                decimal_growth = Decimal("1") + period_return
+                if decimal_growth <= 0:
+                    log_return = None
+                    self.logger.warning(
+                        "reporting.log_return_undefined",
+                        timestamp=str(timestamp),
+                        period_return=str(period_return),
+                        reason="growth <= 0",
+                    )
+                else:
+                    float_growth = float(decimal_growth)
+                    if float_growth <= 0:
+                        # Decimal growth is positive but too small for float64;
+                        # approximate via Decimal.ln() instead.
+                        log_return = Decimal(str(decimal_growth.ln()))
+                    else:
+                        log_return = Decimal(str(math.log(float_growth)))
+                ret_point = ReturnPoint(
+                    timestamp=timestamp,
+                    period_return=period_return,
+                    cumulative_return=cumulative_growth - Decimal("1"),
+                    log_return=log_return,
+                )
+                returns_points.append(ret_point)
+
         # Write JSON report
         if self.config.write_json:
             json_path = output_path / "performance.json"
             write_json_report(metrics, json_path)
 
-        # Write Parquet time-series
+        # Write JSON time-series
         if self.config.write_parquet:
             ts_path = self.config.get_timeseries_path(self.output_dir)
 
-            # Equity curve
-            if self.config.include_equity_curve and self._last_portfolio_state:
-                equity_points = []
-
-                # Load historical portfolio states from event store
-                portfolio_states = self._load_portfolio_states_from_events()
-
-                for timestamp, equity in self._equity_calc.get_curve():
-                    # Find matching portfolio state by timestamp
-                    portfolio_state = portfolio_states.get(timestamp)
-
-                    if portfolio_state is None:
-                        # Fallback to last state if no match (shouldn't happen normally)
-                        portfolio_state = self._last_portfolio_state
-                        self.logger.warning(
-                            "equity_curve.missing_portfolio_state",
-                            timestamp=str(timestamp),
-                            using_fallback=True,
-                        )
-
-                    # Find drawdown info for this timestamp
-                    dd_pct = self._calculate_drawdown_at_timestamp(timestamp, equity)
-                    underwater = equity < self._get_peak_equity_at_timestamp(timestamp)
-
-                    point = EquityCurvePoint(
-                        timestamp=timestamp,
-                        equity=equity,
-                        cash=portfolio_state.cash_balance,
-                        positions_value=portfolio_state.total_market_value,
-                        num_positions=sum(len(sg.positions) for sg in portfolio_state.strategies_groups),
-                        gross_exposure=portfolio_state.gross_exposure,
-                        net_exposure=portfolio_state.net_exposure,
-                        leverage=portfolio_state.leverage,
-                        drawdown_pct=dd_pct,
-                        underwater=underwater,
-                    )
-                    equity_points.append(point)
-
+            if self.config.include_equity_curve and equity_points:
                 write_equity_curve_json(equity_points, ts_path / "equity_curve.json")
 
-            # Returns
-            if self.config.include_returns and self._returns_calc.returns:
-                returns_points: list[ReturnPoint] = []
-                equity_curve = self._equity_calc.get_curve()
-                cumulative = Decimal("0")
-
-                for i, (timestamp, _) in enumerate(equity_curve[1:], 1):  # Skip first point
-                    period_return = self._returns_calc.returns[i - 1]
-                    cumulative += period_return
-                    log_return = Decimal(str(math.log(1 + float(period_return))))
-
-                    ret_point = ReturnPoint(
-                        timestamp=timestamp,
-                        period_return=period_return,
-                        cumulative_return=cumulative,
-                        log_return=log_return,
-                    )
-                    returns_points.append(ret_point)
-
+            if self.config.include_returns and returns_points:
                 write_returns_json(returns_points, ts_path / "returns.json")
 
-            # Trades
             if self.config.include_trades and metrics.total_trades > 0:
                 write_trades_json(self._trade_stats_calc.trades, ts_path / "trades.json")
 
-            # Drawdowns
             if self.config.include_drawdowns and metrics.drawdown_periods:
                 write_drawdowns_json(metrics.drawdown_periods, ts_path / "drawdowns.json")
 
@@ -995,6 +1022,76 @@ class ReportingService:
                     error=str(e),
                     error_type=type(e).__name__,
                 )
+
+        # Write to DuckDB database (if enabled in system config)
+        if system_config is not None:
+            self._write_to_database(system_config, metrics, equity_points, returns_points)
+
+    def _write_to_database(
+        self,
+        system_config: "SystemConfig",
+        metrics: "FullMetrics",
+        equity_points: list[EquityCurvePoint],
+        returns_points: list[ReturnPoint],
+    ) -> None:
+        """Write backtest results to DuckDB if enabled in system config.
+
+        Extracts experiment_id and run_id from the output directory path
+        structure: ``{experiments_root}/{experiment_id}/runs/{run_id}/``
+
+        Relative database paths are resolved against ``system_config.config_root``
+        (the project root derived from the loaded config file location).
+
+        Args:
+            system_config: Resolved system configuration.
+            metrics: Full performance metrics.
+            equity_points: Equity curve time-series.
+            returns_points: Returns time-series.
+        """
+        db_config = system_config.output.database
+        if not db_config.enabled:
+            return
+
+        # Derive experiment_id and run_id from output_dir path
+        # Expected: .../{experiment_id}/runs/{run_id}
+        parts = self.output_dir.parts
+        try:
+            runs_idx = parts.index("runs")
+            experiment_id = parts[runs_idx - 1]
+            run_id = parts[runs_idx + 1]
+        except (ValueError, IndexError):
+            self.logger.warning(
+                "duckdb_write.skipped",
+                reason="Cannot derive experiment_id/run_id from output path",
+                output_dir=str(self.output_dir),
+            )
+            return
+
+        # Resolve relative paths against config_root (project root)
+        db_path = Path(db_config.path)
+        if not db_path.is_absolute():
+            db_path = system_config.config_root / db_path
+
+        try:
+            from qs_trader.services.reporting.db_writer import DuckDBWriter
+
+            writer = DuckDBWriter(db_path)
+            writer.save_run(
+                experiment_id=experiment_id,
+                run_id=run_id,
+                metrics=metrics,
+                equity_curve=equity_points,
+                returns=returns_points,
+                trades=self._trade_stats_calc.trades,
+                drawdowns=metrics.drawdown_periods,
+            )
+        except Exception as e:
+            self.logger.error(
+                "duckdb_write.failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                db_path=str(db_path),
+            )
 
     def _write_metadata(self, context: dict) -> None:
         """
