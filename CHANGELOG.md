@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (pre-release identifiers included).
 
+## [0.2.0-beta.6] - 2026-03-31
+
+### Changed
+
+- **Package Rename**: Complete rename from `qtrader` to `qs_trader` across entire codebase
+  - Renamed `src/qtrader/` → `src/qs_trader/` (Python package directory)
+  - Updated all imports, module references, CLI entry points, and patch targets
+  - Updated JSON schemas, scaffold templates, and configuration files
+  - Updated pyproject.toml package name to `QS-Trader`
+  - Updated all documentation, README, LICENSE, and help text
+  - All 1950 tests passing
+
+### Fixed
+
+- **Makefile**: Fixed `make help` outputting raw ANSI escape codes (`\033[...`) instead of colors by switching `echo` → `printf '%b\n'`
+- **Build Config**: Fixed `[tool.hatchling.build]` → `[tool.hatch.build]` namespace (was silently ignored)
+
 ## [0.2.0-beta.5] - 2026-01-08
 
 ### Changed
