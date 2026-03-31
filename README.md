@@ -176,7 +176,7 @@ QS-Trader requires Python 3.13+. We recommend using [uv](https://docs.astral.sh/
 uv add git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.3
+uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.7
 ```
 
 #### Using pip
@@ -186,7 +186,7 @@ uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.3
 pip install git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.3
+pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.7
 ```
 
 #### Verify Installation
@@ -262,6 +262,8 @@ qs-trader backtest --help
 ```
 
 Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, config snapshot).
+
+If `output.database.enabled: true` is set in `qs_trader.yaml`, QS-Trader also persists run data to a DuckDB file (default: `data/backtest_runs.duckdb`) for downstream querying and API consumption.
 
 ### Interactive Debugging
 

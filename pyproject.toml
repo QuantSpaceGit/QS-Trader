@@ -4,7 +4,7 @@
 
 [project]
 name = "QS-Trader"
-version = "0.2.0-beta.6"
+version = "0.2.0-beta.7"
 description = "Quantitative Trading Environment"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -93,11 +93,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qs_trader"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/qs_trader/scaffold" = "qs_trader/scaffold"
-"src/qs_trader/templates" = "qs_trader/templates"
-"src/qs_trader/services/data" = "qs_trader/services/data"
 
 [tool.uv]
 package = true # Enable package installation for entry points

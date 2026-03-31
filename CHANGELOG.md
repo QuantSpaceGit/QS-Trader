@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (pre-release identifiers included).
 
+## [0.2.0-beta.7] - 2026-03-31
+
+### Added
+
+- **Backtest Database Persistence**: Backtest runs can now persist run summaries and time-series outputs to DuckDB
+  - Add `output.database.enabled` and `output.database.path` configuration options
+  - Persist run metrics, equity curve, returns, trades, and drawdowns in a queryable database file
+  - Backtest results panel now shows whether database output is enabled and the resolved database path
+
+### Changed
+
+- **Database Path Resolution**: Relative and environment-variable-backed database paths now resolve against the config file that defines them
+- **Return Series Handling**: Reporting uses geometric compounding for cumulative returns and stores mathematically undefined log returns as `NULL`
+
+### Fixed
+
+- **DuckDB Output Stability**: Deduplicate equity-curve and returns points by timestamp before DuckDB insert to avoid primary-key conflicts on repeated bar timestamps
+- **Package Build Artifacts**: Wheel builds no longer include duplicate scaffold, template, and data files during packaging
+- **Developer Tooling**: `make` targets now isolate `uv` from inherited foreign `VIRTUAL_ENV` values for quieter, deterministic local QA and release commands
+
 ## [0.2.0-beta.6] - 2026-03-31
 
 ### Added
