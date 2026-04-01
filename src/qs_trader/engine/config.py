@@ -160,6 +160,30 @@ class ReportingConfigItem(BaseModel):
     )
 
 
+class FeatureConfig(BaseModel):
+    """ClickHouse feature store configuration.
+
+    Validated at config-load time so typos or unsupported column names are
+    caught before the engine starts, rather than silently connecting to
+    unexpected defaults.
+    """
+
+    feature_version: str = Field(default="v1", description="Feature set version tag (e.g. 'v1')")
+    regime_version: str = Field(default="v1", description="Regime version tag (e.g. 'v1')")
+    columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Feature columns to return (None = all default columns). "
+            "When set, every ctx.get_features() call that does not supply an "
+            "explicit columns argument will be filtered to this list. "
+            "Reduces returned payload and FeatureBarEvent size; the SQL query "
+            "still fetches all feature columns and filtering is applied in-process."
+        ),
+    )
+    connect_timeout: int = Field(default=10, ge=1, description="ClickHouse connection timeout in seconds")
+    query_timeout: int = Field(default=30, ge=1, description="ClickHouse query timeout in seconds")
+
+
 class BacktestConfig(BaseModel):
     """Backtest run configuration.
 
@@ -285,6 +309,17 @@ class BacktestConfig(BaseModel):
         default=None,
         description="Performance reporting configuration (optional). "
         "If omitted, no performance metrics will be calculated or displayed.",
+    )
+
+    # Feature store (optional)
+    feature_config: FeatureConfig | None = Field(
+        default=None,
+        description="ClickHouse feature store configuration (optional). "
+        "If set, FeatureService is constructed and injected into StrategyContext "
+        "so strategies can call ctx.get_features(), ctx.get_indicators(), ctx.get_regime(). "
+        "Fields: feature_version (str, default 'v1'), regime_version (str, default 'v1'), "
+        "columns (list[str] | null — feature columns to fetch, null = all), "
+        "connect_timeout (int, default 10), query_timeout (int, default 30).",
     )
 
     @property

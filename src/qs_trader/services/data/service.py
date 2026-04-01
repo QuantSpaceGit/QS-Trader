@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import structlog
 
 from qs_trader.events.event_bus import IEventBus
+from qs_trader.events.events import FeatureBarEvent
 from qs_trader.services.data.adapters.resolver import DataSourceResolver
 from qs_trader.services.data.config import BarSchemaConfig
 from qs_trader.services.data.config import DataConfig
@@ -388,6 +389,7 @@ class DataService:
         strict: bool = False,
         replay_speed: float = 0.0,
         debugger: Any | None = None,
+        feature_service: Any | None = None,
     ) -> None:
         """
         Load bars for multiple symbols and publish PriceBarEvent for each bar.
@@ -540,6 +542,19 @@ class DataService:
                     self._event_bus.publish(price_event)
                     total_bars += 1
 
+                    # Emit FeatureBarEvent if a FeatureService is wired in
+                    if feature_service is not None:
+                        bar_date = adapter.get_timestamp(bar_data).date().isoformat()
+                        features = feature_service.get_features(sym, bar_date) or {}
+                        self._event_bus.publish(
+                            FeatureBarEvent(
+                                timestamp=price_event.timestamp,
+                                symbol=sym,
+                                features=features,
+                                feature_set_version=feature_service._feature_version,
+                            )
+                        )
+
                 # Sleep for visualization (if replay_speed > 0) after publishing all bars for this timestamp
                 if replay_speed > 0:
                     time.sleep(replay_speed)
@@ -602,6 +617,19 @@ class DataService:
                 price_event = adapter.to_price_bar_event(bar_data)
                 self._event_bus.publish(price_event)
                 total_bars += 1
+
+                # Emit FeatureBarEvent if a FeatureService is wired in
+                if feature_service is not None:
+                    bar_date = adapter.get_timestamp(bar_data).date().isoformat()
+                    features = feature_service.get_features(sym, bar_date) or {}
+                    self._event_bus.publish(
+                        FeatureBarEvent(
+                            timestamp=price_event.timestamp,
+                            symbol=sym,
+                            features=features,
+                            feature_set_version=feature_service._feature_version,
+                        )
+                    )
 
             # Sleep for visualization (if replay_speed > 0) after publishing final timestamp
             if replay_speed > 0:

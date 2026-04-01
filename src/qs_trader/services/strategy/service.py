@@ -16,6 +16,7 @@ from qs_trader.services.strategy.context import Context
 
 if TYPE_CHECKING:
     from qs_trader.libraries.strategies import Strategy
+    from qs_trader.services.features.service import FeatureService
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +45,11 @@ class StrategyService:
     """
 
     def __init__(
-        self, event_bus: EventBus, strategies: dict[str, "Strategy"], adjustment_mode: str = "split_adjusted"
+        self,
+        event_bus: EventBus,
+        strategies: dict[str, "Strategy"],
+        adjustment_mode: str = "split_adjusted",
+        feature_service: "FeatureService | None" = None,
     ) -> None:
         """
         Initialize strategy service.
@@ -54,10 +59,13 @@ class StrategyService:
             strategies: Dict mapping strategy name to strategy instance
             adjustment_mode: Adjustment mode for strategy indicators ('split_adjusted' or 'total_return').
                 Default: 'split_adjusted'
+            feature_service: Optional FeatureService for accessing precomputed ClickHouse features.
+                If provided, strategies can call ctx.get_features(), ctx.get_indicators(), ctx.get_regime().
         """
         self._event_bus = event_bus
         self._strategies = strategies
         self._adjustment_mode = adjustment_mode
+        self._feature_service = feature_service
         self._contexts: dict[str, Context] = {}
         self._strategy_metrics: dict[str, dict] = {}
         self._quarantined: set[str] = set()  # Track strategies that failed setup
@@ -72,6 +80,7 @@ class StrategyService:
                 event_bus=event_bus,
                 config=config_dict,
                 adjustment_mode=adjustment_mode,
+                feature_service=feature_service,
             )
             self._strategy_metrics[name] = {
                 "bars_processed": 0,
@@ -169,6 +178,17 @@ class StrategyService:
                     error_type=type(e).__name__,
                 )
                 self._strategy_metrics[name]["errors"] += 1
+
+        # Close FeatureService connection if present
+        if self._feature_service is not None:
+            try:
+                self._feature_service.close()
+            except Exception as e:
+                logger.warning(
+                    "strategy.service.feature_service_close_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
     def on_bar(self, event: PriceBarEvent) -> None:
         """

@@ -18,6 +18,7 @@ from qs_trader.engine.config import (
     ConfigLoadError,
     DataSelectionConfig,
     DataSourceConfig,
+    FeatureConfig,
     RiskPolicyConfig,
     StrategyConfigItem,
     load_backtest_config,
@@ -516,3 +517,79 @@ class TestConfigLoadError:
         with pytest.raises(ConfigLoadError) as exc_info:
             raise_error()
         assert "Test error" in str(exc_info.value)
+
+
+# ============================================================================
+# FeatureConfig Tests
+# ============================================================================
+
+
+class TestFeatureConfig:
+    """Tests for the typed FeatureConfig Pydantic model."""
+
+    def test_defaults(self) -> None:
+        """FeatureConfig should have sensible defaults."""
+        cfg = FeatureConfig()
+        assert cfg.feature_version == "v1"
+        assert cfg.regime_version == "v1"
+        assert cfg.columns is None
+        assert cfg.connect_timeout == 10
+        assert cfg.query_timeout == 30
+
+    def test_custom_values(self) -> None:
+        """Explicit values should be stored correctly."""
+        cfg = FeatureConfig(
+            feature_version="v2",
+            regime_version="v2",
+            columns=["trend_strength", "trend_regime"],
+            connect_timeout=5,
+            query_timeout=60,
+        )
+        assert cfg.feature_version == "v2"
+        assert cfg.columns == ["trend_strength", "trend_regime"]
+        assert cfg.connect_timeout == 5
+
+    def test_timeout_must_be_positive(self) -> None:
+        """connect_timeout and query_timeout must be >= 1."""
+        with pytest.raises(ValidationError):
+            FeatureConfig(connect_timeout=0)
+        with pytest.raises(ValidationError):
+            FeatureConfig(query_timeout=0)
+
+    def test_model_dump_is_passable_to_feature_service(self) -> None:
+        """model_dump() output should be a plain dict with expected keys."""
+        cfg = FeatureConfig(feature_version="v1", columns=["trend_strength"])
+        d = cfg.model_dump()
+        assert isinstance(d, dict)
+        assert d["feature_version"] == "v1"
+        assert d["columns"] == ["trend_strength"]
+
+    def test_backtest_config_parses_feature_config_from_dict(self, tmp_path: Path) -> None:
+        """BacktestConfig should coerce a nested feature_config dict into FeatureConfig."""
+        raw: dict = {
+            "backtest_id": "feat_test",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "initial_equity": "100000",
+            "data": {"sources": [{"name": "ds1", "universe": ["AAPL"]}]},
+            "strategies": [{"strategy_id": "s", "universe": ["AAPL"], "data_sources": ["ds1"]}],
+            "risk_policy": {"name": "naive", "config": {}},
+            "feature_config": {"feature_version": "v2", "regime_version": "v2"},
+        }
+        cfg = BacktestConfig(**raw)
+        assert isinstance(cfg.feature_config, FeatureConfig)
+        assert cfg.feature_config.feature_version == "v2"
+
+    def test_backtest_config_feature_config_none_by_default(self) -> None:
+        """feature_config defaults to None when omitted."""
+        raw: dict = {
+            "backtest_id": "no_feat",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "initial_equity": "100000",
+            "data": {"sources": [{"name": "ds1", "universe": ["AAPL"]}]},
+            "strategies": [{"strategy_id": "s", "universe": ["AAPL"], "data_sources": ["ds1"]}],
+            "risk_policy": {"name": "naive", "config": {}},
+        }
+        cfg = BacktestConfig(**raw)
+        assert cfg.feature_config is None

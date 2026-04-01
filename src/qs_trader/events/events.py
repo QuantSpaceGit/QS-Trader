@@ -1106,3 +1106,29 @@ class BacktestEndedEvent(ControlEvent):
     success: bool = True
     error_message: str = ""
     stats: dict[str, Any] = Field(default_factory=dict)
+
+
+# ============================================
+# Feature Events
+# ============================================
+
+
+class FeatureBarEvent(ControlEvent):
+    """
+    Carries precomputed features for a single bar from the QS-Datamaster feature store.
+
+    Emitted alongside PriceBarEvent when FeatureService is active.
+    Uses ControlEvent base (no JSON schema required — internal backtest coordination).
+
+    Fields:
+        timestamp: ISO8601 UTC string matching the corresponding PriceBarEvent.timestamp.
+        symbol: The instrument symbol.
+        features: Mapping of feature name to float value (NaN indicates unavailable).
+        feature_set_version: Identifies the feature schema version (e.g. "v1").
+    """
+
+    event_type: str = "feature_bar"
+    timestamp: str
+    symbol: str
+    features: dict[str, Any] = Field(default_factory=dict)
+    feature_set_version: str = "v1"

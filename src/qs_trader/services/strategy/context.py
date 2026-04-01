@@ -18,13 +18,16 @@ Philosophy:
 import uuid
 from collections import deque
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
 
 from qs_trader.events.event_bus import IEventBus
 from qs_trader.events.events import IndicatorEvent, PriceBarEvent, SignalEvent
 from qs_trader.services.strategy.models import SignalIntention
+
+if TYPE_CHECKING:
+    from qs_trader.services.features.service import FeatureService
 
 logger = structlog.get_logger()
 
@@ -99,6 +102,7 @@ class Context:
         max_bars: int = 500,
         config: Optional[dict[str, Any]] = None,
         adjustment_mode: str = "split_adjusted",
+        feature_service: Optional["FeatureService"] = None,
     ):
         """
         Initialize context for a strategy.
@@ -122,6 +126,9 @@ class Context:
         # Uses deque with maxlen for automatic windowing
         self._bar_cache: dict[str, deque[PriceBarEvent]] = {}
 
+        # Optional FeatureService for consuming precomputed features from ClickHouse
+        self._feature_service = feature_service
+
         # Indicator tracking for automatic event emission: {indicator_name: value}
         # Reset at start of each bar, emitted at end if log_indicators: true
         self._indicators: dict[str, Any] = {}
@@ -131,6 +138,7 @@ class Context:
             strategy_id=strategy_id,
             max_bars=max_bars,
             log_indicators=self._config.get("log_indicators", False),
+            has_feature_service=feature_service is not None,
         )
 
     def emit_signal(
@@ -646,6 +654,86 @@ class Context:
         )
 
         return prices
+
+    def get_features(
+        self,
+        symbol: str,
+        date: str,
+        columns: Optional[list[str]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Fetch precomputed composite features for a symbol on a given date.
+
+        Delegates to the injected FeatureService (QS-Datamaster ClickHouse store).
+        Returns None when:
+          - No FeatureService was injected at Context construction.
+          - The symbol has no secid in ClickHouse.
+          - The date falls before the security's warmup window (252 bars).
+          - Any ClickHouse connectivity issue occurs.
+
+        Strategies should handle None gracefully (skip logic or use fallback indicators).
+
+        Args:
+            symbol: Ticker symbol (e.g. "AAPL").
+            date:   Trading date ISO string "YYYY-MM-DD" (typically event.timestamp[:10]).
+            columns: Optional list of feature names to restrict the result.
+                     When None, all available composite features are returned.
+
+        Returns:
+            Dict mapping feature name → value (float or string for regime labels),
+            or None if features are not available for this bar.
+
+        Example:
+            def on_bar(self, event: PriceBarEvent, context: Context) -> None:
+                date = event.timestamp[:10]
+                features = context.get_features(event.symbol, date)
+                if features is None:
+                    return  # warmup or no ClickHouse connection
+                momentum = features.get("momentum_score", 0.0)
+                regime = features.get("composite_regime", "sideways")
+                if momentum > 0.05 and regime in ("bull", "strong_bull"):
+                    context.emit_signal(...)
+        """
+        if self._feature_service is None:
+            return None
+        return self._feature_service.get_features(symbol, date, columns=columns)
+
+    def get_indicators(
+        self,
+        symbol: str,
+        date: str,
+        columns: Optional[list[str]] = None,
+    ) -> Optional[dict[str, float]]:
+        """Fetch raw equity indicators for a symbol on a given date.
+
+        Similar to get_features() but queries the lower-level
+        features_equity_indicators_daily table (more granular data).
+
+        Args:
+            symbol: Ticker symbol.
+            date:   Trading date ISO string "YYYY-MM-DD".
+            columns: Optional list of indicator names to restrict the result.
+
+        Returns:
+            Dict mapping indicator name → float, or None if not available.
+        """
+        if self._feature_service is None:
+            return None
+        return self._feature_service.get_indicators(symbol, date, columns=columns)
+
+    def get_regime(self, date: str) -> Optional[dict[str, str]]:
+        """Fetch market regime labels for a date.
+
+        Args:
+            date: Trading date ISO string "YYYY-MM-DD".
+
+        Returns:
+            Dict with keys: trend_regime, vol_regime, risk_regime,
+            breadth_regime, composite_regime — all string values.
+            Returns None if not available.
+        """
+        if self._feature_service is None:
+            return None
+        return self._feature_service.get_regime(date)
 
     def resolve_field(self, base_field: str) -> str:
         """Resolve base field name to actual field based on adjustment mode.

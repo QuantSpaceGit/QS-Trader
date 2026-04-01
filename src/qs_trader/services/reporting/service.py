@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent
+from qs_trader.events.events import BaseEvent, FeatureBarEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, PriceBarEvent
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore
@@ -80,6 +80,7 @@ class ReportingService:
         config: ReportingConfig | None = None,
         output_dir: Path | None = None,
         event_store: "EventStore | None" = None,
+        feature_enabled: bool = False,
     ):
         """
         Initialize ReportingService.
@@ -89,11 +90,16 @@ class ReportingService:
             config: Reporting configuration (uses defaults if None)
             output_dir: Base output directory from system config (default: Path("output"))
             event_store: Optional EventStore for CSV timeline export
+            feature_enabled: Subscribe to bar/feature_bar events and buffer
+                bars_with_features rows. Set True only when a FeatureService is
+                active; avoids duplicating all OHLCV bars into DuckDB on ordinary
+                runs.
         """
         self.event_bus = event_bus
         self.config = config or ReportingConfig()
         self.output_dir = output_dir or Path("output")
         self._event_store = event_store
+        self._feature_enabled = feature_enabled
         self.logger = structlog.get_logger(self.__class__.__name__)
 
         # State tracking
@@ -118,6 +124,11 @@ class ReportingService:
         self._positions: dict[str, Decimal] = {}  # symbol → net quantity
         self._open_trades: dict[str, dict[str, Any]] = {}  # symbol → entry info
 
+        # Bar+feature accumulation for bars_with_features DuckDB table.
+        # Only populated when feature_enabled=True; keyed by (symbol, timestamp_str)
+        # to allow merging bar and feature events published independently.
+        self._bar_rows: dict[tuple[str, str], dict[str, Any]] = {}
+
         # Subscribe to events
         self._subscribe_to_events()
 
@@ -138,6 +149,51 @@ class ReportingService:
             handler=self._handle_corporate_action,
             priority=self.PRIORITY,
         )
+        if self._feature_enabled:
+            self.event_bus.subscribe(
+                event_type="bar",
+                handler=self._handle_bar,
+                priority=self.PRIORITY,
+            )
+            self.event_bus.subscribe(
+                event_type="feature_bar",
+                handler=self._handle_feature_bar,
+                priority=self.PRIORITY,
+            )
+
+    def _handle_bar(self, event: BaseEvent) -> None:
+        """Buffer OHLCV data for every bar to write to bars_with_features table."""
+        if not isinstance(event, PriceBarEvent):
+            return
+        key = (event.symbol, event.timestamp)
+        row = self._bar_rows.get(key)
+        if row is None:
+            row = {
+                "timestamp": event.timestamp,
+                "symbol": event.symbol,
+                "open": float(event.open),
+                "high": float(event.high),
+                "low": float(event.low),
+                "close": float(event.close),
+                "open_adj": float(event.open_adj) if event.open_adj is not None else None,
+                "high_adj": float(event.high_adj) if event.high_adj is not None else None,
+                "low_adj": float(event.low_adj) if event.low_adj is not None else None,
+                "close_adj": float(event.close_adj) if event.close_adj is not None else None,
+                "volume": int(event.volume) if event.volume is not None else 0,
+                "features": None,
+                "feature_set_version": "v1",
+            }
+            self._bar_rows[key] = row
+
+    def _handle_feature_bar(self, event: BaseEvent) -> None:
+        """Merge feature data from FeatureBarEvent into the matching buffered bar."""
+        if not isinstance(event, FeatureBarEvent):
+            return
+        key = (event.symbol, event.timestamp)
+        row = self._bar_rows.get(key)
+        if row is not None:
+            row["features"] = dict(event.features)
+            row["feature_set_version"] = event.feature_set_version
 
     def _handle_portfolio_state(self, event: BaseEvent) -> None:
         """
@@ -1085,6 +1141,12 @@ class ReportingService:
                 trades=self._trade_stats_calc.trades,
                 drawdowns=metrics.drawdown_periods,
             )
+            if self._bar_rows:
+                writer.save_bars_with_features(
+                    experiment_id=experiment_id,
+                    run_id=run_id,
+                    bars_with_features=list(self._bar_rows.values()),
+                )
         except Exception as e:
             self.logger.error(
                 "duckdb_write.failed",
@@ -1248,3 +1310,4 @@ class ReportingService:
         self._trade_stats_calc = TradeStatisticsCalculator()
         self._period_calc = PeriodAggregationCalculator()
         self._strategy_perf_calc = None  # Will be initialized in setup()
+        self._bar_rows = {}

@@ -126,6 +126,7 @@ class BacktestEngine:
         event_store: EventStore | None = None,
         results_dir: Path | None = None,
         debugger: Any | None = None,
+        feature_service: Any | None = None,
     ) -> None:
         """
         Initialize backtest engine.
@@ -142,6 +143,8 @@ class BacktestEngine:
             event_store: Optional persistence backend
             results_dir: Optional directory for run artifacts
             debugger: Optional interactive debugger for step-through execution
+            feature_service: Optional FeatureService; when supplied, a FeatureBarEvent
+                is published immediately after each PriceBarEvent during streaming.
         """
         self.config = config
         self._event_bus = event_bus
@@ -154,6 +157,7 @@ class BacktestEngine:
         self._event_store = event_store
         self._results_dir = results_dir
         self._debugger = debugger
+        self._feature_service = feature_service
         self._bar_count = 0  # Initialize for tracking bars processed
 
         # Get all symbols from data sources
@@ -315,6 +319,7 @@ class BacktestEngine:
 
         # Initialize StrategyService if strategies configured
         strategy_service: StrategyService | None = None
+        feature_service: Any | None = None  # built below if feature_config is set
         if hasattr(config, "strategies") and config.strategies:
             logger.debug(
                 "backtest.engine.loading_strategies",
@@ -389,10 +394,50 @@ class BacktestEngine:
             # Create StrategyService if we have any strategies
             if strategy_instances:
                 strategy_adjustment_mode = getattr(config, "strategy_adjustment_mode", "split_adjusted")
+
+                # Construct FeatureService if feature_config is present in backtest config
+                feature_service = None
+                feature_config = getattr(config, "feature_config", None)
+                if feature_config:
+                    try:
+                        from qs_trader.services.features.service import FeatureService
+
+                        # Resolve ClickHouse connection config from the first data source entry.
+                        # The resolver's get_source_config() returns the full YAML block including
+                        # the `clickhouse` subkey needed by FeatureService.
+                        ch_config: dict = {}
+                        try:
+                            source_cfg = data_service.resolver.get_source_config(data_service.dataset)
+                            ch_config = source_cfg.get("clickhouse", {}) or {}
+                        except Exception as resolver_exc:
+                            logger.warning(
+                                "backtest.engine.clickhouse_resolver_failed",
+                                error=str(resolver_exc),
+                                error_type=type(resolver_exc).__name__,
+                                note="Falling back to environment variables for ClickHouse connection",
+                            )
+
+                        feature_service = FeatureService.from_config(
+                            config={**feature_config.model_dump(), "clickhouse": ch_config}
+                        )
+                        logger.debug(
+                            "backtest.engine.feature_service_created",
+                            feature_version=feature_config.feature_version,
+                            regime_version=feature_config.regime_version,
+                        )
+                    except Exception as e:
+                        # feature_config was explicitly requested — fail hard so the user
+                        # does not silently run a plain-price backtest instead of a
+                        # feature-augmented one.
+                        raise RuntimeError(
+                            f"feature_config is set but FeatureService could not be created: {e}"
+                        ) from e
+
                 strategy_service = StrategyService(
                     event_bus=event_bus,
                     strategies=strategy_instances,
                     adjustment_mode=strategy_adjustment_mode,
+                    feature_service=feature_service,
                 )
                 logger.debug(
                     "backtest.engine.strategy_service_created",
@@ -522,6 +567,7 @@ class BacktestEngine:
                     config=reporting_config,
                     output_dir=reporting_output_dir,
                     event_store=event_store,  # Pass EventStore for CSV timeline export
+                    feature_enabled=feature_service is not None,
                 )
 
                 logger.debug(
@@ -553,6 +599,7 @@ class BacktestEngine:
             event_store=event_store,
             results_dir=results_dir,
             debugger=debugger,
+            feature_service=feature_service,
         )
 
     def shutdown(self) -> None:
@@ -756,6 +803,7 @@ class BacktestEngine:
                     strict=False,  # Continue if some symbols fail to load
                     replay_speed=self.config.replay_speed,  # Use replay_speed from config
                     debugger=self._debugger,  # Pass debugger for interactive stepping
+                    feature_service=self._feature_service,  # Emit FeatureBarEvent when set
                 )
             except Exception as e:
                 logger.error(

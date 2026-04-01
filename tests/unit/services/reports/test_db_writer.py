@@ -234,7 +234,7 @@ class TestDuckDBWriterSchemaCreation:
         tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
         con.close()
 
-        assert tables == {"runs", "equity_curve", "returns", "trades", "drawdowns"}
+        assert tables == {"runs", "equity_curve", "returns", "trades", "drawdowns", "bars_with_features"}
 
     def test_creates_parent_directories(self, tmp_path: Path, sample_metrics: FullMetrics) -> None:
         """Parent directories should be created if they don't exist."""

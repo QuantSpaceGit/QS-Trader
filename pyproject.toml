@@ -53,6 +53,8 @@ dependencies = [
     "yfinance>=0.2.66",
     # Database
     "duckdb>=1.2.0",
+    # ClickHouse integration (QS-Datamaster feature store)
+    "clickhouse-connect>=0.7",
 ]
 
 [project.scripts]
