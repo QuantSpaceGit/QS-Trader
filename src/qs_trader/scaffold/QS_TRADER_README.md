@@ -176,11 +176,11 @@ qs-trader init-library ./library --type strategy
 
 ### Registering Custom Components
 
-Edit `config/system.yaml` and point to your custom library:
+Edit `config/qs_trader.yaml` and point to your custom library:
 
 ```yaml
 custom_libraries:
-  strategies: "./library/strategies"  # Or path to your custom library
+  strategies: "./library/strategies" # Or path to your custom library
   risk_policies: "./library/risk_policies"
   adapters: "./library/adapters"
   indicators: "./library/indicators"
@@ -215,7 +215,7 @@ Each run creates a timestamped directory with complete provenance tracking.
 
 ## 🔧 Configuration
 
-### System Configuration (`config/system.yaml`)
+### System Configuration (`config/qs_trader.yaml`)
 
 Controls HOW the system operates:
 
@@ -362,11 +362,11 @@ qs-trader data yahoo-update --help # Show specific command help
 ## 🎯 Next Steps
 
 1. Review example experiments in `experiments/`
-1. Run an example: `qs-trader backtest experiments/buy_hold`
-1. Explore example strategies in `library/strategies/`
-1. Customize `config/system.yaml` for your needs
-1. Create your own experiment directory with canonical `{name}.yaml` file
-1. Run your experiment: `qs-trader backtest experiments/my_strategy`
+2. Run an example: `qs-trader backtest experiments/buy_hold`
+3. Explore example strategies in `library/strategies/`
+4. Customize `config/qs_trader.yaml` for your needs
+5. Create your own experiment directory with canonical `{name}.yaml` file
+6. Run your experiment: `qs-trader backtest experiments/my_strategy`
 
 ## 📊 Experiment Management
 

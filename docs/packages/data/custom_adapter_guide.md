@@ -119,17 +119,17 @@ class MyCustomAdapter:
         return (None, None)
 ```
 
-### 2. Configure in system.yaml
+### 2. Configure in qs_trader.yaml
 
 Add your adapters directory to system configuration. Set paths to `null` for components you don't need:
 
 ```yaml
 custom_libraries:
-  adapters: "./library/adapters"    # Your custom adapter directory
-  strategies: null                   # null = use built-in only
-  indicators: null                   # null = use built-in only
-  risk_policies: null                # null = use built-in only
-  metrics: null                      # null = use built-in only
+  adapters: "./library/adapters" # Your custom adapter directory
+  strategies: null # null = use built-in only
+  indicators: null # null = use built-in only
+  risk_policies: null # null = use built-in only
+  metrics: null # null = use built-in only
 ```
 
 **Note:** Paths are relative to your project root. Use `null` (not empty string) to disable custom components.
@@ -153,10 +153,10 @@ data_sources:
     price_scale: 2
 
     # Adapter configuration
-    adapter: my_custom  # Registry auto-generates from class name
+    adapter: my_custom # Registry auto-generates from class name
 
     # Your custom config fields
-    api_key: "${MY_API_KEY}"  # Environment variable substitution
+    api_key: "${MY_API_KEY}" # Environment variable substitution
     api_endpoint: "https://api.example.com"
     cache_path: "data/cache/my_custom"
 ```
@@ -453,7 +453,7 @@ if __name__ == '__main__':
 # Check:
 # 1. Adapter class implements all required methods
 # 2. File is in my_library/adapters/ directory
-# 3. system.yaml has correct adapters path
+# 3. qs_trader.yaml has correct adapters path
 # 4. Class name matches expected registry name
 
 # Debug:

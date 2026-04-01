@@ -7,7 +7,7 @@
 # USER WORKFLOW:
 #   1. Copy this template to my_library/risk_policies/my_policy.yaml
 #   2. Edit the YAML configuration values to match your risk tolerance
-#   3. Reference the policy in config/portfolio.yaml:
+#   3. Reference the policy in your experiment YAML:
 #      risk_policy:
 #        name: "my_policy"
 #   4. Run your backtest - ManagerService loads and applies the policy automatically
@@ -62,7 +62,7 @@ portfolio_risk_policy:
   #
   # Format:
   #   budgets:
-  #     - strategy_id: "strategy_name"  # Must match strategy_id in portfolio.yaml
+  #     - strategy_id: "strategy_name"  # Must match strategy_id in the experiment YAML
   #       capital_weight: 0.30          # Fraction of equity (0.30 = 30%)
   #
   # Rules:
@@ -440,6 +440,7 @@ portfolio_risk_policy:
     rebalance_on_risk_breach: false
     rebalance_strategy: null # "proportional_reduction" | "largest_first" | null
 
+
 ###############################################################################
 # Quick Start Guide
 ###############################################################################
@@ -453,7 +454,7 @@ portfolio_risk_policy:
 #    - concentration.max_position_size_pct: Set max per symbol (e.g., 0.20 = 20%)
 #    - cash_management.cash_buffer_pct: Set cash reserve (e.g., 0.10 = 10%)
 #
-# 3. Configure your portfolio to use this policy in config/portfolio.yaml:
+# 3. Configure your experiment YAML to use this policy:
 #    risk_policy:
 #      name: "my_policy"  # References my_library/risk_policies/my_policy.yaml
 #      config: {}         # Optional overrides

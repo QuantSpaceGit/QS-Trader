@@ -107,7 +107,7 @@ strategies:
   - strategy_id: "sma_crossover" # Must match registry name
     universe: ["AAPL", "MSFT"] # Symbols this strategy trades
     data_sources: ["yahoo-us-equity-1d-csv"] # Data feeds to use
-    configs: # Strategy-specific parameters
+    config: # Strategy-specific parameters
       fast_period: 10
       slow_period: 50
       log_indicators: false # Enable indicator event logging (optional, default: false)
@@ -116,7 +116,7 @@ strategies:
   # - strategy_id: "momentum"
   #   universe: ["GOOGL"]
   #   data_sources: ["standard-us-equity-1d-csv"]
-  #   configs:
+  #   config:
   #     lookback_period: 20
   #     threshold: 0.05
 
@@ -124,7 +124,7 @@ strategies:
   # - strategy_id: "buy_and_hold"
   #   universe: ["AAPL"]
   #   data_sources: ["standard-us-equity-1d-csv"]
-  #   configs: {}
+  #   config: {}
 
   # ==============================================================================
   # INDICATOR LOGGING (Optional)
@@ -188,7 +188,7 @@ strategies:
 risk_policy:
   # Option 1: Use a built-in risk policy (naive, conservative, aggressive)
   name: "naive"
-  configs: {} # Optional: overrides for the policy (not yet implemented)
+  config: {} # Optional: overrides for the policy
 
 # ==============================================================================
 # REPORTING CONFIGURATION (Optional)
@@ -224,11 +224,34 @@ reporting:
 
 
   # Note: Output directory comes from qs_trader.yaml (output.experiments_root)
-  # Ensures consistent output structure: output/backtests/{backtest_id}/{timestamp}/
+  # Ensures consistent output structure: experiments/{backtest_id}/runs/{timestamp}/
 
   # Benchmark (not yet implemented)
   # benchmark_symbol: "SPY"  # Uncomment to compare against benchmark
 
-  # Option 2: Use a custom risk policy
-  # name: "my_custom_policy"  # Must exist in my_library/risk_policies/
-  # configs: {}
+# ==============================================================================
+# FEATURE STORE CONFIGURATION (Optional)
+# ==============================================================================
+# Enables ClickHouse feature integration so strategies can call
+# ctx.get_features(), ctx.get_indicators(), and ctx.get_regime().
+# Requires QS-Datamaster to be running and CLICKHOUSE_* env vars set.
+# Omit this section entirely for plain-price backtests.
+#
+# feature_config:
+#   feature_version: "v1"         # Feature set version tag
+#   regime_version: "v1"          # Regime version tag
+#   columns: null                  # Feature columns to fetch (null = all defaults)
+#   connect_timeout: 10            # ClickHouse connection timeout in seconds
+#   query_timeout: 30              # ClickHouse query timeout in seconds
+#
+# Required environment variables (set in .env or shell):
+#   CLICKHOUSE_HOST      ClickHouse hostname
+#   CLICKHOUSE_HTTP_PORT HTTP port (default 8123)
+#   CLICKHOUSE_USER      Username
+#   CLICKHOUSE_PASSWORD  Password
+#   CLICKHOUSE_DATABASE  Database name (default "market")
+#
+# The ClickHouse connection details are also read from the data source entry
+# in data_sources.yaml ("clickhouse" subkey) when present.
+# name: "my_custom_policy"  # Must exist in my_library/risk_policies/
+# config: {}

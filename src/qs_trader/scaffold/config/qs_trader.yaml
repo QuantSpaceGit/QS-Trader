@@ -187,7 +187,7 @@ logging:
 
   # Enable Rich event display formatting
   # When true: Events (bar, signal, order, fill) are displayed with Rich formatting
-  #            regardless of log level (controlled by display_events in portfolio.yaml)
+  #            regardless of log level (controlled by display_events in your experiment YAML)
   # When false: Events use standard structured log format
   # Note: System logs (INFO/WARNING/ERROR) always respect the level setting above
   enable_event_display: true

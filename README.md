@@ -206,7 +206,7 @@ and you get:
 |-- QS-TRADER_README.md              # Scaffold-specific README for this project
 |-- config                         # Global system & data-source configuration
 |   |-- data_sources.yaml          # Defines available datasets/adapters
-|   `-- qs-trader.yaml               # Engine/system settings (execution, portfolio, paths)
+|   `-- qs_trader.yaml               # Engine/system settings (execution, portfolio, paths)
 |-- data                           # Local market data cache
 |   |-- sample-csv                 # Tiny bundled sample dataset
 |   |   |-- AAPL.csv               # Example OHLCV for AAPL
@@ -317,8 +317,8 @@ For detailed usage guide, see [docs/cli/interactive.md](docs/cli/interactive.md)
 ### Programmatic API
 
 ```python
-from qs-trader.engine import BacktestEngine
-from qs-trader.engine.config import BacktestConfig
+from qs_trader.engine import BacktestEngine
+from qs_trader.engine.config import BacktestConfig
 
 config = BacktestConfig.from_yaml("experiments/buy_hold/buy_hold.yaml")
 engine = BacktestEngine(config)
@@ -396,8 +396,8 @@ Use `qs-trader init-library` to create template files then implement logic in `o
 Minimal custom strategy example:
 
 ```python
-from qs-trader.libraries.strategies import Strategy, StrategyConfig
-from qs-trader.services.strategy.models import SignalIntention
+from qs_trader.libraries.strategies import Strategy, StrategyConfig
+from qs_trader.services.strategy.models import SignalIntention
 
 class MyStrategyConfig(StrategyConfig):
     name: str = "my_strategy"
@@ -419,7 +419,7 @@ CONFIG = MyStrategyConfig()  # Required for discovery
 Implement the adapter protocol to load proprietary data and emit events.
 
 ```python
-from qs-trader.services.data.adapters.protocol import IDataAdapter
+from qs_trader.services.data.adapters.protocol import IDataAdapter
 
 class MyAdapter(IDataAdapter):
     def read_bars(self, start_date: str, end_date: str):
@@ -440,7 +440,7 @@ my-qs-trader-extensions/
 └── risk_policies/
 ```
 
-Configure paths in `config/system.yaml` (set to `null` for built-in only):
+Configure paths in `config/qs_trader.yaml` (set to `null` for built-in only):
 
 ```yaml
 custom_libraries:

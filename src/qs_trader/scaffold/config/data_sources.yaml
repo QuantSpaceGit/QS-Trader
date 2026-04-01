@@ -66,4 +66,42 @@ data_sources:
     # File naming: {symbol}.csv (e.g., AAPL.csv)
     # No adjustment factors or corporate actions
     # No caching supported (designed for small datasets)
-# Additional data sources can be defined here
+
+# ------------------------------------------------------------------------------
+# QS-Datamaster / ClickHouse (feature-augmented backtests)
+# ------------------------------------------------------------------------------
+# Uncomment and configure to use precomputed features from QS-Datamaster.
+# Requires:
+#   - QS-Datamaster running with ClickHouse populated
+#   - Environment variables: CLICKHOUSE_HOST, CLICKHOUSE_HTTP_PORT,
+#     CLICKHOUSE_USER, CLICKHOUSE_PASSWORD, CLICKHOUSE_DATABASE
+#
+# Then in your experiment YAML, reference this source:
+#   strategies:
+#     - strategy_id: "my_strategy"
+#       data_sources: ["qs-datamaster-equity-1d"]  # <-- use this source name
+#       ...
+#
+#   feature_config:        # feature versions belong here, NOT in the datasource block
+#     feature_version: "v1"
+#     regime_version: "v1"
+#     # columns: null     # null = all; or list specific cols to narrow payload
+#
+# qs-datamaster-equity-1d:
+#   provider: qs-datamaster
+#   asset_class: equity
+#   data_type: ohlcv
+#   frequency: 1d
+#   region: US
+#   adjusted: true
+#   timezone: America/New_York
+#   price_currency: USD
+#   price_scale: 2
+#
+#   adapter: clickhouse  # registry name generated from ClickhouseDataAdapter
+#   clickhouse:
+#     host: ${CLICKHOUSE_HOST:-localhost}
+#     port: ${CLICKHOUSE_HTTP_PORT:-8123}
+#     username: ${CLICKHOUSE_USER:-default}
+#     password: ${CLICKHOUSE_PASSWORD:-}
+#     database: ${CLICKHOUSE_DATABASE:-market}

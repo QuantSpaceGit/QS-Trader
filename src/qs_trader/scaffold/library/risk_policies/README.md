@@ -43,29 +43,29 @@ portfolio_risk_policy:
   # Capital allocation (optional - defaults to 95% in single "default" budget)
   budgets:
     - strategy_id: "default"
-      capital_weight: 0.90  # 90% allocated, 10% cash reserve
+      capital_weight: 0.90 # 90% allocated, 10% cash reserve
 
   # Position sizing
   sizing:
     algorithm: "fixed_equity_pct"
-    fixed_equity_pct: 0.20  # 20% of allocated capital per position
-    adjust_for_confidence: true  # Scale by signal confidence
+    fixed_equity_pct: 0.20 # 20% of allocated capital per position
+    adjust_for_confidence: true # Scale by signal confidence
 
   # Risk limits
   limits:
     # Maximum position size
-    max_position_pct: 0.25  # No single position > 25% of allocated capital
+    max_position_pct: 0.25 # No single position > 25% of allocated capital
 
     # Maximum portfolio leverage
-    max_gross_leverage: 1.0  # Long-only (no leverage)
+    max_gross_leverage: 1.0 # Long-only (no leverage)
     max_net_leverage: 1.0
 
     # Concentration limits
-    max_sector_exposure: 0.40  # Max 40% in any sector
-    max_correlated_exposure: 0.60  # Max 60% in correlated positions
+    max_sector_exposure: 0.40 # Max 40% in any sector
+    max_correlated_exposure: 0.60 # Max 60% in correlated positions
 
     # Drawdown protection
-    max_drawdown_pct: 0.20  # Stop trading at 20% drawdown
+    max_drawdown_pct: 0.20 # Stop trading at 20% drawdown
     drawdown_action: "stop_new_positions"
 ```
 
@@ -79,24 +79,24 @@ portfolio_risk_policy:
   # Allocate capital across strategies
   budgets:
     - strategy_id: "trend_following"
-      capital_weight: 0.40  # 40% to trend following
+      capital_weight: 0.40 # 40% to trend following
 
     - strategy_id: "mean_reversion"
-      capital_weight: 0.30  # 30% to mean reversion
+      capital_weight: 0.30 # 30% to mean reversion
 
     - strategy_id: "momentum"
-      capital_weight: 0.20  # 20% to momentum
+      capital_weight: 0.20 # 20% to momentum
 
     # Total: 90% allocated, 10% unallocated cash reserve
 
   sizing:
     algorithm: "fixed_equity_pct"
-    fixed_equity_pct: 0.50  # 50% of strategy's allocated capital per position
+    fixed_equity_pct: 0.50 # 50% of strategy's allocated capital per position
     adjust_for_confidence: true
 
   limits:
     max_position_pct: 0.30
-    max_gross_leverage: 1.5  # Allow 50% leverage
+    max_gross_leverage: 1.5 # Allow 50% leverage
     max_net_leverage: 1.0
     max_drawdown_pct: 0.15
 ```
@@ -110,20 +110,20 @@ portfolio_risk_policy:
 
   budgets:
     - strategy_id: "default"
-      capital_weight: 0.95  # 95% deployed
+      capital_weight: 0.95 # 95% deployed
 
   sizing:
     algorithm: "fixed_equity_pct"
-    fixed_equity_pct: 0.40  # 40% of allocated capital per position
+    fixed_equity_pct: 0.40 # 40% of allocated capital per position
     adjust_for_confidence: true
 
   limits:
-    max_position_pct: 0.50  # Allow concentrated positions
-    max_gross_leverage: 2.0  # Allow 2x leverage
+    max_position_pct: 0.50 # Allow concentrated positions
+    max_gross_leverage: 2.0 # Allow 2x leverage
     max_net_leverage: 1.5
     max_sector_exposure: 0.60
-    max_drawdown_pct: 0.30  # Higher drawdown tolerance
-    drawdown_action: "reduce_positions"  # Reduce but don't stop
+    max_drawdown_pct: 0.30 # Higher drawdown tolerance
+    drawdown_action: "reduce_positions" # Reduce but don't stop
 ```
 
 ## Configuration Sections
@@ -133,12 +133,12 @@ portfolio_risk_policy:
 Basic policy information:
 
 ```yaml
-name: "my_policy"  # Must match filename
+name: "my_policy" # Must match filename
 description: "Policy description"
 version: "1.0.0"
 date_created: "2025-01-01"
 author: "Your Name"
-policy_scope: "portfolio"  # Currently only "portfolio" supported
+policy_scope: "portfolio" # Currently only "portfolio" supported
 ```
 
 ### 2. Evaluation
@@ -147,7 +147,7 @@ When to check risk limits:
 
 ```yaml
 evaluation:
-  mode: "end_of_day"  # Options: end_of_day, bar_close, intraday
+  mode: "end_of_day" # Options: end_of_day, bar_close, intraday
   clock_alignment: "exchange_calendar"
 ```
 
@@ -164,10 +164,11 @@ Allocate capital across multiple strategies:
 ```yaml
 budgets:
   - strategy_id: "strategy_name"
-    capital_weight: 0.30  # 30% of portfolio equity
+    capital_weight: 0.30 # 30% of portfolio equity
 
-  - strategy_id: "default"  # Fallback for unlisted strategies
-    capital_weight: 0.60  # 60% of portfolio equity
+  - strategy_id: "default" # Fallback for unlisted strategies
+    capital_weight: 0.60 # 60% of portfolio equity
+
 
 # Total weights must be ≤ 1.0
 # Remaining (1.0 - sum) stays as unallocated cash
@@ -200,11 +201,11 @@ Core-satellite:
 ```yaml
 budgets:
   - strategy_id: "buy_and_hold"
-    capital_weight: 0.60  # 60% core
+    capital_weight: 0.60 # 60% core
   - strategy_id: "momentum"
-    capital_weight: 0.20  # 20% satellite
+    capital_weight: 0.20 # 20% satellite
   - strategy_id: "mean_reversion"
-    capital_weight: 0.15  # 15% satellite
+    capital_weight: 0.15 # 15% satellite
 # 95% allocated, 5% cash
 ```
 
@@ -214,9 +215,9 @@ How to calculate position sizes from signals:
 
 ```yaml
 sizing:
-  algorithm: "fixed_equity_pct"  # Current: fixed_equity_pct (future: volatility_targeting, kelly_criterion)
-  fixed_equity_pct: 0.20  # 20% of allocated capital per position
-  adjust_for_confidence: true  # Scale by signal confidence (0.0-1.0)
+  algorithm: "fixed_equity_pct" # Current: fixed_equity_pct (future: volatility_targeting, kelly_criterion)
+  fixed_equity_pct: 0.20 # 20% of allocated capital per position
+  adjust_for_confidence: true # Scale by signal confidence (0.0-1.0)
 ```
 
 **Two-Layer Allocation Model:**
@@ -259,31 +260,29 @@ Portfolio-level risk constraints:
 ```yaml
 limits:
   # Position limits
-  max_position_pct: 0.25  # Max 25% of allocated capital per position
+  max_position_pct: 0.25 # Max 25% of allocated capital per position
 
   # Leverage limits
-  max_gross_leverage: 1.5  # (long_value + |short_value|) / equity ≤ 1.5
-  max_net_leverage: 1.0    # (long_value - |short_value|) / equity ≤ 1.0
+  max_gross_leverage: 1.5 # (long_value + |short_value|) / equity ≤ 1.5
+  max_net_leverage: 1.0 # (long_value - |short_value|) / equity ≤ 1.0
 
   # Concentration limits
-  max_sector_exposure: 0.40      # Max 40% in any sector
-  max_correlated_exposure: 0.60  # Max 60% in correlated positions
-  correlation_threshold: 0.70     # Positions with corr > 0.7 are "correlated"
+  max_sector_exposure: 0.40 # Max 40% in any sector
+  max_correlated_exposure: 0.60 # Max 60% in correlated positions
+  correlation_threshold: 0.70 # Positions with corr > 0.7 are "correlated"
 
   # Drawdown protection
-  max_drawdown_pct: 0.20  # Stop at 20% drawdown from peak
-  drawdown_action: "stop_new_positions"  # Options: stop_new_positions, reduce_positions, stop_all
+  max_drawdown_pct: 0.20 # Stop at 20% drawdown from peak
+  drawdown_action: "stop_new_positions" # Options: stop_new_positions, reduce_positions, stop_all
 ```
 
 **Leverage Definitions:**
 
 - **Gross Leverage**: `(long_value + |short_value|) / equity`
-
   - Measures total market exposure
   - Example: $60k long + $40k short with $100k equity = 1.0 gross leverage
 
 - **Net Leverage**: `(long_value - |short_value|) / equity`
-
   - Measures directional exposure
   - Example: $60k long + $40k short with $100k equity = 0.2 net leverage
 
@@ -299,21 +298,14 @@ limits:
 
 Save your policy as `library/risk_policies/my_policy.yaml`
 
-### 2. Reference in Portfolio Config
+### 2. Reference in Experiment Config
 
-In `config/portfolio.yaml`:
+In your experiment YAML (e.g., `experiments/my_strategy/my_strategy.yaml`):
 
 ```yaml
-portfolio:
-  managers:
-    - manager_id: "main_manager"
-      strategy_ids: ["sma_crossover", "momentum"]
-
-      risk_policy:
-        name: "my_policy"  # References library/risk_policies/my_policy.yaml
-
-      initial_capital: 100000.0
-      cash_currency: "USD"
+risk_policy:
+  name: "my_policy" # References library/risk_policies/my_policy.yaml
+  config: {} # Optional parameters passed to the policy
 ```
 
 ### 3. Run Backtest
@@ -332,15 +324,15 @@ The ManagerService automatically:
 ```yaml
 budgets:
   - strategy_id: "default"
-    capital_weight: 0.85  # 85% deployed, 15% cash
+    capital_weight: 0.85 # 85% deployed, 15% cash
 
 sizing:
-  fixed_equity_pct: 0.15  # ~12.75% of equity per position
+  fixed_equity_pct: 0.15 # ~12.75% of equity per position
   adjust_for_confidence: true
 
 limits:
   max_position_pct: 0.20
-  max_gross_leverage: 1.0  # Long-only
+  max_gross_leverage: 1.0 # Long-only
   max_net_leverage: 1.0
   max_drawdown_pct: 0.15
 ```
@@ -353,12 +345,12 @@ budgets:
     capital_weight: 0.90
 
 sizing:
-  fixed_equity_pct: 0.25  # ~22.5% per position
+  fixed_equity_pct: 0.25 # ~22.5% per position
   adjust_for_confidence: true
 
 limits:
   max_position_pct: 0.30
-  max_gross_leverage: 1.5  # Allow modest leverage
+  max_gross_leverage: 1.5 # Allow modest leverage
   max_net_leverage: 0.8
   max_drawdown_pct: 0.20
 ```
@@ -375,7 +367,7 @@ budgets:
     capital_weight: 0.15
 
 sizing:
-  fixed_equity_pct: 0.40  # Concentrated positions
+  fixed_equity_pct: 0.40 # Concentrated positions
   adjust_for_confidence: true
 
 limits:
@@ -425,8 +417,8 @@ Validation errors will appear in logs with specific issues.
 ```yaml
 sizing:
   algorithm: "volatility_targeting"
-  target_volatility: 0.15  # Target 15% annualized volatility
-  lookback_period: 60      # Days to measure volatility
+  target_volatility: 0.15 # Target 15% annualized volatility
+  lookback_period: 60 # Days to measure volatility
 ```
 
 ### Kelly Criterion (Future)
@@ -435,7 +427,7 @@ sizing:
 sizing:
   algorithm: "kelly_criterion"
   win_rate_estimate: 0.55
-  fractional_kelly: 0.25  # Use 1/4 Kelly for safety
+  fractional_kelly: 0.25 # Use 1/4 Kelly for safety
 ```
 
 ## References
@@ -444,4 +436,4 @@ sizing:
 - Risk calculators: `src/qs_trader/libraries/risk/calculators.py`
 - Manager service: `src/qs_trader/services/manager/`
 - Template: `src/qs_trader/scaffold/library/risk_policies/template.yaml`
-- Portfolio config: `config/portfolio.yaml`
+- Experiment template: `experiments/template/template.yaml`
