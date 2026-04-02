@@ -4,7 +4,7 @@
 **Purpose**: Event-driven strategy execution service with auto-discovery and lifecycle management\
 **Status**: Production Ready
 
----
+______________________________________________________________________
 
 ## Overview
 
@@ -22,7 +22,7 @@ The strategy package provides a complete strategy execution framework for QS-Tra
 - **Self-managed warmup**: Strategies control their own initialization
 - **Event-driven**: Pure publish/subscribe architecture
 
----
+______________________________________________________________________
 
 ## Architecture Philosophy
 
@@ -151,7 +151,7 @@ if bars is None:
 sma = sum(b.close for b in bars) / len(bars)
 ```
 
----
+______________________________________________________________________
 
 ## Package Structure
 
@@ -178,7 +178,7 @@ library/strategies/          # User custom strategies (auto-discovered)
 └── pairs_trading.py         # No YAML registration needed
 ```
 
----
+______________________________________________________________________
 
 ## Module: service.py
 
@@ -230,7 +230,7 @@ service.teardown()
 - `_quarantined` (set[str]): Failed strategy names
 - `_subscription_tokens` (list[SubscriptionToken]): Event subscriptions
 
----
+______________________________________________________________________
 
 ### Lifecycle Management
 
@@ -268,7 +268,7 @@ service.setup()  # Strategy removed from quarantine
 - Other strategies continue setup
 - Metrics track quarantine status
 
----
+______________________________________________________________________
 
 #### on_bar()
 
@@ -305,7 +305,7 @@ service = StrategyService(universe=["AAPL", "MSFT"], ...)
 - O(1) universe check (set lookup)
 - O(1) bar caching (deque append)
 
----
+______________________________________________________________________
 
 #### on_fill()
 
@@ -323,11 +323,13 @@ bus.publish(FillEvent(
 **Routing Logic**:
 
 1. **Strategy ID-based** (preferred):
+
    - If `fill.strategy_id` is set, route to that strategy only
    - Enables multi-strategy portfolios with proper attribution
    - Example: Multiple strategies trade same symbol
 
 1. **Universe-based** (fallback):
+
    - If no `strategy_id`, route to all strategies in universe
    - Used for single-strategy portfolios
    - Universe filtering still applies
@@ -358,7 +360,7 @@ fill = FillEvent(
 )
 ```
 
----
+______________________________________________________________________
 
 #### teardown()
 
@@ -384,7 +386,7 @@ finally:
 - Releases resources (file handles, connections)
 - Essential for long-lived daemons or repeated runs
 
----
+______________________________________________________________________
 
 ### Metrics
 
@@ -423,7 +425,7 @@ for name, stats in metrics['strategies'].items():
 }
 ```
 
----
+______________________________________________________________________
 
 ## Module: context.py
 
@@ -468,7 +470,7 @@ context.emit_signal(...)
 - `_signal_count` (int): Number of signals emitted
 - `_event_bus` (IEventBus): EventBus reference
 
----
+______________________________________________________________________
 
 ### Bar Caching
 
@@ -504,7 +506,7 @@ def cache_bar(self, bar: PriceBarEvent) -> None:
 - 500 bars × 10 symbols × 500 bytes = ~2.5 MB (manageable)
 - 500 bars × 100 symbols × 500 bytes = ~25 MB (moderate)
 
----
+______________________________________________________________________
 
 ### Data Access
 
@@ -529,7 +531,7 @@ if current_price > threshold:
 
 **Performance**: O(1) - accesses last element of deque
 
----
+______________________________________________________________________
 
 #### get_bars()
 
@@ -569,7 +571,7 @@ def on_bar(self, bar: PriceBarEvent) -> None:
 
 **Performance**: O(n) - slices deque and reverses
 
----
+______________________________________________________________________
 
 ### Signal Emission
 
@@ -622,7 +624,7 @@ def emit_signal(
 - `_signal_count` incremented on each emission
 - Used for metrics reporting
 
----
+______________________________________________________________________
 
 ## Module: base.py
 
@@ -672,7 +674,7 @@ class MyStrategy(BaseStrategy):
 - `on_position_filled(fill)`: Track position changes (event-driven)
 - `on_teardown()`: Cleanup resources
 
----
+______________________________________________________________________
 
 ### Lifecycle Methods
 
@@ -690,7 +692,7 @@ def on_setup(self, context: StrategyContext) -> None:
 
 **Called**: Once at strategy initialization
 
----
+______________________________________________________________________
 
 #### on_bar()
 
@@ -718,7 +720,7 @@ def on_bar(self, bar: PriceBarEvent) -> None:
 
 **Called**: For each bar event matching strategy universe
 
----
+______________________________________________________________________
 
 #### on_position_filled() (optional)
 
@@ -744,7 +746,7 @@ def on_position_filled(self, fill: FillEvent) -> None:
 - Optional (only implement if needed)
 - Cleaner separation of concerns
 
----
+______________________________________________________________________
 
 #### on_teardown() (optional)
 
@@ -761,7 +763,7 @@ def on_teardown(self) -> None:
 
 **Called**: Once at strategy shutdown
 
----
+______________________________________________________________________
 
 ### Context Proxy Methods
 
@@ -792,7 +794,7 @@ price = self.context.get_price()
 price = self.get_price()
 ```
 
----
+______________________________________________________________________
 
 ## Module: loader.py
 
@@ -839,7 +841,7 @@ strategies = loader.load_from_directory(
 - Continues with other files (doesn't stop on error)
 - Raises `StrategyLoadError` only for directory-level errors
 
----
+______________________________________________________________________
 
 ## Module: registry.py
 
@@ -891,7 +893,7 @@ print(config.display_name)  # "Buy and Hold Strategy"
 1. Validates uniqueness
 1. Returns dict of (class, config) tuples
 
----
+______________________________________________________________________
 
 ## Configuration
 
@@ -923,7 +925,7 @@ config = StrategyConfigItem(
 )
 ```
 
----
+______________________________________________________________________
 
 ### Strategy File Structure
 
@@ -976,7 +978,7 @@ with BacktestEngine.from_config(config) as engine:
     result = engine.run()
 ```
 
----
+______________________________________________________________________
 
 ## Usage Examples
 
@@ -1035,7 +1037,7 @@ class SimpleMomentum(BaseStrategy):
         pass  # Not needed for this strategy
 ```
 
----
+______________________________________________________________________
 
 ### Register Custom Strategy
 
@@ -1096,7 +1098,7 @@ with BacktestEngine.from_config(config) as engine:
     result = engine.run()
 ```
 
----
+______________________________________________________________________
 
 ### Multi-Strategy Portfolio
 
@@ -1138,7 +1140,7 @@ fill = FillEvent(
 )
 ```
 
----
+______________________________________________________________________
 
 ## Design Patterns
 
@@ -1175,7 +1177,7 @@ Strategies emit signals, don't call services directly:
 - Easy to add new signal consumers
 - Strategies don't need service references
 
----
+______________________________________________________________________
 
 ## Best Practices
 
@@ -1280,7 +1282,7 @@ def on_bar(self, bar: PriceBarEvent) -> None:
         return
 ```
 
----
+______________________________________________________________________
 
 ## Testing
 
@@ -1341,7 +1343,7 @@ pytest tests/integration/strategy/ -v
 pytest tests/unit/services/strategy/ --cov=src/qs_trader/services/strategy --cov-report=html
 ```
 
----
+______________________________________________________________________
 
 ## Performance Considerations
 
@@ -1383,7 +1385,7 @@ if name in self._quarantined:
 # No wasted strategy processing
 ```
 
----
+______________________________________________________________________
 
 ## Troubleshooting
 
@@ -1416,7 +1418,7 @@ if metrics['strategies']['momentum_20']['quarantined']:
 service.subscribe_to_events(event_bus)
 ```
 
----
+______________________________________________________________________
 
 ### Problem: get_bars() returns None
 
@@ -1434,7 +1436,7 @@ def on_bar(self, bar: PriceBarEvent) -> None:
         return
 ```
 
----
+______________________________________________________________________
 
 ### Problem: Fill events not routing correctly
 
@@ -1457,7 +1459,7 @@ fill = FillEvent(
 )
 ```
 
----
+______________________________________________________________________
 
 ### Problem: Strategy quarantined
 
@@ -1482,7 +1484,7 @@ fill = FillEvent(
 2024-10-24 14:35:00 INFO Strategy 'momentum_20' setup successful (recovered from quarantine)
 ```
 
----
+______________________________________________________________________
 
 ### Problem: Duplicate event handlers
 
@@ -1500,7 +1502,7 @@ finally:
     service.teardown()  # Critical!
 ```
 
----
+______________________________________________________________________
 
 ## Future Enhancements
 
@@ -1528,7 +1530,7 @@ finally:
 - [ ] Genetic algorithm optimization
 - [ ] Walk-forward analysis
 
----
+______________________________________________________________________
 
 ## Related Documentation
 
@@ -1538,7 +1540,7 @@ finally:
 - **Strategy Implementation Plan**: `docs/STRATEGY_IMPLEMENTATION_PLAN.md` - Complete roadmap
 - **Architecture**: `docs/ARCHITECTURE_ALIGNMENT.md` - System architecture
 
----
+______________________________________________________________________
 
 ## API Reference Summary
 
@@ -1575,7 +1577,7 @@ from qs_trader.libraries.strategies import (
 )
 ```
 
----
+______________________________________________________________________
 
 ## Example Strategies
 
@@ -1678,7 +1680,7 @@ class BollingerBreakout(BaseStrategy):
             )
 ```
 
----
+______________________________________________________________________
 
 **Last Updated**: 2024-10-28\
 **Version**: 1.0\

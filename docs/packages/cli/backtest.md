@@ -102,8 +102,8 @@ qs-trader backtest experiments/my_strategy -i --inspect full
 # Silent mode with custom date range
 
 qs-trader backtest experiments/my_strategy --silent \
- --start-date 2020-01-01 \
- --end-date 2020-01-31
+--start-date 2020-01-01 \
+--end-date 2020-01-31
 
 ```
 
@@ -137,11 +137,7 @@ The command displays:
 
 ─────────────────────────────── QS-Trader Backtest ───────────────────────────────
 
-Loading configuration...
-Backtest ID: buy_and_hold
-Date Range: 2020-01-01 to 2020-09-30
-Universe: ['AAPL']
-Display: Silent mode (no events)
+Loading configuration... Backtest ID: buy_and_hold Date Range: 2020-01-01 to 2020-09-30 Universe: ['AAPL'] Display: Silent mode (no events)
 
 ✓ Engine initialized
 
@@ -151,9 +147,7 @@ Running backtest...
 
 ────────────────────────────────── RESULTS ─────────────────────────────────────
 
-Date Range: 2020-01-01 to 2020-09-30
-Bars Processed: 189
-Duration: 0:00:00.563517
+Date Range: 2020-01-01 to 2020-09-30 Bars Processed: 189 Duration: 0:00:00.563517
 
 Event Store: memory (no files created)
 
@@ -167,11 +161,7 @@ When `replay_speed >= 0`, events are displayed in real-time with Rich formatting
 
 ```
 
-📊 Bar #1 | AAPL | O: 296.27 H: 300.60 L: 295.19 C: 300.35 | Vol: 32,433,732
-💼 Portfolio #1 | 2020-01-02T21:00:00 | Equity: $100,000.00 | Cash: $100,000.00
-📊 Signal #1 | AAPL | OPEN_LONG | Conf: 1.00
-→ Order #1 | AAPL | BUY 316 shares | market
-✓ Fill #1 | AAPL | BUY 316 @ $297.10 | Fee: $1.58
+📊 Bar #1 | AAPL | O: 296.27 H: 300.60 L: 295.19 C: 300.35 | Vol: 32,433,732 💼 Portfolio #1 | 2020-01-02T21:00:00 | Equity: $100,000.00 | Cash: $100,000.00 📊 Signal #1 | AAPL | OPEN_LONG | Conf: 1.00 → Order #1 | AAPL | BUY 316 shares | market ✓ Fill #1 | AAPL | BUY 316 @ $297.10 | Fee: $1.58
 
 ```
 
@@ -187,10 +177,7 @@ CLI options override config file values:
 
 ```
 
-CLI --silent → overrides replay_speed to -1.0
-CLI --replay-speed → overrides config replay_speed
-CLI --start-date → overrides config start_date
-CLI --end-date → overrides config end_date
+CLI --silent → overrides replay_speed to -1.0 CLI --replay-speed → overrides config replay_speed CLI --start-date → overrides config start_date CLI --end-date → overrides config end_date
 
 ````
 

@@ -38,13 +38,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Iterator, Optional
-
-import structlog
+from zoneinfo import ZoneInfo
 
 from qs_trader.events.events import CorporateActionEvent, PriceBarEvent
-from qs_trader.services.data.adapters.protocol import IDataAdapter
 from qs_trader.system import LoggerFactory
-from zoneinfo import ZoneInfo
 
 logger = LoggerFactory.get_logger()
 

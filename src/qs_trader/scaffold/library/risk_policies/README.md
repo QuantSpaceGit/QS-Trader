@@ -279,10 +279,12 @@ limits:
 **Leverage Definitions:**
 
 - **Gross Leverage**: `(long_value + |short_value|) / equity`
+
   - Measures total market exposure
   - Example: $60k long + $40k short with $100k equity = 1.0 gross leverage
 
 - **Net Leverage**: `(long_value - |short_value|) / equity`
+
   - Measures directional exposure
   - Example: $60k long + $40k short with $100k equity = 0.2 net leverage
 

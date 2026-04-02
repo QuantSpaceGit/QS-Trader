@@ -362,11 +362,11 @@ qs-trader data yahoo-update --help # Show specific command help
 ## 🎯 Next Steps
 
 1. Review example experiments in `experiments/`
-2. Run an example: `qs-trader backtest experiments/buy_hold`
-3. Explore example strategies in `library/strategies/`
-4. Customize `config/qs_trader.yaml` for your needs
-5. Create your own experiment directory with canonical `{name}.yaml` file
-6. Run your experiment: `qs-trader backtest experiments/my_strategy`
+1. Run an example: `qs-trader backtest experiments/buy_hold`
+1. Explore example strategies in `library/strategies/`
+1. Customize `config/qs_trader.yaml` for your needs
+1. Create your own experiment directory with canonical `{name}.yaml` file
+1. Run your experiment: `qs-trader backtest experiments/my_strategy`
 
 ## 📊 Experiment Management
 
