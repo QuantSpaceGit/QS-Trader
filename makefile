@@ -168,9 +168,9 @@ format: sync ## 🎨 Format code with ruff, isort, and markdown (matches pre-com
 	@$(UV) run ruff check --fix --target-version py313 $(SRC_DIR)/
 	@$(UV) run ruff format --target-version py313 $(SRC_DIR)/
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting imports with isort...$(END)"
-	@$(UV) run isort $(SRC_DIR)/
+	@$(UV) run python -m isort $(SRC_DIR)/
 	@printf '%b\n' "$(BLUE)ℹ️  Formatting Markdown files...$(END)"
-	@$(UV) run mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
+	@$(UV) run python -m mdformat . --wrap=no --end-of-line=lf || printf '%b\n' "$(YELLOW)⚠️  mdformat not installed, run 'uv add --dev mdformat mdformat-gfm mdformat-tables'$(END)"
 	@printf '%b\n' "$(GREEN)✅ Code and markdown formatting completed$(END)"
 
 .PHONY: lint
@@ -184,7 +184,7 @@ lint-check: sync ## 📋 Check code without making changes (matches pre-commit)
 	@printf '%b\n' "$(BLUE)ℹ️  Checking code quality...$(END)"
 	@$(UV) run ruff check --target-version py313 $(SRC_DIR)/
 	@$(UV) run ruff format --target-version py313 --check $(SRC_DIR)/
-	@$(UV) run isort --check-only $(SRC_DIR)/
+	@$(UV) run python -m isort --check-only $(SRC_DIR)/
 	@printf '%b\n' "$(GREEN)✅ Code quality check passed$(END)"
 
 .PHONY: format-md
@@ -196,7 +196,7 @@ format-md: sync ## 📝 Format Markdown files only
 .PHONY: type-check
 type-check: sync ## 🔬 Run type checking with MyPy
 	@printf '%b\n' "$(BLUE)ℹ️  Running type checks with MyPy...$(END)"
-	@$(UV) run mypy $(SRC_DIR)/ || { \
+	@$(UV) run python -m mypy $(SRC_DIR)/ || { \
 		printf '%b\n' "$(RED)❌ Type checking failed$(END)"; \
 		exit 1; \
 	}
@@ -315,7 +315,7 @@ release: ## 🚀 Create GitHub release (usage: make release VERSION=x.y.z)
 .PHONY: test
 test: sync ## 🧪 Run all tests with coverage
 	@printf '%b\n' "$(BLUE)ℹ️  Running all tests with coverage...$(END)"
-	@$(UV) run pytest --cov --cov-report=term-missing --cov-report=html || { \
+	@$(UV) run python -m pytest --cov --cov-report=term-missing --cov-report=html || { \
 		printf '%b\n' "$(RED)❌ Tests failed$(END)"; \
 		exit 1; \
 	}
@@ -324,7 +324,7 @@ test: sync ## 🧪 Run all tests with coverage
 .PHONY: test-fast
 test-fast: sync ## ⚡ Run tests without coverage (faster)
 	@printf '%b\n' "$(BLUE)ℹ️  Running tests (fast mode)...$(END)"
-	@$(UV) run pytest -v || { \
+	@$(UV) run python -m pytest -v || { \
 		printf '%b\n' "$(RED)❌ Tests failed$(END)"; \
 		exit 1; \
 	}
