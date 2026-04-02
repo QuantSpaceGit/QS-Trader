@@ -232,11 +232,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Add a persistence policy under `output.database` for canonical ClickHouse-backed inputs.
-- [ ] Set the default to `reference`.
-- [ ] Allow a temporary `snapshot` override.
-- [ ] Fail fast on invalid policy values.
-- [ ] Cover defaults and overrides in unit tests.
+- [x] Add a persistence policy under `output.database` for canonical ClickHouse-backed inputs.
+- [x] Set the default to `reference`.
+- [x] Allow a temporary `snapshot` override.
+- [x] Fail fast on invalid policy values.
+- [x] Cover defaults and overrides in unit tests.
 
 #### PR 3.2 — Enforce policy in reporting
 
@@ -247,11 +247,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] When policy is `reference` and the run is canonical ClickHouse-backed, write the manifest and skip `bars_with_features`.
-- [ ] When policy is `snapshot`, preserve the existing snapshot behavior.
-- [ ] Leave non-ClickHouse behavior unchanged.
-- [ ] Assert run-owned outputs still persist.
-- [ ] Assert duplicate snapshot writes no longer happen in the default path.
+- [x] When policy is `reference` and the run is canonical ClickHouse-backed, write the manifest and skip `bars_with_features`.
+- [x] When policy is `snapshot`, preserve the existing snapshot behavior.
+- [x] Leave non-ClickHouse behavior unchanged.
+- [x] Assert run-owned outputs still persist.
+- [x] Assert duplicate snapshot writes no longer happen in the default path.
 
 #### PR 3.3 — Update user-facing docs
 
@@ -262,11 +262,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Document the new storage boundary.
-- [ ] Document `reference` as the default and `snapshot` as a temporary escape hatch.
-- [ ] Make clear that DuckDB still stores run outputs.
-- [ ] Make clear that ClickHouse remains the canonical source for inputs.
-- [ ] Add a note that historical DuckDB files are untouched.
+- [x] Document the new storage boundary.
+- [x] Document `reference` as the default and `snapshot` as a temporary escape hatch.
+- [x] Make clear that DuckDB still stores run outputs.
+- [x] Make clear that ClickHouse remains the canonical source for inputs.
+- [x] Add a note that historical DuckDB files are untouched.
 
 ### Validation
 
