@@ -13,9 +13,33 @@ from qs_trader.cli.ui.interactive import InteractiveDebugger
 from qs_trader.engine.config import load_backtest_config
 from qs_trader.engine.engine import BacktestEngine
 from qs_trader.engine.experiment import ExperimentMetadata, ExperimentResolver, RunMetadata
+from qs_trader.services.reporting.service import DatabaseWriteStatus
 from qs_trader.system.config import get_system_config, reload_system_config
 
 console = Console()
+
+
+def _resolve_database_path(system_config) -> Path:
+    """Resolve the configured DuckDB path against the active config root."""
+    db_path = Path(system_config.output.database.path)
+    if not db_path.is_absolute():
+        db_path = system_config.config_root / db_path
+    return db_path
+
+
+def _get_database_write_status(engine: object) -> DatabaseWriteStatus | None:
+    """Safely retrieve the ReportingService DuckDB write status from the engine."""
+    reporting_service = getattr(engine, "_reporting_service", None)
+    getter = getattr(reporting_service, "get_database_write_status", None)
+    if not callable(getter):
+        return None
+
+    try:
+        status = getter()
+    except Exception:
+        return None
+
+    return status if isinstance(status, DatabaseWriteStatus) else None
 
 
 @click.command("backtest")
@@ -311,8 +335,22 @@ def backtest_command(
             ExperimentMetadata.write_run_metadata(run_dir, run_metadata)
             ExperimentMetadata.create_latest_symlink(experiment_dir, run_id)
 
+        db_status = _get_database_write_status(engine)
+
         console.print()
-        console.print("[bold green]✓ Backtest completed successfully![/bold green]")
+        if system_config.output.database.enabled and db_status is not None and db_status.state == "failed":
+            console.print("[bold yellow]⚠ Backtest completed, but DuckDB persistence failed.[/bold yellow]")
+            if db_status.reason:
+                console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")
+        elif system_config.output.database.enabled and db_status is not None and db_status.state in {
+            "skipped",
+            "not_attempted",
+        }:
+            console.print("[bold yellow]⚠ Backtest completed, but DuckDB results were not written.[/bold yellow]")
+            if db_status.reason:
+                console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")
+        else:
+            console.print("[bold green]✓ Backtest completed successfully![/bold green]")
         console.print()
 
         # Display results
@@ -353,12 +391,20 @@ def backtest_command(
         # Database output status
         db_cfg = system_config.output.database
         if db_cfg.enabled:
-            from pathlib import Path as _Path
-
-            _db_path = _Path(db_cfg.path)
-            if not _db_path.is_absolute():
-                _db_path = system_config.config_root / _db_path
-            console.print(f"[cyan]Database:[/cyan]        [green]enabled[/green] → {_db_path}")
+            _db_path = _resolve_database_path(system_config)
+            if db_status is not None and db_status.state == "succeeded":
+                console.print(f"[cyan]Database:[/cyan]        [green]saved[/green] → {_db_path}")
+            elif db_status is not None and db_status.state == "failed":
+                console.print(f"[cyan]Database:[/cyan]        [bold red]unavailable[/bold red] → {_db_path}")
+                error_label = db_status.error_type or "Error"
+                error_text = db_status.reason or "Unknown DuckDB persistence error"
+                console.print(f"[cyan]Database Error:[/cyan]  {error_label}: {error_text}")
+            elif db_status is not None and db_status.state in {"skipped", "not_attempted"}:
+                console.print(f"[cyan]Database:[/cyan]        [yellow]not written[/yellow] → {_db_path}")
+                if db_status.reason:
+                    console.print(f"[cyan]Database Note:[/cyan]   {db_status.reason}")
+            else:
+                console.print(f"[cyan]Database:[/cyan]        [green]enabled[/green] → {_db_path}")
         else:
             console.print("[cyan]Database:[/cyan]        [dim]disabled[/dim]")
 

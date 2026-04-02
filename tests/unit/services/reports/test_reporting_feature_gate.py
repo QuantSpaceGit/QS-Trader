@@ -467,6 +467,62 @@ class TestReportingServiceManifestPersistence:
         assert "run_id" in call_kwargs
         assert "metrics" in call_kwargs
 
+    def test_database_write_status_marks_success(self, tmp_path) -> None:
+        """Successful DuckDB persistence should be visible to CLI consumers."""
+        from unittest.mock import patch
+
+        svc = self._build_svc(tmp_path)
+        metrics = self._minimal_metrics()
+        svc._returns_calc = MagicMock()
+        svc._returns_calc.returns = []
+        svc._equity_calc = MagicMock()
+        svc._equity_calc.get_curve.return_value = []
+        svc._last_portfolio_state = None
+
+        db_path = str(tmp_path / "runs.duckdb")
+        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            svc._write_outputs(metrics)
+
+        status = svc.get_database_write_status()
+        assert status.state == "succeeded"
+        assert status.db_path == db_path
+        mock_writer_cls.return_value.save_run.assert_called_once()
+
+    def test_database_write_status_marks_failure_and_logs_error(self, tmp_path) -> None:
+        """Failed DuckDB persistence should be captured for logs and console summaries."""
+        from unittest.mock import patch
+
+        svc = self._build_svc(tmp_path)
+        metrics = self._minimal_metrics()
+        svc._returns_calc = MagicMock()
+        svc._returns_calc.returns = []
+        svc._equity_calc = MagicMock()
+        svc._equity_calc.get_curve.return_value = []
+        svc._last_portfolio_state = None
+        svc.logger = MagicMock()
+
+        db_path = str(tmp_path / "runs.duckdb")
+        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            mock_writer_cls.return_value.save_run.side_effect = RuntimeError("duckdb locked")
+            svc._write_outputs(metrics)
+
+        status = svc.get_database_write_status()
+        assert status.state == "failed"
+        assert status.db_path == db_path
+        assert status.error_type == "RuntimeError"
+        assert status.reason == "duckdb locked"
+        svc.logger.error.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Phase 5 — verified: canonical_input_policy and snapshot path retired

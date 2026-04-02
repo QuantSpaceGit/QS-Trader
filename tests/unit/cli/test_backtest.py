@@ -15,6 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from qs_trader.cli.commands.backtest import backtest_command
+from qs_trader.services.reporting.service import DatabaseWriteStatus
 
 
 @pytest.fixture
@@ -492,6 +493,68 @@ class TestBacktestCommandDisplay:
         assert result.exit_code == 0
         assert "events.sqlite" in result.output
         assert "1.00 MB" in result.output
+
+    @patch("qs_trader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qs_trader.cli.commands.backtest.ExperimentResolver")
+    @patch("qs_trader.cli.commands.backtest.BacktestEngine")
+    @patch("qs_trader.cli.commands.backtest.load_backtest_config")
+    @patch("qs_trader.cli.commands.backtest.reload_system_config")
+    @patch("qs_trader.cli.commands.backtest.get_system_config")
+    def test_database_failure_display(
+        self,
+        mock_get_sys_config,
+        mock_reload_sys_config,
+        mock_load_config,
+        mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
+        cli_runner,
+        valid_config_file,
+        mock_engine,
+        tmp_path,
+        mock_experiment_setup,
+    ):
+        """CLI should clearly surface DuckDB write failures even when the run itself succeeds."""
+        mock_config = Mock()
+        mock_config.backtest_id = "test"
+        mock_config.start_date = datetime(2020, 1, 1)
+        mock_config.end_date = datetime(2020, 12, 31)
+        mock_config.all_symbols = ["AAPL"]
+        mock_config.replay_speed = -1.0
+        mock_config.display_events = None
+
+        db_path = tmp_path / "data" / "backtest_runs.duckdb"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        system_config = Mock()
+        system_config.output.event_store.backend = "memory"
+        system_config.output.event_store.filename = "events.{backend}"
+        system_config.output.run_id_format = "%Y%m%d_%H%M%S"
+        system_config.output.capture_git_info = False
+        system_config.output.capture_environment = False
+        system_config.output.database.enabled = True
+        system_config.output.database.path = str(db_path)
+        system_config.config_root = tmp_path
+
+        mock_engine._reporting_service.get_database_write_status.return_value = DatabaseWriteStatus(
+            state="failed",
+            db_path=str(db_path),
+            reason="Could not set lock on file",
+            error_type="IOException",
+        )
+
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
+        mock_load_config.return_value = mock_config
+        mock_engine_class.from_config.return_value = mock_engine
+        mock_get_sys_config.return_value = system_config
+
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
+
+        assert result.exit_code == 0
+        assert "DuckDB persistence failed" in result.output
+        assert "Database:" in result.output
+        assert "unavailable" in result.output
+        assert "IOException: Could not set lock on file" in result.output
 
 
 # ============================================================================

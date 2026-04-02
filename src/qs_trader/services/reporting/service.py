@@ -11,6 +11,7 @@ Architecture:
 
 import math
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -56,6 +57,18 @@ from qs_trader.services.reporting.writers import (
     write_strategy_chart_data,
     write_trades_json,
 )
+
+DatabaseWriteState = Literal["not_attempted", "disabled", "skipped", "succeeded", "failed"]
+
+
+@dataclass(frozen=True)
+class DatabaseWriteStatus:
+    """Status of the optional DuckDB persistence step for a backtest run."""
+
+    state: DatabaseWriteState
+    db_path: str | None = None
+    reason: str | None = None
+    error_type: str | None = None
 
 
 class ReportingService:
@@ -123,9 +136,30 @@ class ReportingService:
         # Persisted to DuckDB alongside the run summary via _write_to_database().
         # None for Yahoo/CSV runs and when setup() is not called with a manifest.
         self._input_manifest: "ClickHouseInputManifest | None" = None
+        self._database_write_status = DatabaseWriteStatus(state="not_attempted")
 
         # Subscribe to events
         self._subscribe_to_events()
+
+    def get_database_write_status(self) -> DatabaseWriteStatus:
+        """Return the latest DuckDB persistence outcome for this run."""
+        return self._database_write_status
+
+    def _set_database_write_status(
+        self,
+        *,
+        state: DatabaseWriteState,
+        db_path: Path | str | None = None,
+        reason: str | None = None,
+        error_type: str | None = None,
+    ) -> None:
+        """Store the latest DuckDB persistence outcome for CLI/result reporting."""
+        self._database_write_status = DatabaseWriteStatus(
+            state=state,
+            db_path=str(db_path) if db_path is not None else None,
+            reason=reason,
+            error_type=error_type,
+        )
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to relevant events."""
@@ -880,6 +914,10 @@ class ReportingService:
             system_config = get_system_config()
             db_enabled = system_config.output.database.enabled
         except Exception:
+            self._set_database_write_status(
+                state="skipped",
+                reason="Could not load system config; database output disabled for this run",
+            )
             self.logger.warning(
                 "reporting.system_config_unavailable",
                 reason="Could not load system config; database output disabled for this run",
@@ -1057,6 +1095,7 @@ class ReportingService:
         """
         db_config = system_config.output.database
         if not db_config.enabled:
+            self._set_database_write_status(state="disabled")
             return
 
         # Derive experiment_id and run_id from output_dir path
@@ -1067,6 +1106,10 @@ class ReportingService:
             experiment_id = parts[runs_idx - 1]
             run_id = parts[runs_idx + 1]
         except (ValueError, IndexError):
+            self._set_database_write_status(
+                state="skipped",
+                reason="Cannot derive experiment_id/run_id from output path",
+            )
             self.logger.warning(
                 "duckdb_write.skipped",
                 reason="Cannot derive experiment_id/run_id from output path",
@@ -1093,8 +1136,15 @@ class ReportingService:
                 drawdowns=metrics.drawdown_periods,
                 manifest=self._input_manifest,
             )
+            self._set_database_write_status(state="succeeded", db_path=db_path)
 
         except Exception as e:
+            self._set_database_write_status(
+                state="failed",
+                db_path=db_path,
+                reason=str(e),
+                error_type=type(e).__name__,
+            )
             self.logger.error(
                 "duckdb_write.failed",
                 error=str(e),
@@ -1178,6 +1228,7 @@ class ReportingService:
         self._backtest_id = context.get("backtest_id", "unknown")
         self._strategy_ids = context.get("strategy_ids", [])
         self._input_manifest = context.get("input_manifest")  # None for Yahoo/CSV runs
+        self._set_database_write_status(state="not_attempted")
 
         # Initialize strategy performance calculator with strategy IDs
         self._strategy_perf_calc = StrategyPerformanceCalculator(self._strategy_ids)
@@ -1252,6 +1303,7 @@ class ReportingService:
         self._last_portfolio_state = None
         self._portfolio_states_history = {}
         self._input_manifest = None
+        self._set_database_write_status(state="not_attempted")
 
         # Reset calculators
         self._equity_calc = EquityCurveCalculator(max_points=self.config.max_equity_points)

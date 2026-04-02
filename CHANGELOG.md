@@ -33,6 +33,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
+- **Backtest CLI Database Status**: Backtest summaries now report when DuckDB persistence failed or was skipped instead of always showing the database as merely enabled
+  - `ReportingService` tracks the DuckDB write outcome for each run and preserves the underlying `duckdb_write.failed` log details
+  - The CLI results panel now distinguishes `saved`, `not written`, and `unavailable` database states so lock/conflict errors are visible immediately in the console
+
 - **HTML Report Generation**: `performance.json` is now written whenever the HTML report is enabled, even if standalone JSON output is disabled
   - Prevents HTML report generation from failing when the run is configured to emit HTML-only artifacts
 
