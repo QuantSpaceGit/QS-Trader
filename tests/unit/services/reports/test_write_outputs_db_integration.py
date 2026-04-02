@@ -4,9 +4,11 @@ Validates that:
 - Time-series construction is gated behind needs_timeseries (write_parquet or db enabled).
 - DuckDB write is invoked only when database output is enabled.
 - A -100% return does not crash teardown (math.log domain error).
+- save_run() is called with manifest=None by default (Phase 1 baseline).
+- save_run() can be invoked with an explicit manifest (Phase 1 contract).
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -448,6 +450,158 @@ class TestDecimalPrecisionRegression:
         assert data[0]["log_return"] is not None
         # math.log of a very small positive number → very large negative
         assert data[0]["log_return"] < -60
+
+
+# ============================================================================
+# Tests: manifest persistence integration (Phase 1 baseline)
+# ============================================================================
+
+
+class TestManifestIntegration:
+    """Verify the manifest contract at the service boundary.
+
+    Phase 1 establishes the *structural* contract only: ``save_run()`` must
+    accept an optional ``manifest`` kwarg and forward it to the writer.
+    Populating the manifest with real ClickHouse metadata is Phase 2 work;
+    here we prove the call-site and default behaviour.
+    """
+
+    def test_save_run_called_with_no_manifest_by_default(self, tmp_path: Path) -> None:
+        """_write_to_database must call save_run() with manifest=None when no manifest is set.
+
+        Phase 1 does not change existing call sites.  The default value of
+        ``manifest`` in save_run() must be ``None``, so all pre-existing
+        invocations remain unaffected and store NULL in the database.
+        """
+        svc = _build_reporting_service(tmp_path, write_parquet=False)
+        metrics = _minimal_metrics()
+
+        svc._returns_calc = MagicMock()
+        svc._returns_calc.returns = []
+        svc._equity_calc = MagicMock()
+        svc._equity_calc.get_curve.return_value = []
+        svc._last_portfolio_state = None
+
+        db_path = str(tmp_path / "test_runs.duckdb")
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch(
+                "qs_trader.system.config.get_system_config",
+                return_value=sys_config,
+            ),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            svc._write_outputs(metrics)
+
+        mock_instance = mock_writer_cls.return_value
+        mock_instance.save_run.assert_called_once()
+
+        call_kwargs = mock_instance.save_run.call_args
+        # manifest kwarg must be absent or explicitly None
+        passed_manifest = call_kwargs.kwargs.get("manifest", None)
+        assert passed_manifest is None, (
+            "save_run() must not receive a non-None manifest in Phase 1 (manifest construction is Phase 2)"
+        )
+
+    def test_save_run_signature_accepts_manifest_kwarg(self, tmp_path: Path) -> None:
+        """DuckDBWriter.save_run() must accept a ``manifest`` keyword argument.
+
+        This ensures the writer contract is in place before Phase 2 adds
+        manifest construction at the engine/service level.
+        """
+        import inspect
+
+        from qs_trader.services.reporting.db_writer import DuckDBWriter
+
+        sig = inspect.signature(DuckDBWriter.save_run)
+        assert "manifest" in sig.parameters, (
+            "DuckDBWriter.save_run() must have a 'manifest' parameter (Phase 1 schema contract)"
+        )
+        param = sig.parameters["manifest"]
+        assert param.default is None, "The 'manifest' parameter must default to None for backward compatibility"
+
+    def test_writer_accepts_manifest_object_without_error(self, tmp_path: Path) -> None:
+        """Calling save_run() with a real manifest must not raise.
+
+        This is a smoke-test for the complete write path: manifest → JSON
+        → DuckDB VARCHAR column.  No mocking of the writer — we use the real
+        DuckDBWriter so the full serialisation path is exercised.
+        """
+        import duckdb
+
+        from qs_trader.services.reporting.db_writer import DuckDBWriter
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+
+        manifest = ClickHouseInputManifest(
+            source_name="qs-datamaster",
+            database="market_data",
+            bars_table="equity_daily",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            feature_set_version="v1",
+        )
+
+        db_path = tmp_path / "smoke.duckdb"
+        writer = DuckDBWriter(db_path)
+        metrics = _minimal_metrics()
+
+        # Must not raise
+        writer.save_run(
+            experiment_id="smoke",
+            run_id="run_001",
+            metrics=metrics,
+            equity_curve=[],
+            returns=[],
+            trades=[],
+            drawdowns=[],
+            manifest=manifest,
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute("SELECT input_manifest_json FROM runs WHERE experiment_id = 'smoke'").fetchone()
+        con.close()
+
+        assert row is not None
+        assert row[0] is not None
+        recovered = ClickHouseInputManifest.from_json(row[0])
+        assert recovered.source_name == "qs-datamaster"
+        assert recovered.feature_set_version == "v1"
+
+    def test_save_bars_not_called_when_bar_rows_empty(self, tmp_path: Path) -> None:
+        """Confirm that Phase 1 changes do not break any pre-existing DB integration.
+
+        When ``_bar_rows`` is empty (no FeatureBarEvents received during the run),
+        ``save_run`` must still be called exactly once while
+        ``save_bars_with_features`` must not be called at all.  This documents
+        the empty-bar-rows code path and guards against regressions introduced
+        by the Phase 1 manifest changes.
+        """
+        svc = _build_reporting_service(tmp_path, write_parquet=False)
+        metrics = _minimal_metrics()
+
+        svc._returns_calc = MagicMock()
+        svc._returns_calc.returns = []
+        svc._equity_calc = MagicMock()
+        svc._equity_calc.get_curve.return_value = []
+        svc._last_portfolio_state = None
+
+        db_path = str(tmp_path / "compat.duckdb")
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch(
+                "qs_trader.system.config.get_system_config",
+                return_value=sys_config,
+            ),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            svc._write_outputs(metrics)
+
+        mock_writer_cls.return_value.save_run.assert_called_once()
+        # save_bars_with_features must NOT be called when _bar_rows is empty
+        mock_writer_cls.return_value.save_bars_with_features.assert_not_called()
 
 
 class TestCumulativeReturnCompounding:

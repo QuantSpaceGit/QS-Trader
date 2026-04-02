@@ -19,7 +19,14 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import BaseEvent, FeatureBarEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, PriceBarEvent
+from qs_trader.events.events import (
+    BaseEvent,
+    FeatureBarEvent,
+    FillEvent,
+    PerformanceMetricsEvent,
+    PortfolioStateEvent,
+    PriceBarEvent,
+)
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore

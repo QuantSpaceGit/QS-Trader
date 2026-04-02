@@ -3,6 +3,7 @@
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.db_writer import DuckDBWriter
 from qs_trader.services.reporting.formatters import display_performance_report
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.service import ReportingService
 from qs_trader.services.reporting.writers import (
     write_drawdowns_json,
@@ -14,6 +15,7 @@ from qs_trader.services.reporting.writers import (
 )
 
 __all__ = [
+    "ClickHouseInputManifest",
     "DuckDBWriter",
     "ReportingService",
     "ReportingConfig",

@@ -13,13 +13,16 @@ Design:
 - Read-only safe: DuckDB supports concurrent readers; the API opens read-only.
 """
 
+import json
 from decimal import Decimal
 from pathlib import Path
-import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 import structlog
+
+if TYPE_CHECKING:
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 
 from qs_trader.libraries.performance.models import (
     DrawdownPeriod,
@@ -77,6 +80,7 @@ CREATE TABLE IF NOT EXISTS runs (
     avg_trade_duration_days DOUBLE,
     total_commissions      DOUBLE NOT NULL,
     commission_pct_of_pnl  DOUBLE NOT NULL,
+    input_manifest_json    VARCHAR,
     created_at      TIMESTAMP DEFAULT current_timestamp,
     PRIMARY KEY (experiment_id, run_id)
 );
@@ -193,6 +197,7 @@ class DuckDBWriter:
         returns: list[ReturnPoint],
         trades: list[TradeRecord],
         drawdowns: list[DrawdownPeriod],
+        manifest: "ClickHouseInputManifest | None" = None,
     ) -> None:
         """Persist a complete backtest run to DuckDB.
 
@@ -207,6 +212,11 @@ class DuckDBWriter:
             returns: Returns time-series points.
             trades: Completed trade records.
             drawdowns: Drawdown period records.
+            manifest: Optional :class:`~qs_trader.services.reporting.manifest.
+                ClickHouseInputManifest` describing the canonical ClickHouse
+                inputs consumed by this run.  Pass ``None`` (default) for
+                Yahoo/CSV runs or any run where input provenance is not
+                tracked yet.
         """
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -215,7 +225,7 @@ class DuckDBWriter:
             con.execute("BEGIN TRANSACTION")
             self._ensure_schema(con)
             self._delete_existing_run(con, experiment_id, run_id)
-            self._insert_run(con, experiment_id, run_id, metrics)
+            self._insert_run(con, experiment_id, run_id, metrics, manifest)
             self._insert_equity_curve(con, experiment_id, run_id, equity_curve)
             self._insert_returns(con, experiment_id, run_id, returns)
             self._insert_trades(con, experiment_id, run_id, trades)
@@ -243,8 +253,19 @@ class DuckDBWriter:
     # ------------------------------------------------------------------
 
     def _ensure_schema(self, con: duckdb.DuckDBPyConnection) -> None:
-        """Create tables if they do not exist."""
+        """Create tables and apply additive migrations if they do not exist.
+
+        ``CREATE TABLE IF NOT EXISTS`` creates tables on first use.  For
+        databases created before Phase 1 (which lack the
+        ``input_manifest_json`` column), the ``ALTER TABLE … ADD COLUMN IF
+        NOT EXISTS`` guard ensures forward compatibility without touching any
+        existing row data.
+        """
         con.execute(_SCHEMA_DDL)
+        # Migration: add the manifest column to pre-Phase-1 databases.
+        # DuckDB supports ``ADD COLUMN IF NOT EXISTS``; this is a no-op when
+        # the column is already present (e.g. freshly created schemas).
+        con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS input_manifest_json VARCHAR")
 
     def _delete_existing_run(self, con: duckdb.DuckDBPyConnection, experiment_id: str, run_id: str) -> None:
         """Remove previous data for this run (upsert semantics)."""
@@ -255,9 +276,26 @@ class DuckDBWriter:
             )
 
     def _insert_run(
-        self, con: duckdb.DuckDBPyConnection, experiment_id: str, run_id: str, metrics: FullMetrics
+        self,
+        con: duckdb.DuckDBPyConnection,
+        experiment_id: str,
+        run_id: str,
+        metrics: FullMetrics,
+        manifest: "ClickHouseInputManifest | None" = None,
     ) -> None:
-        """Insert run-level summary row."""
+        """Insert run-level summary row.
+
+        Args:
+            con: Active DuckDB connection (within an open transaction).
+            experiment_id: Experiment name.
+            run_id: Timestamped run identifier.
+            metrics: Full performance metrics.
+            manifest: Optional ClickHouse input manifest; serialised to JSON
+                and stored in ``input_manifest_json``.  ``None`` writes
+                ``NULL`` (Yahoo/CSV runs, or runs without provenance
+                tracking).
+        """
+        manifest_json: str | None = manifest.to_json() if manifest is not None else None
         con.execute(
             """
             INSERT INTO runs (
@@ -276,7 +314,8 @@ class DuckDBWriter:
                 largest_win, largest_loss, largest_win_pct, largest_loss_pct,
                 expectancy, max_consecutive_wins, max_consecutive_losses,
                 avg_trade_duration_days,
-                total_commissions, commission_pct_of_pnl
+                total_commissions, commission_pct_of_pnl,
+                input_manifest_json
             ) VALUES (
                 $1, $2, $3,
                 $4, $5, $6,
@@ -293,7 +332,8 @@ class DuckDBWriter:
                 $31, $32, $33, $34,
                 $35, $36, $37,
                 $38,
-                $39, $40
+                $39, $40,
+                $41
             )
             """,
             [
@@ -337,6 +377,7 @@ class DuckDBWriter:
                 _to_float(metrics.avg_trade_duration_days),
                 _to_float(metrics.total_commissions),
                 _to_float(metrics.commission_pct_of_pnl),
+                manifest_json,
             ],
         )
 
@@ -573,23 +614,25 @@ class DuckDBWriter:
             ts = b["timestamp"]
             features_raw = b.get("features")
             features_json = json.dumps(features_raw, default=str) if features_raw else None
-            rows.append((
-                experiment_id,
-                run_id,
-                ts,
-                b["symbol"],
-                float(b.get("open", 0.0) or 0.0),
-                float(b.get("high", 0.0) or 0.0),
-                float(b.get("low", 0.0) or 0.0),
-                float(b.get("close", 0.0) or 0.0),
-                float(b["open_adj"]) if b.get("open_adj") is not None else None,
-                float(b["high_adj"]) if b.get("high_adj") is not None else None,
-                float(b["low_adj"]) if b.get("low_adj") is not None else None,
-                float(b["close_adj"]) if b.get("close_adj") is not None else None,
-                int(b.get("volume", 0) or 0),
-                features_json,
-                b.get("feature_set_version", "v1"),
-            ))
+            rows.append(
+                (
+                    experiment_id,
+                    run_id,
+                    ts,
+                    b["symbol"],
+                    float(b.get("open", 0.0) or 0.0),
+                    float(b.get("high", 0.0) or 0.0),
+                    float(b.get("low", 0.0) or 0.0),
+                    float(b.get("close", 0.0) or 0.0),
+                    float(b["open_adj"]) if b.get("open_adj") is not None else None,
+                    float(b["high_adj"]) if b.get("high_adj") is not None else None,
+                    float(b["low_adj"]) if b.get("low_adj") is not None else None,
+                    float(b["close_adj"]) if b.get("close_adj") is not None else None,
+                    int(b.get("volume", 0) or 0),
+                    features_json,
+                    b.get("feature_set_version", "v1"),
+                )
+            )
         con.executemany(
             """
             INSERT INTO bars_with_features (
@@ -604,4 +647,3 @@ class DuckDBWriter:
             """,
             rows,
         )
-
