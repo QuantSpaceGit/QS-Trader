@@ -744,7 +744,8 @@ def sample_manifest() -> ClickHouseInputManifest:
         symbols=["AAPL", "MSFT", "GOOGL"],
         start_date=date(2023, 1, 1),
         end_date=date(2023, 12, 31),
-        adjustment_mode="split_adjusted",
+        strategy_adjustment_mode="split_adjusted",
+        portfolio_adjustment_mode="total_return",
         feature_set_version="v1",
         regime_version="v1",
         feature_columns=["sma_50", "rsi_14", "atr_14"],
@@ -1025,13 +1026,15 @@ class TestDuckDBWriterManifestPersistence:
         assert recovered.bars_table == "equity_daily"
         assert recovered.features_table == "equity_features_v1"
         assert recovered.regime_table == "equity_regime_v1"
-        assert recovered.symbols == ["AAPL", "MSFT", "GOOGL"]
+        assert recovered.symbols == ("AAPL", "MSFT", "GOOGL")
         assert recovered.start_date == date(2023, 1, 1)
         assert recovered.end_date == date(2023, 12, 31)
-        assert recovered.adjustment_mode == "split_adjusted"
+        assert recovered.adjustment_mode is None
+        assert recovered.strategy_adjustment_mode == "split_adjusted"
+        assert recovered.portfolio_adjustment_mode == "total_return"
         assert recovered.feature_set_version == "v1"
         assert recovered.regime_version == "v1"
-        assert recovered.feature_columns == ["sma_50", "rsi_14", "atr_14"]
+        assert recovered.feature_columns == ("sma_50", "rsi_14", "atr_14")
 
     def test_manifest_with_minimal_fields_round_trips(
         self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
@@ -1068,6 +1071,8 @@ class TestDuckDBWriterManifestPersistence:
         assert recovered.features_table is None
         assert recovered.regime_table is None
         assert recovered.adjustment_mode is None
+        assert recovered.strategy_adjustment_mode is None
+        assert recovered.portfolio_adjustment_mode is None
         assert recovered.feature_set_version is None
         assert recovered.regime_version is None
         assert recovered.feature_columns is None
@@ -1423,3 +1428,21 @@ class TestClickHouseInputManifestValidation:
         parsed = json.loads(manifest.to_json())
         assert "schema_version" in parsed
         assert parsed["schema_version"] == 1
+
+    def test_symbols_and_feature_columns_are_deeply_immutable(self) -> None:
+        """Tuple-backed collection fields must not allow in-place mutation."""
+        manifest = ClickHouseInputManifest(
+            source_name="qs-datamaster",
+            database="market_data",
+            bars_table="equity_daily",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            feature_columns=["sma_20"],
+        )
+
+        with pytest.raises(AttributeError):
+            manifest.symbols.append("MSFT")  # type: ignore[attr-defined]
+
+        with pytest.raises(AttributeError):
+            manifest.feature_columns.append("rsi_14")  # type: ignore[union-attr]

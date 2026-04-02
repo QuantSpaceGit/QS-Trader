@@ -25,6 +25,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - `FeatureService` exposes `FEATURES_TABLE` and `REGIME_TABLE` class constants as the authoritative table-name source for the manifest
   - 28 unit tests covering provider gating, field mapping, feature-service integration, DuckDB round-trip, and separate-database scenarios
 
+### Changed
+
+- **Canonical Input Manifest**: ClickHouse-backed runs now record strategy and portfolio adjustment provenance separately
+  - New manifests leave the legacy single-field `adjustment_mode` unset and instead persist explicit `strategy_adjustment_mode` / `portfolio_adjustment_mode` values
+  - Symbol universes and feature-column selections are stored as immutable tuples in the producer contract for stronger provenance guarantees
+
+### Fixed
+
+- **HTML Report Generation**: `performance.json` is now written whenever the HTML report is enabled, even if standalone JSON output is disabled
+  - Prevents HTML report generation from failing when the run is configured to emit HTML-only artifacts
+
 ## [0.2.0-beta.7] - 2026-03-31
 
 ### Added

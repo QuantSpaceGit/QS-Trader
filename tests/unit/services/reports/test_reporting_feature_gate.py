@@ -180,7 +180,8 @@ def _sample_manifest() -> ClickHouseInputManifest:
         symbols=["AAPL", "MSFT"],
         start_date=date(2023, 1, 1),
         end_date=date(2023, 12, 31),
-        adjustment_mode="total_return",
+        strategy_adjustment_mode="split_adjusted",
+        portfolio_adjustment_mode="total_return",
         feature_set_version="v1",
     )
 
@@ -429,8 +430,10 @@ class TestReportingServiceManifestPersistence:
         assert row[0] is not None
         recovered = ClickHouseInputManifest.from_json(row[0])
         assert recovered.source_name == "qs-datamaster-equity-1d"
-        assert recovered.symbols == ["AAPL", "MSFT"]
-        assert recovered.adjustment_mode == "total_return"
+        assert recovered.symbols == ("AAPL", "MSFT")
+        assert recovered.adjustment_mode is None
+        assert recovered.strategy_adjustment_mode == "split_adjusted"
+        assert recovered.portfolio_adjustment_mode == "total_return"
         assert recovered.feature_set_version == "v1"
 
     def test_run_persistence_unaffected_by_manifest(self, tmp_path) -> None:

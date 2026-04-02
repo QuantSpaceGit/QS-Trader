@@ -959,8 +959,9 @@ class ReportingService:
                 )
                 returns_points.append(ret_point)
 
-        # Write JSON report
-        if self.config.write_json:
+        # HTML report generation depends on performance.json, so write the
+        # summary whenever either JSON output or HTML output is enabled.
+        if self.config.write_json or self.config.write_html_report:
             json_path = output_path / "performance.json"
             write_json_report(metrics, json_path)
 

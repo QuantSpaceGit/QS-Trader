@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from rich.console import Console
@@ -102,11 +102,14 @@ def _build_clickhouse_manifest(
     # default when not explicitly declared in the source config.
     bars_table: str = source_cfg.get("bars_table", "as_us_equity_ohlc_daily")
 
-    # Derive adjustment_mode from the 'adjusted' boolean flag in the source config.
-    # qs-datamaster ships total-return adjusted prices; this is reflected below.
-    adjustment_mode: str | None = source_cfg.get("adjustment_mode") or (
-        "total_return" if source_cfg.get("adjusted") else "split_adjusted"
-    )
+    # Record the actual run-level price bases rather than guessing from source
+    # metadata. The canonical ClickHouse source provides both split-adjusted
+    # and total-return-adjusted fields; the backtest configuration determines
+    # which series each service group consumed.
+    from qs_trader.services.reporting.manifest import AdjustmentMode, ClickHouseInputManifest
+
+    strategy_adjustment_mode = cast(AdjustmentMode, config.strategy_adjustment_mode)
+    portfolio_adjustment_mode = cast(AdjustmentMode, config.portfolio_adjustment_mode)
 
     # Feature/regime metadata — only populated when a FeatureService is active.
     features_database: str | None = None
@@ -136,8 +139,6 @@ def _build_clickhouse_manifest(
     start_date = start_dt.date() if hasattr(start_dt, "date") else start_dt
     end_date = end_dt.date() if hasattr(end_dt, "date") else end_dt
 
-    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
-
     return ClickHouseInputManifest(
         source_name=data_service.dataset,
         database=database,
@@ -145,13 +146,14 @@ def _build_clickhouse_manifest(
         bars_table=bars_table,
         features_table=features_table,
         regime_table=regime_table,
-        symbols=source_symbols,
+        symbols=tuple(source_symbols),
         start_date=start_date,
         end_date=end_date,
-        adjustment_mode=adjustment_mode,
+        strategy_adjustment_mode=strategy_adjustment_mode,
+        portfolio_adjustment_mode=portfolio_adjustment_mode,
         feature_set_version=feature_set_version,
         regime_version=regime_version,
-        feature_columns=feature_columns,
+        feature_columns=tuple(feature_columns) if feature_columns is not None else None,
     )
 
 

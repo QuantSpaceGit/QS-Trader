@@ -36,7 +36,8 @@ Create a manifest when a canonical ClickHouse-backed run is set up::
         symbols=["AAPL", "MSFT"],
         start_date=date(2023, 1, 1),
         end_date=date(2023, 12, 31),
-        adjustment_mode="split_adjusted",
+        strategy_adjustment_mode="split_adjusted",
+        portfolio_adjustment_mode="split_adjusted",
         feature_set_version="v1",
     )
 
@@ -62,6 +63,8 @@ from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+AdjustmentMode = Literal["split_adjusted", "total_return"]
 
 
 class ClickHouseInputManifest(BaseModel):
@@ -97,7 +100,7 @@ class ClickHouseInputManifest(BaseModel):
         regime_table: Name of the regime-context table inside
             ``features_database``, or ``None`` when regime data was not
             consumed.
-        symbols: Ordered list of ticker symbols that formed the run universe.
+        symbols: Ordered tuple of ticker symbols that formed the run universe.
             Must contain at least one symbol.
         start_date: First bar date consumed by the run (inclusive).
             Accepts a :class:`datetime.date` or an ISO-8601 string
@@ -105,16 +108,22 @@ class ClickHouseInputManifest(BaseModel):
         end_date: Last bar date consumed by the run (inclusive).
             Must be on or after *start_date*.  Accepts a
             :class:`datetime.date` or an ISO-8601 string.
-        adjustment_mode: Price-adjustment convention applied by the data source
-            (e.g. ``"split_adjusted"``, ``"total_return"``), or ``None`` when
-            the upstream default was used.
+        adjustment_mode: Legacy single adjustment-mode field retained only so
+            historical schema-version-1 manifests still deserialize. New
+            manifests should leave this unset and use the explicit strategy /
+            portfolio fields below.
+        strategy_adjustment_mode: Price-adjustment convention used by the
+            strategy / indicator layer (``"split_adjusted"`` or
+            ``"total_return"``).
+        portfolio_adjustment_mode: Price-adjustment convention used by the
+            manager / execution / portfolio / reporting layer.
         feature_set_version: Feature-set schema version string (e.g. ``"v1"``),
             or ``None`` when no feature service was active.
         regime_version: Regime-context schema version string, or ``None``
             when regime data was not consumed.
-        feature_columns: Explicit subset of feature columns that were requested
-            from the feature service, or ``None`` when all available columns
-            were consumed.
+        feature_columns: Explicit immutable subset of feature columns that were
+            requested from the feature service, or ``None`` when all available
+            columns were consumed.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -127,17 +136,19 @@ class ClickHouseInputManifest(BaseModel):
     bars_table: str
     features_table: str | None = None
     regime_table: str | None = None
-    symbols: list[str]
+    symbols: tuple[str, ...]
     start_date: date
     end_date: date
-    adjustment_mode: str | None = None
+    adjustment_mode: AdjustmentMode | None = None
+    strategy_adjustment_mode: AdjustmentMode | None = None
+    portfolio_adjustment_mode: AdjustmentMode | None = None
     feature_set_version: str | None = None
     regime_version: str | None = None
-    feature_columns: list[str] | None = None
+    feature_columns: tuple[str, ...] | None = None
 
     @field_validator("symbols")
     @classmethod
-    def symbols_not_empty(cls, v: list[str]) -> list[str]:
+    def symbols_not_empty(cls, v: tuple[str, ...]) -> tuple[str, ...]:
         """Require at least one symbol in the universe.
 
         Args:
@@ -152,6 +163,24 @@ class ClickHouseInputManifest(BaseModel):
         if not v:
             raise ValueError("symbols must contain at least one ticker symbol")
         return v
+
+    @model_validator(mode="after")
+    def adjustment_modes_are_paired(self) -> ClickHouseInputManifest:
+        """Require paired strategy/portfolio adjustment modes when either is set.
+
+        Raises:
+            ValueError: If only one of the explicit adjustment-mode fields is set.
+        """
+        explicit_modes = {
+            "strategy_adjustment_mode": self.strategy_adjustment_mode,
+            "portfolio_adjustment_mode": self.portfolio_adjustment_mode,
+        }
+        populated = [name for name, value in explicit_modes.items() if value is not None]
+        if populated and len(populated) != len(explicit_modes):
+            raise ValueError(
+                "strategy_adjustment_mode and portfolio_adjustment_mode must both be provided when either is set"
+            )
+        return self
 
     @model_validator(mode="after")
     def end_date_not_before_start_date(self) -> ClickHouseInputManifest:

@@ -879,11 +879,11 @@ class TestManifestBuilderFunction:
         assert result is not None
         assert result.bars_table == "equity_ohlcv_v2"
 
-    def test_manifest_adjustment_mode_total_return_when_adjusted_true(self) -> None:
-        """adjusted=True in source config must map to adjustment_mode='total_return'."""
+    def test_manifest_uses_strategy_adjustment_mode_from_backtest_config(self) -> None:
+        """Manifest must record the strategy-layer adjustment mode from BacktestConfig."""
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")  # adjusted=True
-        config = _make_backtest_config()
+        config = _make_backtest_config().model_copy(update={"strategy_adjustment_mode": "total_return"})
 
         # Act
         result = _build_clickhouse_manifest(
@@ -896,19 +896,13 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert result.adjustment_mode == "total_return"
+        assert result.strategy_adjustment_mode == "total_return"
 
-    def test_manifest_adjustment_mode_split_adjusted_when_not_adjusted(self) -> None:
-        """adjusted=False or absent must map to adjustment_mode='split_adjusted'."""
+    def test_manifest_uses_portfolio_adjustment_mode_from_backtest_config(self) -> None:
+        """Manifest must record the portfolio-layer adjustment mode from BacktestConfig."""
         # Arrange
-        data_service = Mock()
-        data_service.dataset = "qs-datamaster-equity-1d"
-        data_service.resolver.get_source_config.return_value = {
-            "provider": "qs-datamaster",
-            "adjusted": False,
-            "clickhouse": {"database": "market"},
-        }
-        config = _make_backtest_config()
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config().model_copy(update={"portfolio_adjustment_mode": "total_return"})
 
         # Act
         result = _build_clickhouse_manifest(
@@ -921,7 +915,23 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert result.adjustment_mode == "split_adjusted"
+        assert result.portfolio_adjustment_mode == "total_return"
+
+    def test_manifest_legacy_adjustment_mode_is_unset_for_new_manifests(self) -> None:
+        """New manifests must not collapse strategy/portfolio provenance into the legacy field."""
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        assert result is not None
+        assert result.adjustment_mode is None
 
     def test_manifest_symbols_match_source_symbols(self) -> None:
         """symbols list must exactly match the source_symbols argument."""
@@ -941,7 +951,7 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert result.symbols == symbols
+        assert result.symbols == tuple(symbols)
 
     def test_manifest_dates_extracted_from_config(self) -> None:
         """start_date and end_date must be date objects extracted from config datetimes."""
@@ -1081,7 +1091,7 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert result.feature_columns == requested_cols
+        assert result.feature_columns == tuple(requested_cols)
 
     def test_manifest_is_immutable(self) -> None:
         """The produced manifest must be frozen (immutable)."""
