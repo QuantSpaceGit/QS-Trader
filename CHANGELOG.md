@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Removed
+
+- **`bars_with_features` snapshot path retired (Phase 5 — DuckDB/ClickHouse boundary refactor)**
+  - `DuckDBWriter.save_bars_with_features()` and `_insert_bars_with_features()` removed; the `bars_with_features` table is no longer created in fresh DuckDB schemas
+  - `ReportingService` no longer accepts or stores a `feature_enabled` flag; bar/feature-bar event subscriptions and the internal `_bar_rows` buffer are gone
+  - `output.database.canonical_input_policy` config option removed — all runs now use the `reference` path implicitly; ClickHouse-backed runs rely on `runs.input_manifest_json` and the QS-Datamaster `/inputs` endpoint
+  - Pre-Phase-5 databases retain the `bars_with_features` table untouched; upsert-time cleanup of that table is guarded with a `_table_exists()` check so old databases remain readable without migration
+
 ### Added
 
 - **ClickHouse Input Manifest (Phase 2)**: Canonical qs-datamaster backtest runs now record full provenance of their ClickHouse inputs alongside the DuckDB run-output summary

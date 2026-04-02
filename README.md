@@ -267,19 +267,14 @@ If `output.database.enabled: true` is set in `qs_trader.yaml`, QS-Trader also pe
 
 QS-Trader maintains a clear boundary between **run-owned outputs** and **pre-existing inputs**:
 
-| Layer          | Responsibility                                                           | Store                     |
-| -------------- | ------------------------------------------------------------------------ | ------------------------- |
-| **DuckDB**     | Run-produced artifacts (summary, trades, equity curve, bar-level detail) | Local `.duckdb` file      |
-| **ClickHouse** | Canonical OHLCV + feature inputs consumed by the backtest                | Remote ClickHouse cluster |
+| Layer          | Responsibility                                                      | Store                     |
+| -------------- | ------------------------------------------------------------------- | ------------------------- |
+| **DuckDB**     | Run-produced artifacts (summary, trades, equity curve, drawdowns)   | Local `.duckdb` file      |
+| **ClickHouse** | Canonical OHLCV + feature inputs consumed by the backtest           | Remote ClickHouse cluster |
 
-**`canonical_input_policy`** (under `output.database`) controls whether bar-level input data is duplicated into DuckDB:
+For **canonical ClickHouse-backed runs**, QS-Trader stores a lightweight `ClickHouseInputManifest` (table names, symbol universe, date range, feature-set version) in the `runs.input_manifest_json` column instead of duplicating bar rows into DuckDB. Input data is never written to DuckDB — bar-level inputs remain exclusively in ClickHouse and are re-queried on demand via the QS-Datamaster `/inputs` endpoint.
 
-| Policy                  | Behaviour                                                                                                          | When to use                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `reference` _(default)_ | Stores a lightweight `ClickHouseInputManifest` (table names + date range) instead of copying rows; no duplication. | All canonical ClickHouse-backed runs.                        |
-| `snapshot`              | Copies bar rows into DuckDB alongside the manifest (`bars_with_features` table). Temporary escape hatch.           | Debugging or offline replay where ClickHouse is unavailable. |
-
-**Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) ignore this setting — they produce no manifest, so the policy gate never applies. Buffered bar rows (collected when `feature_enabled: true`) are written to `bars_with_features` as they were before Phase 3.
+**Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) produce no manifest; `input_manifest_json` is `NULL`.
 
 Configure in `qs_trader.yaml`:
 
@@ -288,9 +283,6 @@ output:
   database:
     enabled: true
     path: "data/backtest_runs.duckdb"
-    # "reference" (default): store a ClickHouse manifest, skip bar duplication.
-    # "snapshot": copy bar rows into DuckDB (debugging / offline replay only).
-    canonical_input_policy: "reference"
 ```
 
 For the full storage-boundary design rationale, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md).

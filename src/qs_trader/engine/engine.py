@@ -686,7 +686,6 @@ class BacktestEngine:
                     config=reporting_config,
                     output_dir=reporting_output_dir,
                     event_store=event_store,  # Pass EventStore for CSV timeline export
-                    feature_enabled=feature_service is not None,
                 )
 
                 logger.debug(

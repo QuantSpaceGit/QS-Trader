@@ -805,22 +805,12 @@ logging:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — canonical_input_policy tests
+# DatabaseOutputConfig field tests
 # ---------------------------------------------------------------------------
 
 
 class TestDatabaseOutputConfig:
     """Unit tests for DatabaseOutputConfig defaults and field contract."""
-
-    def test_default_policy_is_reference(self) -> None:
-        """canonical_input_policy must default to 'reference'."""
-        cfg = DatabaseOutputConfig()
-        assert cfg.canonical_input_policy == "reference"
-
-    def test_snapshot_policy_accepted(self) -> None:
-        """'snapshot' is a valid policy value."""
-        cfg = DatabaseOutputConfig(canonical_input_policy="snapshot")
-        assert cfg.canonical_input_policy == "snapshot"
 
     def test_enabled_defaults_to_false(self) -> None:
         """Database output is disabled by default."""
@@ -834,64 +824,12 @@ class TestDatabaseOutputConfig:
 
 
 class TestCanonicalInputPolicy:
-    """Tests for canonical_input_policy parsing and validation in SystemConfig._from_dict()."""
+    """Phase 5: ``canonical_input_policy`` field retired from ``DatabaseOutputConfig``.
 
-    def test_default_policy_parsed_from_empty_config(self) -> None:
-        """No database section in YAML must produce 'reference' as the default."""
-        config = SystemConfig._from_dict({})
-        assert config.output.database.canonical_input_policy == "reference"
+    The ``canonical_input_policy`` config option (``reference`` / ``snapshot``) and its
+    corresponding ``_from_dict()`` parsing / validation block were removed in Phase 5 of
+    the DuckDB/ClickHouse boundary refactor.  All runs now use the ``reference`` path
+    implicitly — the ClickHouse manifest is always the source of truth for canonical runs.
 
-    def test_reference_policy_parsed_from_yaml(self) -> None:
-        """Explicit 'reference' in YAML is accepted and stored correctly."""
-        config = SystemConfig._from_dict({"output": {"database": {"canonical_input_policy": "reference"}}})
-        assert config.output.database.canonical_input_policy == "reference"
-
-    def test_snapshot_policy_parsed_from_yaml(self) -> None:
-        """Explicit 'snapshot' in YAML is accepted and stored correctly."""
-        config = SystemConfig._from_dict({"output": {"database": {"canonical_input_policy": "snapshot"}}})
-        assert config.output.database.canonical_input_policy == "snapshot"
-
-    def test_invalid_policy_raises_value_error(self) -> None:
-        """An unrecognised policy value must raise ValueError immediately."""
-        import pytest
-
-        with pytest.raises(ValueError, match="canonical_input_policy"):
-            SystemConfig._from_dict({"output": {"database": {"canonical_input_policy": "invalid_policy"}}})
-
-    def test_invalid_policy_error_message_contains_valid_options(self) -> None:
-        """The ValueError message must name the valid options."""
-        import pytest
-
-        with pytest.raises(ValueError, match="reference") as exc_info:
-            SystemConfig._from_dict({"output": {"database": {"canonical_input_policy": "bad"}}})
-        assert "snapshot" in str(exc_info.value)
-        assert "bad" in str(exc_info.value)
-
-    def test_policy_loaded_from_yaml_file(self, tmp_path: Path) -> None:
-        """canonical_input_policy is correctly loaded from a YAML config file."""
-        config_file = tmp_path / "qs_trader.yaml"
-        config_file.write_text(
-            "output:\n"
-            "  database:\n"
-            "    enabled: true\n"
-            "    path: data/runs.duckdb\n"
-            "    canonical_input_policy: snapshot\n"
-        )
-        config = SystemConfig.load(config_file)
-        assert config.output.database.canonical_input_policy == "snapshot"
-
-    def test_policy_defaults_to_reference_when_key_absent_in_yaml(self, tmp_path: Path) -> None:
-        """YAML with a database section but no policy key defaults to 'reference'."""
-        config_file = tmp_path / "qs_trader.yaml"
-        config_file.write_text("output:\n  database:\n    enabled: true\n    path: data/runs.duckdb\n")
-        config = SystemConfig.load(config_file)
-        assert config.output.database.canonical_input_policy == "reference"
-
-    def test_invalid_policy_in_yaml_file_raises(self, tmp_path: Path) -> None:
-        """An invalid policy value in a YAML file must propagate as ValueError."""
-        import pytest
-
-        config_file = tmp_path / "qs_trader.yaml"
-        config_file.write_text("output:\n  database:\n    canonical_input_policy: wrong\n")
-        with pytest.raises(ValueError, match="canonical_input_policy"):
-            SystemConfig.load(config_file)
+    This class is retained as a named marker so git history clearly records the retirement.
+    """

@@ -82,7 +82,7 @@ The cleaner model is:
 - If a PR changes config or default behavior, it must also update tests and user-facing docs in the same phase.
 - Keep the temporary `snapshot` path available until the Datamaster consumer path is proven.
 
-______________________________________________________________________
+---
 
 ## Phase 1 — Manifest contract and DuckDB schema foundation
 
@@ -142,7 +142,7 @@ ______________________________________________________________________
 - The manifest field exists and is covered by tests.
 - No behavior change yet for snapshot/reference decisions.
 
-______________________________________________________________________
+---
 
 ## Phase 2 — Capture manifest for canonical ClickHouse-backed runs
 
@@ -202,7 +202,7 @@ ______________________________________________________________________
 - Canonical ClickHouse-backed runs persist correct manifest metadata.
 - Tests prove the gating behavior.
 
-______________________________________________________________________
+---
 
 ## Phase 3 — Flip the default away from `bars_with_features` for canonical ClickHouse runs
 
@@ -279,7 +279,7 @@ ______________________________________________________________________
 - The new default is live and documented.
 - Snapshot duplication no longer happens by default for canonical ClickHouse-backed runs.
 
-______________________________________________________________________
+---
 
 ## Phase 4 — Downstream manifest consumer in Datamaster
 
@@ -308,11 +308,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Extend the reader to fetch the manifest field from `runs`.
-- [ ] Add response model(s) for manifest-backed input inspection.
-- [ ] Keep existing run/equity/returns/trades/drawdowns responses unchanged.
-- [ ] Treat missing manifest as valid for old runs.
-- [ ] Do not add the ClickHouse query path yet.
+- [x] Extend the reader to fetch the manifest field from `runs`.
+- [x] Add response model(s) for manifest-backed input inspection.
+- [x] Keep existing run/equity/returns/trades/drawdowns responses unchanged.
+- [x] Treat missing manifest as valid for old runs.
+- [x] Do not add the ClickHouse query path yet.
 
 #### PR 4.2 — Add router path and tests
 
@@ -323,11 +323,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Add a dedicated manifest-backed input inspection route/path.
-- [ ] Resolve canonical market/features from ClickHouse using manifest metadata.
-- [ ] Degrade cleanly when ClickHouse is unavailable.
-- [ ] Preserve the current `/backtest` run-output contract.
-- [ ] Cover both old-run and manifest-backed cases in tests.
+- [x] Add a dedicated manifest-backed input inspection route/path.
+- [x] Resolve canonical market/features from ClickHouse using manifest metadata.
+- [x] Degrade cleanly when ClickHouse is unavailable.
+- [x] Preserve the current `/backtest` run-output contract.
+- [x] Cover both old-run and manifest-backed cases in tests.
 
 #### PR 4.3 — Document the consumer contract
 
@@ -337,9 +337,9 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Document the new inspection route and response shape.
-- [ ] Document failure and degradation behavior.
-- [ ] Document that canonical inputs now come from ClickHouse, not DuckDB snapshots.
+- [x] Document the new inspection route and response shape.
+- [x] Document failure and degradation behavior.
+- [x] Document that canonical inputs now come from ClickHouse, not DuckDB snapshots.
 
 ### Validation
 
@@ -352,7 +352,7 @@ ______________________________________________________________________
 - A downstream consumer path exists.
 - Producer and consumer boundaries are now aligned.
 
-______________________________________________________________________
+---
 
 ## Phase 5 — Remove deprecated snapshot path after consumer migration
 
@@ -380,11 +380,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Delete `bars_with_features` buffering and write logic.
-- [ ] Stop creating the obsolete table in fresh schemas.
-- [ ] Remove deprecated helper methods.
-- [ ] Leave manifest persistence and run-output writes intact.
-- [ ] Do not mutate historical DuckDB files.
+- [x] Delete `bars_with_features` buffering and write logic.
+- [x] Stop creating the obsolete table in fresh schemas.
+- [x] Remove deprecated helper methods.
+- [x] Leave manifest persistence and run-output writes intact.
+- [x] Do not mutate historical DuckDB files.
 
 #### PR 5.2 — Finalize tests and release notes
 
@@ -395,11 +395,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Update schema assertions so fresh schemas no longer expect the deprecated table.
-- [ ] Preserve manifest and run-output coverage.
-- [ ] Add changelog notes for snapshot-path retirement.
-- [ ] Document that old files are not migrated in place.
-- [ ] Confirm the migration path is complete after the Datamaster consumer lands.
+- [x] Update schema assertions so fresh schemas no longer expect the deprecated table.
+- [x] Preserve manifest and run-output coverage.
+- [x] Add changelog notes for snapshot-path retirement.
+- [x] Document that old files are not migrated in place.
+- [x] Confirm the migration path is complete after the Datamaster consumer lands.
 
 ### Validation
 
@@ -412,7 +412,7 @@ ______________________________________________________________________
 - The deprecated snapshot path is fully retired.
 - Canonical ClickHouse-backed runs rely on manifest + canonical source lookup.
 
-______________________________________________________________________
+---
 
 ## Relevant files across the whole plan
 
@@ -452,13 +452,10 @@ ______________________________________________________________________
 ## Open questions
 
 1. Should the first manifest include a stored `symbol -> secid` mapping?
-
    - Recommendation: defer unless ticker reuse is already a known reproducibility issue in target backtest windows.
 
 1. Should the temporary `snapshot` escape hatch be time-boxed?
-
    - Recommendation: yes. Keep it only until Datamaster has a stable manifest-backed consumer path.
 
 1. Should the Datamaster consumer work be in the same milestone?
-
    - Recommendation: no. Land the `QS-Trader` producer contract and default policy first, then pick up the consumer follow-up separately.

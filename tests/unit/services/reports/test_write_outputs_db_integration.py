@@ -570,13 +570,12 @@ class TestManifestIntegration:
         assert recovered.feature_set_version == "v1"
 
     def test_save_bars_not_called_when_bar_rows_empty(self, tmp_path: Path) -> None:
-        """Confirm that Phase 1 changes do not break any pre-existing DB integration.
+        """Phase 5 regression: ``save_run`` is called exactly once per write cycle.
 
-        When ``_bar_rows`` is empty (no FeatureBarEvents received during the run),
-        ``save_run`` must still be called exactly once while
-        ``save_bars_with_features`` must not be called at all.  This documents
-        the empty-bar-rows code path and guards against regressions introduced
-        by the Phase 1 manifest changes.
+        ``save_bars_with_features`` was removed in Phase 5 — this test is
+        intentionally renamed as a regression guard to confirm ``save_run``
+        still fires correctly on a basic ``_write_outputs`` call with no
+        manifest and empty returns/equity.
         """
         svc = _build_reporting_service(tmp_path, write_parquet=False)
         metrics = _minimal_metrics()
@@ -600,8 +599,6 @@ class TestManifestIntegration:
             svc._write_outputs(metrics)
 
         mock_writer_cls.return_value.save_run.assert_called_once()
-        # save_bars_with_features must NOT be called when _bar_rows is empty
-        mock_writer_cls.return_value.save_bars_with_features.assert_not_called()
 
 
 class TestCumulativeReturnCompounding:

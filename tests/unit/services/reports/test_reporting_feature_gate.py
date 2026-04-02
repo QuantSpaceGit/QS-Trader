@@ -1,8 +1,14 @@
-"""Tests for ReportingService feature-gate (feature_enabled flag).
+"""Tests for ReportingService manifest capture and DuckDB persistence.
 
-Verifies that bar buffering and feature_bar subscriptions are activated only
-when feature_enabled=True, preventing OHLCV deduplication into DuckDB on
-ordinary (non-feature) backtest runs.
+Phase 5 note: the ``feature_enabled`` flag, ``_bar_rows`` buffering, and
+``bars_with_features`` snapshot path were retired.  Tests that exercised
+that deprecated path have been removed.  This module now covers:
+
+  - Manifest capture: setup()/reset() lifecycle for ClickHouseInputManifest.
+  - Manifest persistence: _write_to_database() forwards the manifest to
+    DuckDBWriter.save_run() correctly (mock and real-DuckDB integration tests).
+  - Post-Phase-5 regression: ReportingService does NOT subscribe to ``bar`` or
+    ``feature_bar`` events, and save_bars_with_features is never called.
 """
 
 from __future__ import annotations
@@ -12,10 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import FeatureBarEvent, PriceBarEvent
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.service import ReportingService
 
@@ -24,35 +27,9 @@ from qs_trader.services.reporting.service import ReportingService
 # ---------------------------------------------------------------------------
 
 
-def _make_price_bar_event(symbol: str = "AAPL", timestamp: str = "2024-01-02T21:00:00+00:00") -> PriceBarEvent:
-    return PriceBarEvent(
-        symbol=symbol,
-        asset_class="equity",
-        interval="1d",
-        timestamp=timestamp,
-        open=Decimal("185.00"),
-        high=Decimal("186.00"),
-        low=Decimal("184.00"),
-        close=Decimal("185.50"),
-        volume=1_000_000,
-        source="test",
-    )
-
-
-def _make_feature_bar_event(symbol: str = "AAPL", timestamp: str = "2024-01-02T21:00:00+00:00") -> FeatureBarEvent:
-    return FeatureBarEvent(
-        timestamp=timestamp,
-        symbol=symbol,
-        features={"trend_strength": 0.8, "trend_regime": "bull"},
-        feature_set_version="v1",
-    )
-
-
-def _make_reporting_service(feature_enabled: bool) -> ReportingService:
+def _make_reporting_service() -> ReportingService:
     """Create a minimal ReportingService with a live EventBus."""
-    event_bus = EventBus()
-    svc = ReportingService(event_bus=event_bus, feature_enabled=feature_enabled)
-    return svc
+    return ReportingService(event_bus=EventBus())
 
 
 # ---------------------------------------------------------------------------
@@ -60,49 +37,134 @@ def _make_reporting_service(feature_enabled: bool) -> ReportingService:
 # ---------------------------------------------------------------------------
 
 
-class TestReportingServiceFeatureGate:
-    """ReportingService bar-buffering gated behind feature_enabled."""
+class TestReportingServicePhase5Regression:
+    """Post-Phase-5 regression: bars_with_features snapshot path is fully retired.
 
-    def test_bar_not_buffered_when_feature_disabled(self) -> None:
-        """Publishing a PriceBarEvent should NOT populate _bar_rows when feature_enabled=False."""
-        svc = _make_reporting_service(feature_enabled=False)
-        event = _make_price_bar_event()
-        svc.event_bus.publish(event)
-        assert svc._bar_rows == {}
+    Verifies that:
+    - ReportingService no longer accepts or stores a ``feature_enabled`` flag.
+    - No bar/feature_bar event subscriptions are registered.
+    - ``save_bars_with_features`` is never called (method no longer exists on
+      DuckDBWriter; calling it would raise AttributeError).
+    """
 
-    def test_feature_bar_not_buffered_when_feature_disabled(self) -> None:
-        """Publishing a FeatureBarEvent should NOT affect _bar_rows when feature_enabled=False."""
-        svc = _make_reporting_service(feature_enabled=False)
-        svc.event_bus.publish(_make_price_bar_event())
-        svc.event_bus.publish(_make_feature_bar_event())
-        assert svc._bar_rows == {}
+    def test_constructor_accepts_no_feature_enabled(self) -> None:
+        """ReportingService must not expose a feature_enabled parameter post-Phase-5."""
+        import inspect
 
-    def test_bar_buffered_when_feature_enabled(self) -> None:
-        """Publishing a PriceBarEvent SHOULD populate _bar_rows when feature_enabled=True."""
-        svc = _make_reporting_service(feature_enabled=True)
-        event = _make_price_bar_event()
-        svc.event_bus.publish(event)
-        assert len(svc._bar_rows) == 1
-        key = ("AAPL", "2024-01-02T21:00:00+00:00")
-        row = svc._bar_rows[key]
-        assert row["symbol"] == "AAPL"
-        assert row["close"] == pytest.approx(185.50)
-        assert row["features"] is None  # not yet merged
+        sig = inspect.signature(ReportingService.__init__)
+        assert "feature_enabled" not in sig.parameters, (
+            "feature_enabled was removed in Phase 5; it should not appear in the signature"
+        )
 
-    def test_feature_bar_merged_into_buffered_row(self) -> None:
-        """FeatureBarEvent should merge feature data into the existing _bar_rows entry."""
-        svc = _make_reporting_service(feature_enabled=True)
-        svc.event_bus.publish(_make_price_bar_event())
-        svc.event_bus.publish(_make_feature_bar_event())
-        key = ("AAPL", "2024-01-02T21:00:00+00:00")
-        row = svc._bar_rows[key]
-        assert row["features"] == {"trend_strength": 0.8, "trend_regime": "bull"}
-        assert row["feature_set_version"] == "v1"
+    def test_no_bar_subscription(self) -> None:
+        """ReportingService must NOT subscribe to the 'bar' event channel."""
+        bus = EventBus()
+        ReportingService(event_bus=bus)
+        subscribed_types = set(bus._subscribers.keys())
+        assert "bar" not in subscribed_types, (
+            "bar subscription was removed in Phase 5; ReportingService must not re-add it"
+        )
 
-    def test_feature_enabled_flag_stored(self) -> None:
-        """_feature_enabled attribute should reflect the constructor argument."""
-        assert _make_reporting_service(feature_enabled=False)._feature_enabled is False
-        assert _make_reporting_service(feature_enabled=True)._feature_enabled is True
+    def test_no_feature_bar_subscription(self) -> None:
+        """ReportingService must NOT subscribe to the 'feature_bar' event channel."""
+        bus = EventBus()
+        ReportingService(event_bus=bus)
+        subscribed_types = set(bus._subscribers.keys())
+        assert "feature_bar" not in subscribed_types, (
+            "feature_bar subscription was removed in Phase 5; ReportingService must not re-add it"
+        )
+
+    def test_save_bars_with_features_removed_from_writer(self) -> None:
+        """DuckDBWriter must no longer expose save_bars_with_features after Phase 5."""
+        from qs_trader.services.reporting.db_writer import DuckDBWriter
+
+        assert not hasattr(DuckDBWriter, "save_bars_with_features"), (
+            "save_bars_with_features was removed in Phase 5; it must not exist on DuckDBWriter"
+        )
+
+    def test_write_to_database_never_calls_save_bars_with_features(self, tmp_path: Path) -> None:
+        """_write_to_database must not invoke save_bars_with_features regardless of run type."""
+        from unittest.mock import patch
+
+        from qs_trader.services.reporting.config import ReportingConfig
+
+        output_dir = tmp_path / "experiments" / "exp1" / "runs" / "20260101_120000"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        svc = ReportingService(
+            event_bus=EventBus(),
+            config=ReportingConfig(write_parquet=False, write_json=False, display_final_report=False),
+            output_dir=output_dir,
+        )
+        svc._backtest_id = "test_bt"
+        svc._input_manifest = _sample_manifest()
+
+        from qs_trader.libraries.performance.models import FullMetrics
+
+        metrics = FullMetrics.model_construct(
+            backtest_id="test_bt",
+            start_date="2023-01-01",
+            end_date="2023-12-31",
+            duration_days=365,
+            initial_equity=Decimal("100000"),
+            final_equity=Decimal("110000"),
+            total_return_pct=Decimal("10.00"),
+            cagr=Decimal("0"),
+            best_day_return_pct=Decimal("0"),
+            worst_day_return_pct=Decimal("0"),
+            volatility_annual_pct=Decimal("0"),
+            max_drawdown_pct=Decimal("0"),
+            max_drawdown_duration_days=0,
+            avg_drawdown_pct=Decimal("0"),
+            current_drawdown_pct=Decimal("0"),
+            sharpe_ratio=Decimal("0"),
+            sortino_ratio=Decimal("0"),
+            calmar_ratio=Decimal("0"),
+            risk_free_rate=Decimal("0"),
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            win_rate=Decimal("0"),
+            profit_factor=None,
+            avg_win=Decimal("0"),
+            avg_loss=Decimal("0"),
+            avg_win_pct=Decimal("0"),
+            avg_loss_pct=Decimal("0"),
+            largest_win=Decimal("0"),
+            largest_loss=Decimal("0"),
+            largest_win_pct=Decimal("0"),
+            largest_loss_pct=Decimal("0"),
+            expectancy=Decimal("0"),
+            max_consecutive_wins=0,
+            max_consecutive_losses=0,
+            avg_trade_duration_days=None,
+            total_commissions=Decimal("0"),
+            commission_pct_of_pnl=Decimal("0"),
+            monthly_returns=[],
+            quarterly_returns=[],
+            annual_returns=[],
+            strategy_performance=[],
+            drawdown_periods=[],
+        )
+        svc._returns_calc = MagicMock()
+        svc._returns_calc.returns = []
+        svc._equity_calc = MagicMock()
+        svc._equity_calc.get_curve.return_value = []
+        svc._last_portfolio_state = None
+
+        mock_sys_config = MagicMock()
+        mock_sys_config.output.database.enabled = True
+        mock_sys_config.output.database.path = str(tmp_path / "runs.duckdb")
+        mock_sys_config.config_root = tmp_path
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=mock_sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            svc._write_outputs(metrics)
+
+        assert not hasattr(mock_writer_cls.return_value, "save_bars_with_features") or (
+            not mock_writer_cls.return_value.save_bars_with_features.called
+        ), "save_bars_with_features must not be called after Phase 5"
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +191,7 @@ class TestReportingServiceManifestCapture:
     def test_manifest_stored_when_present_in_setup_context(self) -> None:
         """setup() with ``input_manifest`` in context must store the manifest."""
         # Arrange
-        svc = _make_reporting_service(feature_enabled=False)
+        svc = _make_reporting_service()
         manifest = _sample_manifest()
 
         # Act
@@ -141,7 +203,7 @@ class TestReportingServiceManifestCapture:
     def test_manifest_is_none_when_absent_from_setup_context(self) -> None:
         """setup() without ``input_manifest`` key must leave _input_manifest as None."""
         # Arrange
-        svc = _make_reporting_service(feature_enabled=False)
+        svc = _make_reporting_service()
 
         # Act
         svc.setup({"backtest_id": "bt1", "strategy_ids": []})
@@ -152,7 +214,7 @@ class TestReportingServiceManifestCapture:
     def test_manifest_set_to_none_when_explicit_none_in_context(self) -> None:
         """Explicit None in context must also result in None (Yahoo/CSV path)."""
         # Arrange
-        svc = _make_reporting_service(feature_enabled=False)
+        svc = _make_reporting_service()
 
         # Act
         svc.setup({"backtest_id": "bt1", "strategy_ids": [], "input_manifest": None})
@@ -163,7 +225,7 @@ class TestReportingServiceManifestCapture:
     def test_manifest_cleared_by_reset(self) -> None:
         """reset() must clear a manifest set during a previous setup()."""
         # Arrange
-        svc = _make_reporting_service(feature_enabled=False)
+        svc = _make_reporting_service()
         manifest = _sample_manifest()
         svc.setup({"backtest_id": "bt1", "strategy_ids": [], "input_manifest": manifest})
         assert svc._input_manifest is manifest  # precondition
@@ -177,7 +239,7 @@ class TestReportingServiceManifestCapture:
     def test_setup_second_run_replaces_previous_manifest(self) -> None:
         """Calling setup() a second time must replace the previously stored manifest."""
         # Arrange
-        svc = _make_reporting_service(feature_enabled=False)
+        svc = _make_reporting_service()
         manifest_a = _sample_manifest()
         manifest_b = ClickHouseInputManifest(
             source_name="qs-datamaster-equity-1d",
@@ -404,317 +466,20 @@ class TestReportingServiceManifestPersistence:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — canonical_input_policy enforcement tests
+# Phase 5 — verified: canonical_input_policy and snapshot path retired
 # ---------------------------------------------------------------------------
 
 
 class TestReportingServiceCanonicalPolicy:
-    """_write_to_database respects canonical_input_policy for bar-snapshot gating.
+    """Phase 5: ``canonical_input_policy`` and the ``bars_with_features`` snapshot path retired.
 
-    Policy contract:
-      * ``reference`` + canonical run (manifest set) → skip bars_with_features
-      * ``snapshot``  + canonical run (manifest set) → write bars_with_features
-      * ``reference`` + non-canonical run (no manifest) → write bars_with_features
-        (non-ClickHouse runs are unaffected by policy; bar rows are written when present)
-      * No bar rows buffered → save_bars_with_features never called (policy-agnostic)
+    The ``canonical_input_policy`` config field (``reference`` / ``snapshot``) and the
+    corresponding snapshot escape hatch were removed in Phase 5.  The tests that previously
+    exercised the per-policy write behaviour (skip vs. write ``bars_with_features``) are
+    superseded by ``TestReportingServicePhase5Regression``, which verifies the entire path
+    no longer exists.
+
+    This class is retained as a named marker so git history clearly records the intentional
+    retirement of the canonical-policy test surface.  No test methods are needed here
+    because the absence of the feature is the tested property.
     """
-
-    # ------------------------------------------------------------------
-    # Reuse helpers from TestReportingServiceManifestPersistence
-    # ------------------------------------------------------------------
-
-    def _build_svc(self, tmp_path: Path) -> "ReportingService":
-        from qs_trader.events.event_bus import EventBus
-        from qs_trader.services.reporting.config import ReportingConfig
-        from qs_trader.services.reporting.service import ReportingService
-
-        config = ReportingConfig(
-            write_parquet=False,
-            write_json=False,
-            display_final_report=False,
-        )
-        output_dir = tmp_path / "experiments" / "exp1" / "runs" / "20260101_120000"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        svc = ReportingService(event_bus=EventBus(), config=config, output_dir=output_dir)
-        svc._backtest_id = "test_bt"
-        return svc
-
-    def _make_system_config_mock(
-        self,
-        *,
-        db_enabled: bool,
-        db_path: str,
-        canonical_input_policy: str = "reference",
-    ) -> MagicMock:
-        mock = MagicMock()
-        mock.output.database.enabled = db_enabled
-        mock.output.database.path = db_path
-        mock.output.database.canonical_input_policy = canonical_input_policy
-        mock.config_root = Path.cwd()
-        return mock
-
-    def _minimal_metrics(self):
-        from decimal import Decimal
-
-        from qs_trader.libraries.performance.models import FullMetrics
-
-        return FullMetrics.model_construct(
-            backtest_id="test_bt",
-            start_date="2023-01-01",
-            end_date="2023-12-31",
-            duration_days=365,
-            initial_equity=Decimal("100000"),
-            final_equity=Decimal("110000"),
-            total_return_pct=Decimal("10.00"),
-            cagr=Decimal("0"),
-            best_day_return_pct=Decimal("0"),
-            worst_day_return_pct=Decimal("0"),
-            volatility_annual_pct=Decimal("0"),
-            max_drawdown_pct=Decimal("0"),
-            max_drawdown_duration_days=0,
-            avg_drawdown_pct=Decimal("0"),
-            current_drawdown_pct=Decimal("0"),
-            sharpe_ratio=Decimal("0"),
-            sortino_ratio=Decimal("0"),
-            calmar_ratio=Decimal("0"),
-            risk_free_rate=Decimal("0"),
-            total_trades=0,
-            winning_trades=0,
-            losing_trades=0,
-            win_rate=Decimal("0"),
-            profit_factor=Decimal("0"),
-            avg_win=Decimal("0"),
-            avg_loss=Decimal("0"),
-            avg_win_pct=Decimal("0"),
-            avg_loss_pct=Decimal("0"),
-            largest_win=Decimal("0"),
-            largest_loss=Decimal("0"),
-            largest_win_pct=Decimal("0"),
-            largest_loss_pct=Decimal("0"),
-            expectancy=Decimal("0"),
-            max_consecutive_wins=0,
-            max_consecutive_losses=0,
-            avg_trade_duration_days=Decimal("0"),
-            total_commissions=Decimal("0"),
-            commission_pct_of_pnl=Decimal("0"),
-            monthly_returns=[],
-            quarterly_returns=[],
-            annual_returns=[],
-            strategy_performance=[],
-            drawdown_periods=[],
-        )
-
-    def _fake_bar_rows(self) -> dict:
-        """Produce a minimal _bar_rows dict to simulate feature-enabled buffering."""
-        return {
-            ("AAPL", "2023-01-03T21:00:00+00:00"): {
-                "timestamp": "2023-01-03T21:00:00+00:00",
-                "symbol": "AAPL",
-                "open": 130.0,
-                "high": 133.0,
-                "low": 129.0,
-                "close": 131.0,
-                "open_adj": None,
-                "high_adj": None,
-                "low_adj": None,
-                "close_adj": None,
-                "volume": 50_000,
-                "features": {"momentum": 0.4},
-                "feature_set_version": "v1",
-            }
-        }
-
-    # ------------------------------------------------------------------
-    # Reference policy + canonical run → bars_with_features SKIPPED
-    # ------------------------------------------------------------------
-
-    def test_reference_policy_canonical_run_skips_bars(self, tmp_path: Path) -> None:
-        """With policy='reference' and a manifest present, bars_with_features must NOT
-        be written even when bar rows were buffered."""
-        from unittest.mock import patch
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = _sample_manifest()
-        svc._bar_rows = self._fake_bar_rows()
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = str(tmp_path / "runs.duckdb")
-        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path, canonical_input_policy="reference")
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
-        ):
-            svc._write_outputs(metrics)
-
-        mock_writer_cls.return_value.save_bars_with_features.assert_not_called()
-
-    def test_reference_policy_canonical_run_still_writes_run_summary(self, tmp_path: Path) -> None:
-        """Policy='reference' must NOT suppress the run summary (save_run still called)."""
-        from unittest.mock import patch
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = _sample_manifest()
-        svc._bar_rows = self._fake_bar_rows()
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = str(tmp_path / "runs.duckdb")
-        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path, canonical_input_policy="reference")
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
-        ):
-            svc._write_outputs(metrics)
-
-        mock_writer_cls.return_value.save_run.assert_called_once()
-
-    # ------------------------------------------------------------------
-    # Snapshot policy + canonical run → bars_with_features WRITTEN
-    # ------------------------------------------------------------------
-
-    def test_snapshot_policy_canonical_run_writes_bars(self, tmp_path: Path) -> None:
-        """With policy='snapshot', bars_with_features must be written regardless of
-        whether a manifest is present."""
-        from unittest.mock import patch
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = _sample_manifest()
-        svc._bar_rows = self._fake_bar_rows()
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = str(tmp_path / "runs.duckdb")
-        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path, canonical_input_policy="snapshot")
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
-        ):
-            svc._write_outputs(metrics)
-
-        mock_writer_cls.return_value.save_bars_with_features.assert_called_once()
-
-    # ------------------------------------------------------------------
-    # Reference policy + non-canonical run → bars_with_features WRITTEN
-    # (Yahoo/CSV: no manifest; policy gate does not apply)
-    # ------------------------------------------------------------------
-
-    def test_reference_policy_non_canonical_run_writes_bars(self, tmp_path: Path) -> None:
-        """Non-canonical runs (no manifest) must still write bar rows to DuckDB
-        even under the 'reference' policy — only canonical runs are gated."""
-        from unittest.mock import patch
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = None  # Yahoo/CSV — no manifest
-        svc._bar_rows = self._fake_bar_rows()
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = str(tmp_path / "runs.duckdb")
-        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path, canonical_input_policy="reference")
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
-        ):
-            svc._write_outputs(metrics)
-
-        mock_writer_cls.return_value.save_bars_with_features.assert_called_once()
-
-    # ------------------------------------------------------------------
-    # No bar rows buffered → bars_with_features never called (any policy)
-    # ------------------------------------------------------------------
-
-    def test_no_bar_rows_never_calls_save_bars(self, tmp_path: Path) -> None:
-        """When no bar rows were buffered, save_bars_with_features must not be called
-        regardless of policy or manifest presence."""
-        from unittest.mock import patch
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = _sample_manifest()
-        svc._bar_rows = {}  # nothing buffered
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = str(tmp_path / "runs.duckdb")
-        sys_config = self._make_system_config_mock(db_enabled=True, db_path=db_path, canonical_input_policy="snapshot")
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
-            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
-        ):
-            svc._write_outputs(metrics)
-
-        mock_writer_cls.return_value.save_bars_with_features.assert_not_called()
-
-    # ------------------------------------------------------------------
-    # Integration: round-trip with real DuckDB under reference policy
-    # ------------------------------------------------------------------
-
-    def test_reference_policy_manifest_round_trips_duckdb(self, tmp_path: Path) -> None:
-        """Full integration: under reference policy, manifest is persisted to DuckDB
-        and bars_with_features is absent from the written data."""
-        from unittest.mock import patch
-
-        import duckdb
-
-        svc = self._build_svc(tmp_path)
-        svc._input_manifest = _sample_manifest()
-        svc._bar_rows = self._fake_bar_rows()  # would be written under snapshot
-        metrics = self._minimal_metrics()
-        svc._returns_calc = MagicMock()
-        svc._returns_calc.returns = []
-        svc._equity_calc = MagicMock()
-        svc._equity_calc.get_curve.return_value = []
-        svc._last_portfolio_state = None
-
-        db_path = tmp_path / "policy_test.duckdb"
-        db_path_str = str(db_path)
-
-        sys_config = self._make_system_config_mock(
-            db_enabled=True, db_path=db_path_str, canonical_input_policy="reference"
-        )
-        sys_config.config_root = tmp_path
-
-        with patch("qs_trader.system.config.get_system_config", return_value=sys_config):
-            svc._write_outputs(metrics)
-
-        con = duckdb.connect(db_path_str, read_only=True)
-
-        # Manifest must be persisted
-        row = con.execute("SELECT input_manifest_json FROM runs WHERE experiment_id = 'exp1'").fetchone()
-        assert row is not None and row[0] is not None
-
-        # bars_with_features table may exist (schema is initialised eagerly) but
-        # must contain no rows for this run — the reference policy skips insertion.
-        bar_count_row = con.execute(
-            "SELECT COUNT(*) FROM bars_with_features WHERE experiment_id = 'exp1' AND run_id = '20260101_120000'"
-        ).fetchone()
-        assert bar_count_row is not None
-        assert bar_count_row[0] == 0
-
-        con.close()
