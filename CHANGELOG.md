@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (pre-release identifiers included).
 
+## [Unreleased]
+
+### Added
+
+- **ClickHouse Input Manifest (Phase 2)**: Canonical qs-datamaster backtest runs now record full provenance of their ClickHouse inputs alongside the DuckDB run-output summary
+  - New `ClickHouseInputManifest` Pydantic model (`services/reporting/manifest.py`) stored as JSON in the nullable `input_manifest_json` column on the `runs` table (Phase 1 schema)
+  - Captures source name, bar database, features database, OHLCV table, features/regime tables, symbol universe, date range, adjustment mode, feature-set version, regime version, and requested feature columns
+  - Bar database (`database`) and feature/regime database (`features_database`) are stored independently, supporting deployments that use separate ClickHouse databases
+  - Yahoo/CSV runs store `NULL`; only canonical `provider: qs-datamaster` runs carry a manifest
+  - `BacktestEngine._build_clickhouse_manifest()` detects canonical runs via resolver metadata and fails loudly (not silently) on misconfigured canonical sources
+  - `FeatureService` exposes `FEATURES_TABLE` and `REGIME_TABLE` class constants as the authoritative table-name source for the manifest
+  - 28 unit tests covering provider gating, field mapping, feature-service integration, DuckDB round-trip, and separate-database scenarios
+
 ## [0.2.0-beta.7] - 2026-03-31
 
 ### Added
@@ -68,6 +81,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Added
 
 - **Event-Triggered Debugging**: Enhanced interactive debugger with breakpoint system
+
   - New `--break-on EVENT` option for event-triggered pausing (e.g., `signal`, `signal:BUY`)
   - Two debugging modes: step-through (pause at every timestamp) and event-triggered (pause only on matching events)
   - Extensible breakpoint system with `BreakpointRule` ABC supporting signal filters
@@ -78,6 +92,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - See [docs/cli/interactive.md](docs/cli/interactive.md) for usage guide
 
 - **Interactive Debugging**: Step-through debugging for backtest development
+
   - `--interactive` / `-i` flag to pause execution at each timestamp
   - `--break-at DATE` option to start debugging from specific date
   - `--inspect LEVEL` option to control detail level (`bars`, `full`, or `strategy`)
@@ -89,6 +104,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 
 - **Manager Service**: Prevent duplicate CLOSE signals from opening erroneous positions
+
   - Framework-level duplicate detection for full close signals (confidence ≥ 1.0)
   - Partial closes (confidence < 1.0) still allowed to accumulate
   - Prevents second CLOSE from opening opposite position when first hasn't filled yet
@@ -134,6 +150,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 - Baseline project README and scaffold files.
 
----
+______________________________________________________________________
 
 Earlier versions were internal and not formally tracked.
