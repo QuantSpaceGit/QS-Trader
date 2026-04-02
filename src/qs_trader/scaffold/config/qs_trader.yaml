@@ -169,6 +169,31 @@ output:
     enabled: false # Set to true to activate DuckDB output
     path: "data/backtest_runs.duckdb" # Relative to project root
 
+    # Storage policy for canonical ClickHouse-backed runs
+    # -------------------------------------------------------
+    # Controls what gets written to DuckDB for runs whose market and feature
+    # data come from QS-Datamaster / ClickHouse (provider: qs-datamaster).
+    # Yahoo/CSV runs are unaffected regardless of this setting.
+    #
+    # "reference" (default, recommended):
+    #   Write a lightweight manifest to runs.input_manifest_json describing
+    #   the ClickHouse source, tables, symbol universe, date range, and
+    #   feature/regime versions.  Bar data is NOT duplicated into DuckDB;
+    #   downstream consumers re-resolve bars and features directly from
+    #   ClickHouse using the manifest.  This keeps DB size proportional to
+    #   the number of parameter-sweep runs, not the universe size.
+    #
+    # "snapshot" (temporary escape hatch — will be removed in a future release):
+    #   Legacy behaviour: buffer every bar+feature row for the run and write
+    #   them to the bars_with_features DuckDB table.  Use only when offline
+    #   replay of full bar data is strictly required and ClickHouse is not
+    #   accessible.  Expect significant DB growth on large universes or
+    #   parameter sweeps.
+    #
+    # DuckDB still stores all run-owned outputs (metrics, equity_curve,
+    # returns, trades, drawdowns) under both policies.
+    canonical_input_policy: "reference"
+
 # ============================================================
 # Logging Configuration
 # ============================================================

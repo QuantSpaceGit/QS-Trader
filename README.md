@@ -265,6 +265,38 @@ Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, conf
 
 If `output.database.enabled: true` is set in `qs_trader.yaml`, QS-Trader also persists run data to a DuckDB file (default: `data/backtest_runs.duckdb`) for downstream querying and API consumption.
 
+### DuckDB Storage & ClickHouse Input Boundary
+
+QS-Trader maintains a clear boundary between **run-owned outputs** and **pre-existing inputs**:
+
+| Layer          | Responsibility                                                           | Store                     |
+| -------------- | ------------------------------------------------------------------------ | ------------------------- |
+| **DuckDB**     | Run-produced artifacts (summary, trades, equity curve, bar-level detail) | Local `.duckdb` file      |
+| **ClickHouse** | Canonical OHLCV + feature inputs consumed by the backtest                | Remote ClickHouse cluster |
+
+**`canonical_input_policy`** (under `output.database`) controls whether bar-level input data is duplicated into DuckDB:
+
+| Policy                  | Behaviour                                                                                                          | When to use                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `reference` *(default)* | Stores a lightweight `ClickHouseInputManifest` (table names + date range) instead of copying rows; no duplication. | All canonical ClickHouse-backed runs.                        |
+| `snapshot`              | Copies bar rows into DuckDB alongside the manifest (`bars_with_features` table). Temporary escape hatch.           | Debugging or offline replay where ClickHouse is unavailable. |
+
+**Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) are unaffected by this setting — bar rows are always persisted because there is no ClickHouse reference to fall back on.
+
+Configure in `qs_trader.yaml`:
+
+```yaml
+output:
+  database:
+    enabled: true
+    path: "data/backtest_runs.duckdb"
+    # "reference" (default): store a ClickHouse manifest, skip bar duplication.
+    # "snapshot": copy bar rows into DuckDB (debugging / offline replay only).
+    canonical_input_policy: "reference"
+```
+
+For the full storage-boundary design rationale, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md).
+
 ### Interactive Debugging
 
 QS-Trader includes an interactive debugger for step-through strategy development:
