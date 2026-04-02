@@ -170,11 +170,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Detect canonical ClickHouse-backed runs from resolved datasource metadata.
-- [ ] Capture source name, database, tables, symbol universe, date range, adjustment modes, feature version, regime version, and requested feature columns.
-- [ ] Build the manifest during setup/teardown without changing the snapshot/reference policy yet.
-- [ ] Pass the manifest to `DuckDBWriter.save_run()` only for canonical ClickHouse-backed runs.
-- [ ] Leave Yahoo/CSV runs manifest-free.
+- [x] Detect canonical ClickHouse-backed runs from resolved datasource metadata.
+- [x] Capture source name, database, tables, symbol universe, date range, adjustment modes, feature version, regime version, and requested feature columns.
+- [x] Build the manifest during setup/teardown without changing the snapshot/reference policy yet.
+- [x] Pass the manifest to `DuckDBWriter.save_run()` only for canonical ClickHouse-backed runs.
+- [x] Leave Yahoo/CSV runs manifest-free.
 
 #### PR 2.2 — Add gating and content tests
 
@@ -185,11 +185,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Prove manifest emission for canonical `qs-datamaster` / ClickHouse-backed runs.
-- [ ] Prove manifest omission for Yahoo/CSV runs.
-- [ ] Assert manifest content matches the configured source, versions, dates, and feature column subset.
-- [ ] Assert run persistence still succeeds when manifest is absent.
-- [ ] Keep config surface unchanged in this phase.
+- [x] Prove manifest emission for canonical `qs-datamaster` / ClickHouse-backed runs.
+- [x] Prove manifest omission for Yahoo/CSV runs.
+- [x] Assert manifest content matches the configured source, versions, dates, and feature column subset.
+- [x] Assert run persistence still succeeds when manifest is absent.
+- [x] Keep config surface unchanged in this phase.
 
 ### Validation
 
