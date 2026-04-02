@@ -741,14 +741,14 @@ def sample_manifest() -> ClickHouseInputManifest:
         bars_table="equity_daily",
         features_table="equity_features_v1",
         regime_table="equity_regime_v1",
-        symbols=["AAPL", "MSFT", "GOOGL"],
+        symbols=("AAPL", "MSFT", "GOOGL"),
         start_date=date(2023, 1, 1),
         end_date=date(2023, 12, 31),
         strategy_adjustment_mode="split_adjusted",
         portfolio_adjustment_mode="total_return",
         feature_set_version="v1",
         regime_version="v1",
-        feature_columns=["sma_50", "rsi_14", "atr_14"],
+        feature_columns=("sma_50", "rsi_14", "atr_14"),
     )
 
 
@@ -1044,7 +1044,7 @@ class TestDuckDBWriterManifestPersistence:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["SPY"],
+            symbols=("SPY",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 6, 30),
         )
@@ -1238,7 +1238,7 @@ class TestClickHouseInputManifestValidation:
     # ------------------------------------------------------------------
 
     def test_rejects_empty_symbols_list(self) -> None:
-        """symbols=[] must raise ValidationError (at least one symbol required)."""
+        """An empty symbols tuple must raise ValidationError (at least one symbol required)."""
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError, match="at least one ticker symbol"):
@@ -1246,7 +1246,7 @@ class TestClickHouseInputManifestValidation:
                 source_name="qs-datamaster",
                 database="market_data",
                 bars_table="equity_daily",
-                symbols=[],
+                symbols=(),
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 12, 31),
             )
@@ -1282,7 +1282,7 @@ class TestClickHouseInputManifestValidation:
                 source_name="qs-datamaster",
                 database="market_data",
                 bars_table="equity_daily",
-                symbols=["AAPL"],
+                symbols=("AAPL",),
                 start_date="not-a-date",  # type: ignore[arg-type]
                 end_date=date(2024, 12, 31),
             )
@@ -1296,7 +1296,7 @@ class TestClickHouseInputManifestValidation:
                 source_name="qs-datamaster",
                 database="market_data",
                 bars_table="equity_daily",
-                symbols=["AAPL"],
+                symbols=("AAPL",),
                 start_date=date(2024, 1, 1),
                 end_date="not-a-date",  # type: ignore[arg-type]
             )
@@ -1314,7 +1314,7 @@ class TestClickHouseInputManifestValidation:
                 source_name="qs-datamaster",
                 database="market_data",
                 bars_table="equity_daily",
-                symbols=["AAPL"],
+                symbols=("AAPL",),
                 start_date=date(2024, 6, 1),
                 end_date=date(2024, 1, 1),
             )
@@ -1325,7 +1325,7 @@ class TestClickHouseInputManifestValidation:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["SPY"],
+            symbols=("SPY",),
             start_date=date(2024, 3, 15),
             end_date=date(2024, 3, 15),
         )
@@ -1369,7 +1369,7 @@ class TestClickHouseInputManifestValidation:
                 source_name="qs-datamaster",
                 database="market_data",
                 bars_table="equity_daily",
-                symbols=["AAPL"],
+                symbols=("AAPL",),
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 12, 31),
                 typo_field="oops",  # type: ignore[call-arg]
@@ -1407,7 +1407,7 @@ class TestClickHouseInputManifestValidation:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["AAPL"],
+            symbols=("AAPL",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31),
         )
@@ -1421,7 +1421,7 @@ class TestClickHouseInputManifestValidation:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["AAPL"],
+            symbols=("AAPL",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31),
         )
@@ -1435,10 +1435,10 @@ class TestClickHouseInputManifestValidation:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["AAPL"],
+            symbols=("AAPL",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31),
-            feature_columns=["sma_20"],
+            feature_columns=("sma_20",),
         )
 
         with pytest.raises(AttributeError):

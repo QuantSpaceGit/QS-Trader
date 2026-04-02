@@ -177,7 +177,7 @@ def _sample_manifest() -> ClickHouseInputManifest:
         source_name="qs-datamaster-equity-1d",
         database="market",
         bars_table="as_us_equity_ohlc_daily",
-        symbols=["AAPL", "MSFT"],
+        symbols=("AAPL", "MSFT"),
         start_date=date(2023, 1, 1),
         end_date=date(2023, 12, 31),
         strategy_adjustment_mode="split_adjusted",
@@ -246,7 +246,7 @@ class TestReportingServiceManifestCapture:
             source_name="qs-datamaster-equity-1d",
             database="market",
             bars_table="as_us_equity_ohlc_daily",
-            symbols=["GOOGL"],
+            symbols=("GOOGL",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31),
         )
