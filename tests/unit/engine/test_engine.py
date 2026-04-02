@@ -16,10 +16,11 @@ from qs_trader.engine.config import (
     BacktestConfig,
     DataSelectionConfig,
     DataSourceConfig,
+    FeatureConfig,
     RiskPolicyConfig,
     StrategyConfigItem,
 )
-from qs_trader.engine.engine import BacktestEngine, BacktestResult
+from qs_trader.engine.engine import BacktestEngine, BacktestResult, _build_clickhouse_manifest
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.event_store import InMemoryEventStore
 
@@ -644,3 +645,482 @@ class TestBacktestEngineIntegration:
         mock_data_service.stream_universe.assert_called_once()
         call_args = mock_data_service.stream_universe.call_args
         assert set(call_args.kwargs["symbols"]) == {"AAPL", "MSFT", "GOOGL", "TSLA"}
+
+
+# ============================================================================
+# _build_clickhouse_manifest Tests
+# ============================================================================
+
+
+def _make_data_service(*, provider: str, dataset: str = "qs-datamaster-equity-1d") -> Mock:
+    """Build a minimal mock DataService for manifest-builder testing."""
+    svc = Mock()
+    svc.dataset = dataset
+
+    ch_config = {
+        "host": "localhost",
+        "port": 8123,
+        "database": "market",
+    }
+    source_cfg: dict = {
+        "provider": provider,
+        "adjusted": True,
+        "clickhouse": ch_config,
+    }
+    svc.resolver.get_source_config.return_value = source_cfg
+    return svc
+
+
+def _make_backtest_config(
+    start: datetime | None = None,
+    end: datetime | None = None,
+    symbols: list[str] | None = None,
+) -> BacktestConfig:
+    """Build a minimal BacktestConfig for manifest-builder testing."""
+    symbols = symbols or ["AAPL", "MSFT"]
+    return BacktestConfig(
+        backtest_id="test_bt",
+        start_date=start or datetime(2023, 1, 1),
+        end_date=end or datetime(2023, 12, 31),
+        initial_equity=Decimal("100000"),
+        replay_speed=0.0,
+        data=DataSelectionConfig(
+            sources=[
+                DataSourceConfig(
+                    name="qs-datamaster-equity-1d",
+                    universe=symbols,
+                )
+            ]
+        ),
+        strategies=[
+            StrategyConfigItem(
+                strategy_id="test_strategy",
+                universe=symbols,
+                data_sources=["qs-datamaster-equity-1d"],
+                config={},
+            )
+        ],
+        risk_policy=RiskPolicyConfig(name="naive", config={}),
+    )
+
+
+class TestManifestBuilderFunction:
+    """Unit tests for the _build_clickhouse_manifest() module-level helper.
+
+    The helper is tested in isolation so that each behaviour (provider gating,
+    field mapping, feature-service integration) can be verified without
+    spinning up an engine or DataService.
+    """
+
+    def test_returns_none_for_yahoo_provider(self) -> None:
+        """Non-ClickHouse (Yahoo) data sources must produce no manifest."""
+        # Arrange
+        data_service = _make_data_service(provider="yahoo")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is None
+
+    def test_returns_none_for_custom_csv_provider(self) -> None:
+        """Custom CSV sources must also produce no manifest."""
+        # Arrange
+        data_service = _make_data_service(provider="custom")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is None
+
+    def test_returns_none_when_source_config_missing(self) -> None:
+        """KeyError from resolver must be handled gracefully — return None."""
+        # Arrange
+        data_service = Mock()
+        data_service.dataset = "unknown-source"
+        data_service.resolver.get_source_config.side_effect = KeyError("unknown-source")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is None
+
+    def test_returns_manifest_for_qs_datamaster_provider(self) -> None:
+        """qs-datamaster sources must produce a non-None ClickHouseInputManifest."""
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL", "MSFT"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert isinstance(result, ClickHouseInputManifest)
+
+    def test_manifest_source_name_matches_dataset(self) -> None:
+        """source_name must equal the data_service dataset name."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster", dataset="qs-datamaster-equity-1d")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.source_name == "qs-datamaster-equity-1d"
+
+    def test_manifest_database_from_clickhouse_config(self) -> None:
+        """database field must come from the clickhouse sub-config."""
+        # Arrange
+        data_service = Mock()
+        data_service.dataset = "qs-datamaster-equity-1d"
+        data_service.resolver.get_source_config.return_value = {
+            "provider": "qs-datamaster",
+            "adjusted": True,
+            "clickhouse": {"host": "ch-host", "database": "my_market_db"},
+        }
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.database == "my_market_db"
+
+    def test_manifest_bars_table_default(self) -> None:
+        """bars_table defaults to the ClickHouse adapter's canonical OHLCV table."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.bars_table == "as_us_equity_ohlc_daily"
+
+    def test_manifest_bars_table_from_source_config(self) -> None:
+        """bars_table can be overridden via an explicit key in the source config."""
+        # Arrange
+        data_service = Mock()
+        data_service.dataset = "qs-datamaster-equity-1d"
+        data_service.resolver.get_source_config.return_value = {
+            "provider": "qs-datamaster",
+            "adjusted": True,
+            "bars_table": "equity_ohlcv_v2",
+            "clickhouse": {"database": "market"},
+        }
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.bars_table == "equity_ohlcv_v2"
+
+    def test_manifest_adjustment_mode_total_return_when_adjusted_true(self) -> None:
+        """adjusted=True in source config must map to adjustment_mode='total_return'."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")  # adjusted=True
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.adjustment_mode == "total_return"
+
+    def test_manifest_adjustment_mode_split_adjusted_when_not_adjusted(self) -> None:
+        """adjusted=False or absent must map to adjustment_mode='split_adjusted'."""
+        # Arrange
+        data_service = Mock()
+        data_service.dataset = "qs-datamaster-equity-1d"
+        data_service.resolver.get_source_config.return_value = {
+            "provider": "qs-datamaster",
+            "adjusted": False,
+            "clickhouse": {"database": "market"},
+        }
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.adjustment_mode == "split_adjusted"
+
+    def test_manifest_symbols_match_source_symbols(self) -> None:
+        """symbols list must exactly match the source_symbols argument."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+        symbols = ["AAPL", "MSFT", "GOOGL"]
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=symbols,
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.symbols == symbols
+
+    def test_manifest_dates_extracted_from_config(self) -> None:
+        """start_date and end_date must be date objects extracted from config datetimes."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config(
+            start=datetime(2022, 3, 15),
+            end=datetime(2023, 6, 30),
+        )
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.start_date == date(2022, 3, 15)
+        assert result.end_date == date(2023, 6, 30)
+
+    def test_manifest_features_and_regime_tables_absent_without_feature_service(self) -> None:
+        """When no feature_service is active, features_table and regime_table must be None."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.features_table is None
+        assert result.regime_table is None
+        assert result.feature_set_version is None
+        assert result.regime_version is None
+        assert result.feature_columns is None
+
+    def test_manifest_feature_tables_from_feature_service_constants(self) -> None:
+        """When a FeatureService is active, features_table and regime_table must be populated."""
+        from qs_trader.services.features.service import FeatureService
+
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+        feature_service = Mock()  # Any truthy value counts as "active"
+        feature_config = FeatureConfig(feature_version="v2", regime_version="v3", columns=None)
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=feature_service,
+            feature_config=feature_config,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.features_table == FeatureService.FEATURES_TABLE
+        assert result.regime_table == FeatureService.REGIME_TABLE
+
+    def test_manifest_feature_version_and_regime_version_from_feature_config(self) -> None:
+        """feature_set_version and regime_version must match the FeatureConfig values."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+        feature_service = Mock()
+        feature_config = FeatureConfig(feature_version="v2", regime_version="v3", columns=None)
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=feature_service,
+            feature_config=feature_config,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.feature_set_version == "v2"
+        assert result.regime_version == "v3"
+
+    def test_manifest_feature_columns_from_feature_config(self) -> None:
+        """feature_columns must be taken from FeatureConfig.columns when specified."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+        feature_service = Mock()
+        requested_cols = ["trend_strength", "momentum_score"]
+        feature_config = FeatureConfig(feature_version="v1", regime_version="v1", columns=requested_cols)
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=feature_service,
+            feature_config=feature_config,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.feature_columns == requested_cols
+
+    def test_manifest_is_immutable(self) -> None:
+        """The produced manifest must be frozen (immutable)."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")
+        config = _make_backtest_config()
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=None,
+            feature_config=None,
+        )
+
+        # Assert — Pydantic frozen models raise on attribute assignment
+        assert result is not None
+        with pytest.raises(Exception):
+            result.source_name = "tampered"  # type: ignore[misc]
+
+    def test_engine_stores_manifest_for_clickhouse_run(
+        self,
+        mock_event_bus: EventBus,
+        mock_data_service,
+    ) -> None:
+        """BacktestEngine.__init__ must expose _input_manifest when passed."""
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+
+        # Arrange
+        manifest = ClickHouseInputManifest(
+            source_name="qs-datamaster-equity-1d",
+            database="market",
+            bars_table="as_us_equity_ohlc_daily",
+            symbols=["AAPL"],
+            start_date=date(2023, 1, 1),
+            end_date=date(2023, 12, 31),
+        )
+        config = _make_backtest_config()
+
+        # Act
+        engine = BacktestEngine(
+            config=config,
+            event_bus=mock_event_bus,
+            data_service=mock_data_service,
+            input_manifest=manifest,
+        )
+
+        # Assert
+        assert engine._input_manifest is manifest
+
+    def test_engine_input_manifest_defaults_to_none(
+        self,
+        mock_event_bus: EventBus,
+        mock_data_service,
+    ) -> None:
+        """_input_manifest must default to None for Yahoo/CSV runs."""
+        # Arrange
+        config = _make_backtest_config()
+
+        # Act
+        engine = BacktestEngine(
+            config=config,
+            event_bus=mock_event_bus,
+            data_service=mock_data_service,
+        )
+
+        # Assert
+        assert engine._input_manifest is None

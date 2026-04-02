@@ -22,7 +22,6 @@ Usage:
 from __future__ import annotations
 
 import math
-from functools import lru_cache
 from typing import Any, Optional
 
 import structlog
@@ -48,7 +47,14 @@ class FeatureService:
         - Secid lookups are cached per symbol for the lifetime of the service.
         - Feature rows are cached per (symbol, date) — typically ~90 days per bar.
         - Returns None for any symbol/date with no data (e.g., before warmup window).
+
+    Class Attributes:
+        FEATURES_TABLE: Canonical name of the precomputed-features table in ClickHouse.
+        REGIME_TABLE: Canonical name of the market-regime table in ClickHouse.
     """
+
+    FEATURES_TABLE: str = "features_equity_features_daily"
+    REGIME_TABLE: str = "features_market_regime_daily"
 
     _FEATURE_COLUMNS = (
         "trend_strength",
@@ -179,9 +185,7 @@ class FeatureService:
     # Public API
     # ------------------------------------------------------------------
 
-    def get_features(
-        self, symbol: str, date: str, columns: Optional[list[str]] = None
-    ) -> Optional[dict[str, Any]]:
+    def get_features(self, symbol: str, date: str, columns: Optional[list[str]] = None) -> Optional[dict[str, Any]]:
         """Fetch composite feature row for a symbol on a given date.
 
         Args:
@@ -254,9 +258,7 @@ class FeatureService:
             self._feature_cache[cache_key] = None
             return None
 
-    def get_indicators(
-        self, symbol: str, date: str, columns: Optional[list[str]] = None
-    ) -> Optional[dict[str, float]]:
+    def get_indicators(self, symbol: str, date: str, columns: Optional[list[str]] = None) -> Optional[dict[str, float]]:
         """Fetch raw indicator row for a symbol on a given date.
 
         Args:

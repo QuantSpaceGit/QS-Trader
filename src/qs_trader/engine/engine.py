@@ -36,8 +36,121 @@ from qs_trader.system.log_system import LoggerFactory
 
 if TYPE_CHECKING:
     from qs_trader.libraries.strategies import Strategy
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 
 logger = structlog.get_logger(__name__)
+
+
+def _build_clickhouse_manifest(
+    *,
+    data_service: DataService,
+    config: "BacktestConfig",
+    source_symbols: list[str],
+    feature_service: Any | None,
+    feature_config: Any | None,
+) -> "ClickHouseInputManifest | None":
+    """Build a ClickHouseInputManifest for canonical qs-datamaster runs.
+
+    Inspects the resolved data source configuration for the active dataset.
+    Returns ``None`` when the source is not a canonical ClickHouse-backed run
+    (e.g. Yahoo/CSV), or when any required metadata cannot be discovered.
+
+    The resulting manifest captures *what the run consumed* so that it can be
+    stored alongside the DuckDB run-output summary (Phase 1 schema) and later
+    used by downstream consumers (Phase 4) to re-resolve canonical inputs from
+    ClickHouse without re-executing the backtest.
+
+    Args:
+        data_service: Resolved DataService; provides the dataset name and resolver.
+        config: Active BacktestConfig; provides date range.
+        source_symbols: Ordered list of symbols that formed the run universe.
+        feature_service: Active FeatureService instance, or ``None`` when no
+            feature/regime data was consumed.
+        feature_config: Active FeatureConfig instance, or ``None``.  Used to
+            extract ``feature_version``, ``regime_version``, and requested
+            ``columns``.
+
+    Returns:
+        A frozen :class:`~qs_trader.services.reporting.manifest.ClickHouseInputManifest`
+        with all available provenance metadata, or ``None`` if the run is not
+        a canonical ClickHouse-backed run.
+    """
+    try:
+        source_cfg = data_service.resolver.get_source_config(data_service.dataset)
+    except (KeyError, Exception) as exc:
+        logger.debug(
+            "backtest.engine.manifest_skipped",
+            reason="source config not found",
+            dataset=data_service.dataset,
+            error=str(exc),
+        )
+        return None
+
+    if source_cfg.get("provider") != "qs-datamaster":
+        # Yahoo, custom-CSV and other non-ClickHouse providers are manifest-free.
+        return None
+
+    ch_cfg: dict = source_cfg.get("clickhouse", {})
+    database: str = ch_cfg.get("database", "market")
+
+    # bars_table is the canonical OHLCV table. Fall back to the ClickHouse adapter
+    # default when not explicitly declared in the source config.
+    bars_table: str = source_cfg.get("bars_table", "as_us_equity_ohlc_daily")
+
+    # Derive adjustment_mode from the 'adjusted' boolean flag in the source config.
+    # qs-datamaster ships total-return adjusted prices; this is reflected below.
+    adjustment_mode: str | None = source_cfg.get("adjustment_mode") or (
+        "total_return" if source_cfg.get("adjusted") else "split_adjusted"
+    )
+
+    # Feature/regime metadata — only populated when a FeatureService is active.
+    features_table: str | None = None
+    regime_table: str | None = None
+    feature_set_version: str | None = None
+    regime_version: str | None = None
+    feature_columns: list[str] | None = None
+
+    if feature_service is not None:
+        from qs_trader.services.features.service import FeatureService
+
+        features_table = FeatureService.FEATURES_TABLE
+        regime_table = FeatureService.REGIME_TABLE
+
+        if feature_config is not None:
+            feature_set_version = feature_config.feature_version
+            regime_version = feature_config.regime_version
+            feature_columns = feature_config.columns
+
+    # Normalise dates: BacktestConfig stores start/end as datetime; manifest uses date.
+    start_dt = config.start_date
+    end_dt = config.end_date
+    start_date = start_dt.date() if hasattr(start_dt, "date") else start_dt
+    end_date = end_dt.date() if hasattr(end_dt, "date") else end_dt
+
+    try:
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+
+        return ClickHouseInputManifest(
+            source_name=data_service.dataset,
+            database=database,
+            bars_table=bars_table,
+            features_table=features_table,
+            regime_table=regime_table,
+            symbols=source_symbols,
+            start_date=start_date,
+            end_date=end_date,
+            adjustment_mode=adjustment_mode,
+            feature_set_version=feature_set_version,
+            regime_version=regime_version,
+            feature_columns=feature_columns,
+        )
+    except Exception as exc:
+        logger.warning(
+            "backtest.engine.manifest_build_failed",
+            dataset=data_service.dataset,
+            error=str(exc),
+        )
+        return None
 
 
 @dataclass
@@ -127,6 +240,7 @@ class BacktestEngine:
         results_dir: Path | None = None,
         debugger: Any | None = None,
         feature_service: Any | None = None,
+        input_manifest: "ClickHouseInputManifest | None" = None,
     ) -> None:
         """
         Initialize backtest engine.
@@ -145,6 +259,10 @@ class BacktestEngine:
             debugger: Optional interactive debugger for step-through execution
             feature_service: Optional FeatureService; when supplied, a FeatureBarEvent
                 is published immediately after each PriceBarEvent during streaming.
+            input_manifest: Optional ClickHouseInputManifest describing the canonical
+                ClickHouse inputs consumed by this run. ``None`` for Yahoo/CSV runs.
+                Passed to ReportingService.setup() so it can be persisted alongside
+                the DuckDB run summary.
         """
         self.config = config
         self._event_bus = event_bus
@@ -158,6 +276,7 @@ class BacktestEngine:
         self._results_dir = results_dir
         self._debugger = debugger
         self._feature_service = feature_service
+        self._input_manifest = input_manifest
         self._bar_count = 0  # Initialize for tracking bars processed
 
         # Get all symbols from data sources
@@ -429,9 +548,7 @@ class BacktestEngine:
                         # feature_config was explicitly requested — fail hard so the user
                         # does not silently run a plain-price backtest instead of a
                         # feature-augmented one.
-                        raise RuntimeError(
-                            f"feature_config is set but FeatureService could not be created: {e}"
-                        ) from e
+                        raise RuntimeError(f"feature_config is set but FeatureService could not be created: {e}") from e
 
                 strategy_service = StrategyService(
                     event_bus=event_bus,
@@ -600,6 +717,13 @@ class BacktestEngine:
             results_dir=results_dir,
             debugger=debugger,
             feature_service=feature_service,
+            input_manifest=_build_clickhouse_manifest(
+                data_service=data_service,
+                config=config,
+                source_symbols=list(first_source.universe),
+                feature_service=feature_service,
+                feature_config=getattr(config, "feature_config", None),
+            ),
         )
 
     def shutdown(self) -> None:
@@ -700,6 +824,7 @@ class BacktestEngine:
                         "start_date": self.config.start_date,
                         "end_date": self.config.end_date,
                         "strategy_ids": strategy_ids,
+                        "input_manifest": self._input_manifest,
                     }
                     self._reporting_service.setup(context)
                 except Exception as e:

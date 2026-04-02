@@ -30,6 +30,7 @@ from qs_trader.events.events import (
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
     from qs_trader.system.config import SystemConfig
 
 from qs_trader.libraries.performance.calculators import (
@@ -135,6 +136,11 @@ class ReportingService:
         # Only populated when feature_enabled=True; keyed by (symbol, timestamp_str)
         # to allow merging bar and feature events published independently.
         self._bar_rows: dict[tuple[str, str], dict[str, Any]] = {}
+
+        # Manifest populated in setup() only for canonical ClickHouse-backed runs.
+        # Persisted to DuckDB alongside the run summary via _write_to_database().
+        # None for Yahoo/CSV runs and when setup() is not called with a manifest.
+        self._input_manifest: "ClickHouseInputManifest | None" = None
 
         # Subscribe to events
         self._subscribe_to_events()
@@ -1147,6 +1153,7 @@ class ReportingService:
                 returns=returns_points,
                 trades=self._trade_stats_calc.trades,
                 drawdowns=metrics.drawdown_periods,
+                manifest=self._input_manifest,
             )
             if self._bar_rows:
                 writer.save_bars_with_features(
@@ -1232,10 +1239,12 @@ class ReportingService:
         Setup service at backtest initialization.
 
         Args:
-            context: Backtest context with configuration (includes strategy_ids list)
+            context: Backtest context with configuration (includes strategy_ids list and
+                optional ``input_manifest`` for canonical ClickHouse-backed runs).
         """
         self._backtest_id = context.get("backtest_id", "unknown")
         self._strategy_ids = context.get("strategy_ids", [])
+        self._input_manifest = context.get("input_manifest")  # None for Yahoo/CSV runs
 
         # Initialize strategy performance calculator with strategy IDs
         self._strategy_perf_calc = StrategyPerformanceCalculator(self._strategy_ids)
@@ -1309,6 +1318,7 @@ class ReportingService:
         self._bar_count = 0
         self._last_portfolio_state = None
         self._portfolio_states_history = {}
+        self._input_manifest = None
 
         # Reset calculators
         self._equity_calc = EquityCurveCalculator(max_points=self.config.max_equity_points)
