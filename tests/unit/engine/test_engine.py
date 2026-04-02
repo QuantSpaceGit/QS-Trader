@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from qs_trader.engine.config import (
     BacktestConfig,
@@ -984,6 +985,7 @@ class TestManifestBuilderFunction:
         assert result is not None
         assert result.features_table is None
         assert result.regime_table is None
+        assert result.features_database is None
         assert result.feature_set_version is None
         assert result.regime_version is None
         assert result.feature_columns is None
@@ -995,7 +997,8 @@ class TestManifestBuilderFunction:
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
         config = _make_backtest_config()
-        feature_service = Mock()  # Any truthy value counts as "active"
+        feature_service = Mock(spec=["_database"])
+        feature_service._database = "features"
         feature_config = FeatureConfig(feature_version="v2", regime_version="v3", columns=None)
 
         # Act
@@ -1012,12 +1015,35 @@ class TestManifestBuilderFunction:
         assert result.features_table == FeatureService.FEATURES_TABLE
         assert result.regime_table == FeatureService.REGIME_TABLE
 
+    def test_manifest_features_database_from_feature_service(self) -> None:
+        """features_database must reflect FeatureService._database for separate DB deployments."""
+        # Arrange
+        data_service = _make_data_service(provider="qs-datamaster")  # bars database = "market"
+        config = _make_backtest_config()
+        feature_service = Mock(spec=["_database"])
+        feature_service._database = "features_db"  # different database than market-data
+
+        # Act
+        result = _build_clickhouse_manifest(
+            data_service=data_service,
+            config=config,
+            source_symbols=["AAPL"],
+            feature_service=feature_service,
+            feature_config=None,
+        )
+
+        # Assert: bars DB and features DB must be recorded independently
+        assert result is not None
+        assert result.database == "market"
+        assert result.features_database == "features_db"
+
     def test_manifest_feature_version_and_regime_version_from_feature_config(self) -> None:
         """feature_set_version and regime_version must match the FeatureConfig values."""
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
         config = _make_backtest_config()
-        feature_service = Mock()
+        feature_service = Mock(spec=["_database"])
+        feature_service._database = "market"
         feature_config = FeatureConfig(feature_version="v2", regime_version="v3", columns=None)
 
         # Act
@@ -1039,7 +1065,8 @@ class TestManifestBuilderFunction:
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
         config = _make_backtest_config()
-        feature_service = Mock()
+        feature_service = Mock(spec=["_database"])
+        feature_service._database = "market"
         requested_cols = ["trend_strength", "momentum_score"]
         feature_config = FeatureConfig(feature_version="v1", regime_version="v1", columns=requested_cols)
 
@@ -1071,10 +1098,10 @@ class TestManifestBuilderFunction:
             feature_config=None,
         )
 
-        # Assert — Pydantic frozen models raise on attribute assignment
+        # Assert — Pydantic frozen models raise ValidationError on attribute assignment
         assert result is not None
-        with pytest.raises(Exception):
-            result.source_name = "tampered"  # type: ignore[misc]
+        with pytest.raises(ValidationError):
+            result.source_name = "tampered"
 
     def test_engine_stores_manifest_for_clickhouse_run(
         self,

@@ -82,12 +82,21 @@ class ClickHouseInputManifest(BaseModel):
             extensibility.
         source_name: Logical name of the upstream data source
             (e.g. ``"qs-datamaster"``).
-        database: ClickHouse database that hosts the input tables.
-        bars_table: Name of the OHLCV / price-bar table inside *database*.
-        features_table: Name of the precomputed-features table, or ``None``
-            when no feature service was active during the run.
-        regime_table: Name of the regime-context table, or ``None`` when
-            regime data was not consumed.
+        database: ClickHouse database that hosts the OHLCV bar table
+            (``bars_table``).  This may differ from ``features_database`` when
+            the deployment uses separate ClickHouse databases for market data
+            and precomputed features.
+        features_database: ClickHouse database that hosts the feature and
+            regime tables (``features_table`` / ``regime_table``), or ``None``
+            when no feature service was active.  Downstream consumers must use
+            this value rather than ``database`` when re-resolving feature rows.
+        bars_table: Name of the OHLCV / price-bar table inside ``database``.
+        features_table: Name of the precomputed-features table inside
+            ``features_database``, or ``None`` when no feature service was
+            active during the run.
+        regime_table: Name of the regime-context table inside
+            ``features_database``, or ``None`` when regime data was not
+            consumed.
         symbols: Ordered list of ticker symbols that formed the run universe.
             Must contain at least one symbol.
         start_date: First bar date consumed by the run (inclusive).
@@ -114,6 +123,7 @@ class ClickHouseInputManifest(BaseModel):
     source_kind: Literal["clickhouse"] = "clickhouse"
     source_name: str
     database: str
+    features_database: str | None = None
     bars_table: str
     features_table: str | None = None
     regime_table: str | None = None

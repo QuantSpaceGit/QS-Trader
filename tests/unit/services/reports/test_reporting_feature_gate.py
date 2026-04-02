@@ -7,13 +7,16 @@ ordinary (non-feature) backtest runs.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import FeatureBarEvent, PriceBarEvent
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.service import ReportingService
 
 # ---------------------------------------------------------------------------
@@ -107,11 +110,7 @@ class TestReportingServiceFeatureGate:
 # ---------------------------------------------------------------------------
 
 
-def _sample_manifest() -> "ClickHouseInputManifest":
-    from datetime import date
-
-    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
-
+def _sample_manifest() -> ClickHouseInputManifest:
     return ClickHouseInputManifest(
         source_name="qs-datamaster-equity-1d",
         database="market",
@@ -177,10 +176,6 @@ class TestReportingServiceManifestCapture:
 
     def test_setup_second_run_replaces_previous_manifest(self) -> None:
         """Calling setup() a second time must replace the previously stored manifest."""
-        from datetime import date
-
-        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
-
         # Arrange
         svc = _make_reporting_service(feature_enabled=False)
         manifest_a = _sample_manifest()
@@ -206,7 +201,7 @@ class TestReportingServiceManifestCapture:
 class TestReportingServiceManifestPersistence:
     """_write_to_database forwards the stored manifest to DuckDBWriter.save_run()."""
 
-    def _build_svc(self, tmp_path: "Path") -> "ReportingService":
+    def _build_svc(self, tmp_path: Path) -> ReportingService:
         """Build a ReportingService ready for _write_to_database calls."""
 
         from qs_trader.events.event_bus import EventBus
@@ -226,8 +221,6 @@ class TestReportingServiceManifestPersistence:
         return svc
 
     def _make_system_config_mock(self, *, db_enabled: bool, db_path: str) -> MagicMock:
-        from pathlib import Path
-
         mock = MagicMock()
         mock.output.database.enabled = db_enabled
         mock.output.database.path = db_path
@@ -342,8 +335,6 @@ class TestReportingServiceManifestPersistence:
     def test_manifest_round_trips_through_duckdb(self, tmp_path) -> None:
         """Full integration: manifest set on service must survive a DuckDB write/read cycle."""
         import duckdb
-
-        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 
         # Arrange
         svc = self._build_svc(tmp_path)

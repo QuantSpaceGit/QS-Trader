@@ -77,7 +77,8 @@ def _build_clickhouse_manifest(
     """
     try:
         source_cfg = data_service.resolver.get_source_config(data_service.dataset)
-    except (KeyError, Exception) as exc:
+    except (KeyError, AttributeError) as exc:
+        # Resolver found no source config for this dataset — not a canonical run.
         logger.debug(
             "backtest.engine.manifest_skipped",
             reason="source config not found",
@@ -89,6 +90,10 @@ def _build_clickhouse_manifest(
     if source_cfg.get("provider") != "qs-datamaster":
         # Yahoo, custom-CSV and other non-ClickHouse providers are manifest-free.
         return None
+
+    # From here on the source is a canonical qs-datamaster run.  Any further
+    # failure is a configuration error, not a graceful non-canonical case, so
+    # we let exceptions propagate rather than silently returning None.
 
     ch_cfg: dict = source_cfg.get("clickhouse", {})
     database: str = ch_cfg.get("database", "market")
@@ -104,6 +109,7 @@ def _build_clickhouse_manifest(
     )
 
     # Feature/regime metadata — only populated when a FeatureService is active.
+    features_database: str | None = None
     features_table: str | None = None
     regime_table: str | None = None
     feature_set_version: str | None = None
@@ -113,6 +119,9 @@ def _build_clickhouse_manifest(
     if feature_service is not None:
         from qs_trader.services.features.service import FeatureService
 
+        # Read the actual database name the FeatureService was initialised with;
+        # it may differ from the bars database when separate ClickHouse DBs are used.
+        features_database = getattr(feature_service, "_database", None)
         features_table = FeatureService.FEATURES_TABLE
         regime_table = FeatureService.REGIME_TABLE
 
@@ -127,30 +136,23 @@ def _build_clickhouse_manifest(
     start_date = start_dt.date() if hasattr(start_dt, "date") else start_dt
     end_date = end_dt.date() if hasattr(end_dt, "date") else end_dt
 
-    try:
-        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 
-        return ClickHouseInputManifest(
-            source_name=data_service.dataset,
-            database=database,
-            bars_table=bars_table,
-            features_table=features_table,
-            regime_table=regime_table,
-            symbols=source_symbols,
-            start_date=start_date,
-            end_date=end_date,
-            adjustment_mode=adjustment_mode,
-            feature_set_version=feature_set_version,
-            regime_version=regime_version,
-            feature_columns=feature_columns,
-        )
-    except Exception as exc:
-        logger.warning(
-            "backtest.engine.manifest_build_failed",
-            dataset=data_service.dataset,
-            error=str(exc),
-        )
-        return None
+    return ClickHouseInputManifest(
+        source_name=data_service.dataset,
+        database=database,
+        features_database=features_database,
+        bars_table=bars_table,
+        features_table=features_table,
+        regime_table=regime_table,
+        symbols=source_symbols,
+        start_date=start_date,
+        end_date=end_date,
+        adjustment_mode=adjustment_mode,
+        feature_set_version=feature_set_version,
+        regime_version=regime_version,
+        feature_columns=feature_columns,
+    )
 
 
 @dataclass
