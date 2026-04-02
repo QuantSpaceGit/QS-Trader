@@ -110,11 +110,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Add a lightweight manifest model/helper with JSON serialization and deserialization helpers.
-- [ ] Add a nullable `input_manifest_json` field to the DuckDB `runs` schema.
-- [ ] Extend `DuckDBWriter.save_run()` with an optional manifest argument that defaults to `None`.
-- [ ] Keep `bars_with_features` DDL and write logic unchanged in this PR.
-- [ ] Do not change engine or reporting call sites yet.
+- [x] Add a lightweight manifest model/helper with JSON serialization and deserialization helpers.
+- [x] Add a nullable `input_manifest_json` field to the DuckDB `runs` schema.
+- [x] Extend `DuckDBWriter.save_run()` with an optional manifest argument that defaults to `None`.
+- [x] Keep `bars_with_features` DDL and write logic unchanged in this PR.
+- [x] Do not change engine or reporting call sites yet.
 
 #### PR 1.2 — Add manifest persistence coverage
 
@@ -125,11 +125,11 @@ ______________________________________________________________________
 
 **Checklist**
 
-- [ ] Assert the `runs` table schema includes the new manifest field.
-- [ ] Assert `save_run()` writes `NULL` when no manifest is supplied.
-- [ ] Assert valid manifest JSON round-trips through DuckDB.
-- [ ] Assert rerun/upsert behavior preserves the latest manifest value.
-- [ ] Keep all existing run-output persistence expectations unchanged.
+- [x] Assert the `runs` table schema includes the new manifest field.
+- [x] Assert `save_run()` writes `NULL` when no manifest is supplied.
+- [x] Assert valid manifest JSON round-trips through DuckDB.
+- [x] Assert rerun/upsert behavior preserves the latest manifest value.
+- [x] Keep all existing run-output persistence expectations unchanged.
 
 ### Validation
 
