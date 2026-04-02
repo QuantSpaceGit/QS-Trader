@@ -1155,11 +1155,35 @@ class ReportingService:
                 drawdowns=metrics.drawdown_periods,
                 manifest=self._input_manifest,
             )
-            if self._bar_rows:
+
+            # Determine whether to write bar+feature rows to DuckDB.
+            #
+            # Policy ``reference`` (default): canonical ClickHouse-backed runs
+            # rely on the lightweight manifest stored in ``runs.input_manifest_json``
+            # to re-derive inputs from ClickHouse; per-run bar duplication is
+            # skipped.  Non-canonical runs (Yahoo/CSV) also skip this path because
+            # they carry no manifest.
+            #
+            # Policy ``snapshot`` (temporary escape hatch): bypass the policy
+            # gate and write whatever bar+feature rows were buffered, matching
+            # the pre-Phase-3 behaviour.  Use during migration only; will be
+            # retired in Phase 5.
+            canonical_policy = system_config.output.database.canonical_input_policy
+            is_canonical_run = self._input_manifest is not None
+            should_snapshot = canonical_policy == "snapshot" or not is_canonical_run
+
+            if self._bar_rows and should_snapshot:
                 writer.save_bars_with_features(
                     experiment_id=experiment_id,
                     run_id=run_id,
                     bars_with_features=list(self._bar_rows.values()),
+                )
+            elif self._bar_rows and not should_snapshot:
+                self.logger.debug(
+                    "duckdb_write.bars_with_features_skipped",
+                    policy="reference",
+                    reason="canonical ClickHouse run; manifest stored instead",
+                    bar_row_count=len(self._bar_rows),
                 )
         except Exception as e:
             self.logger.error(

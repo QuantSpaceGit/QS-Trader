@@ -56,10 +56,34 @@ class DatabaseOutputConfig:
     When enabled, backtest results are persisted to a DuckDB file
     alongside the standard file-based outputs. This enables downstream
     API services (e.g. QS-Datamaster) to serve backtest data to dashboards.
+
+    Attributes:
+        enabled: Whether DuckDB persistence is active.
+        path: Path to the DuckDB file.  Relative paths are resolved against
+            the project root (parent of ``config/`` in conventional layouts).
+        canonical_input_policy: Controls how canonical ClickHouse-backed
+            runs store their input data:
+
+            ``"reference"`` *(default)* — write the lightweight
+            :class:`~qs_trader.services.reporting.manifest.ClickHouseInputManifest`
+            to the ``runs.input_manifest_json`` column and skip per-run
+            ``bars_with_features`` duplication.  Use this for parameter sweeps
+            and production runs; keep storage lean.
+
+            ``"snapshot"`` *(temporary escape hatch)* — preserve the legacy
+            behaviour: buffer every bar+feature row and write them to the
+            ``bars_with_features`` DuckDB table.  Use only during migration
+            or when offline replay of full bar data is strictly required.
+            This option will be retired after Phase 5.
+
+            Non-ClickHouse runs (Yahoo/CSV) are unaffected by this setting;
+            they never produce a manifest and never write ``bars_with_features``
+            unless ``feature_enabled=True`` and policy is ``"snapshot"``.
     """
 
     enabled: bool = False
     path: str = "data/backtest_runs.duckdb"
+    canonical_input_policy: Literal["reference", "snapshot"] = "reference"
 
 
 @dataclass
@@ -292,9 +316,17 @@ class SystemConfig:
 
         # Database output configuration
         database_dict = output_dict.get("database", {})
+        _canonical_policy_raw = database_dict.get("canonical_input_policy", "reference")
+        _valid_policies = ("reference", "snapshot")
+        if _canonical_policy_raw not in _valid_policies:
+            raise ValueError(
+                f"output.database.canonical_input_policy must be one of "
+                f"{_valid_policies!r}; got {_canonical_policy_raw!r}"
+            )
         database = DatabaseOutputConfig(
             enabled=database_dict.get("enabled", False),
             path=database_dict.get("path", "data/backtest_runs.duckdb"),
+            canonical_input_policy=_canonical_policy_raw,
         )
 
         output = OutputConfig(
