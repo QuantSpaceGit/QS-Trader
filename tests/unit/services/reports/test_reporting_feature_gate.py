@@ -711,9 +711,10 @@ class TestReportingServiceCanonicalPolicy:
 
         # bars_with_features table may exist (schema is initialised eagerly) but
         # must contain no rows for this run — the reference policy skips insertion.
-        bar_count = con.execute(
+        bar_count_row = con.execute(
             "SELECT COUNT(*) FROM bars_with_features WHERE experiment_id = 'exp1' AND run_id = '20260101_120000'"
-        ).fetchone()[0]
-        assert bar_count == 0
+        ).fetchone()
+        assert bar_count_row is not None
+        assert bar_count_row[0] == 0
 
         con.close()

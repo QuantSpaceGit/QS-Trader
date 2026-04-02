@@ -76,9 +76,10 @@ class DatabaseOutputConfig:
             or when offline replay of full bar data is strictly required.
             This option will be retired after Phase 5.
 
-            Non-ClickHouse runs (Yahoo/CSV) are unaffected by this setting;
-            they never produce a manifest and never write ``bars_with_features``
-            unless ``feature_enabled=True`` and policy is ``"snapshot"``.
+            Non-ClickHouse runs (Yahoo/CSV) ignore this setting entirely;
+            they never produce a manifest, so ``is_canonical_run`` is ``False``
+            and ``bars_with_features`` rows are written whenever bar rows were
+            buffered (i.e. ``feature_enabled=True``), regardless of policy.
     """
 
     enabled: bool = False

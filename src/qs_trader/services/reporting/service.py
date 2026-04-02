@@ -1161,8 +1161,9 @@ class ReportingService:
             # Policy ``reference`` (default): canonical ClickHouse-backed runs
             # rely on the lightweight manifest stored in ``runs.input_manifest_json``
             # to re-derive inputs from ClickHouse; per-run bar duplication is
-            # skipped.  Non-canonical runs (Yahoo/CSV) also skip this path because
-            # they carry no manifest.
+            # skipped.  Non-canonical runs (Yahoo/CSV) have no manifest, so
+            # ``is_canonical_run`` is False and they fall through to the snapshot
+            # branch — writing buffered bar rows when present.
             #
             # Policy ``snapshot`` (temporary escape hatch): bypass the policy
             # gate and write whatever bar+feature rows were buffered, matching

@@ -278,10 +278,10 @@ QS-Trader maintains a clear boundary between **run-owned outputs** and **pre-exi
 
 | Policy                  | Behaviour                                                                                                          | When to use                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `reference` *(default)* | Stores a lightweight `ClickHouseInputManifest` (table names + date range) instead of copying rows; no duplication. | All canonical ClickHouse-backed runs.                        |
+| `reference` _(default)_ | Stores a lightweight `ClickHouseInputManifest` (table names + date range) instead of copying rows; no duplication. | All canonical ClickHouse-backed runs.                        |
 | `snapshot`              | Copies bar rows into DuckDB alongside the manifest (`bars_with_features` table). Temporary escape hatch.           | Debugging or offline replay where ClickHouse is unavailable. |
 
-**Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) are unaffected by this setting — bar rows are always persisted because there is no ClickHouse reference to fall back on.
+**Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) ignore this setting — they produce no manifest, so the policy gate never applies. Buffered bar rows (collected when `feature_enabled: true`) are written to `bars_with_features` as they were before Phase 3.
 
 Configure in `qs_trader.yaml`:
 
