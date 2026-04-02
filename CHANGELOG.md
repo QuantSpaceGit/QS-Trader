@@ -81,7 +81,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Added
 
 - **Event-Triggered Debugging**: Enhanced interactive debugger with breakpoint system
-
   - New `--break-on EVENT` option for event-triggered pausing (e.g., `signal`, `signal:BUY`)
   - Two debugging modes: step-through (pause at every timestamp) and event-triggered (pause only on matching events)
   - Extensible breakpoint system with `BreakpointRule` ABC supporting signal filters
@@ -92,7 +91,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - See [docs/cli/interactive.md](docs/cli/interactive.md) for usage guide
 
 - **Interactive Debugging**: Step-through debugging for backtest development
-
   - `--interactive` / `-i` flag to pause execution at each timestamp
   - `--break-at DATE` option to start debugging from specific date
   - `--inspect LEVEL` option to control detail level (`bars`, `full`, or `strategy`)
@@ -104,7 +102,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 
 - **Manager Service**: Prevent duplicate CLOSE signals from opening erroneous positions
-
   - Framework-level duplicate detection for full close signals (confidence ≥ 1.0)
   - Partial closes (confidence < 1.0) still allowed to accumulate
   - Prevents second CLOSE from opening opposite position when first hasn't filled yet
@@ -150,6 +147,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 - Baseline project README and scaffold files.
 
-______________________________________________________________________
+---
 
 Earlier versions were internal and not formally tracked.
