@@ -82,7 +82,7 @@ The cleaner model is:
 - If a PR changes config or default behavior, it must also update tests and user-facing docs in the same phase.
 - Keep the temporary `snapshot` path available until the Datamaster consumer path is proven.
 
----
+______________________________________________________________________
 
 ## Phase 1 — Manifest contract and DuckDB schema foundation
 
@@ -142,7 +142,7 @@ The cleaner model is:
 - The manifest field exists and is covered by tests.
 - No behavior change yet for snapshot/reference decisions.
 
----
+______________________________________________________________________
 
 ## Phase 2 — Capture manifest for canonical ClickHouse-backed runs
 
@@ -202,7 +202,7 @@ The cleaner model is:
 - Canonical ClickHouse-backed runs persist correct manifest metadata.
 - Tests prove the gating behavior.
 
----
+______________________________________________________________________
 
 ## Phase 3 — Flip the default away from `bars_with_features` for canonical ClickHouse runs
 
@@ -279,7 +279,7 @@ The cleaner model is:
 - The new default is live and documented.
 - Snapshot duplication no longer happens by default for canonical ClickHouse-backed runs.
 
----
+______________________________________________________________________
 
 ## Phase 4 — Downstream manifest consumer in Datamaster
 
@@ -352,7 +352,7 @@ The cleaner model is:
 - A downstream consumer path exists.
 - Producer and consumer boundaries are now aligned.
 
----
+______________________________________________________________________
 
 ## Phase 5 — Remove deprecated snapshot path after consumer migration
 
@@ -412,7 +412,7 @@ The cleaner model is:
 - The deprecated snapshot path is fully retired.
 - Canonical ClickHouse-backed runs rely on manifest + canonical source lookup.
 
----
+______________________________________________________________________
 
 ## Relevant files across the whole plan
 
@@ -452,10 +452,13 @@ The cleaner model is:
 ## Open questions
 
 1. Should the first manifest include a stored `symbol -> secid` mapping?
+
    - Recommendation: defer unless ticker reuse is already a known reproducibility issue in target backtest windows.
 
 1. Should the temporary `snapshot` escape hatch be time-boxed?
+
    - Recommendation: yes. Keep it only until Datamaster has a stable manifest-backed consumer path.
 
 1. Should the Datamaster consumer work be in the same milestone?
+
    - Recommendation: no. Land the `QS-Trader` producer contract and default policy first, then pick up the consumer follow-up separately.

@@ -6,20 +6,20 @@ ClickHouse instance is required.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseBar, ClickhouseDataAdapter
 from qs_trader.services.data.models import Instrument
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def ch_config():
@@ -59,6 +59,7 @@ def _make_mock_client(rows: list[tuple]) -> MagicMock:
 # Initialisation
 # ---------------------------------------------------------------------------
 
+
 def test_adapter_reads_connection_config_from_top_level(ch_config, instrument):
     adapter = ClickhouseDataAdapter(ch_config, instrument)
     assert adapter._host == "localhost"
@@ -92,6 +93,7 @@ def test_adapter_reads_connection_config_from_clickhouse_subkey(instrument):
 # ---------------------------------------------------------------------------
 # read_bars
 # ---------------------------------------------------------------------------
+
 
 def test_read_bars_returns_bars_in_order(adapter):
     rows = [
@@ -154,6 +156,7 @@ def test_read_bars_empty_result(adapter):
 # ---------------------------------------------------------------------------
 # to_price_bar_event
 # ---------------------------------------------------------------------------
+
 
 def test_to_price_bar_event_timestamp_is_utc_market_close(adapter):
     bar = ClickhouseBar(
@@ -232,6 +235,7 @@ def test_to_price_bar_event_none_adj_fields(adapter):
 # to_corporate_action_event
 # ---------------------------------------------------------------------------
 
+
 def test_to_corporate_action_event_always_none(adapter):
     bar = ClickhouseBar(
         symbol="AAPL",
@@ -254,12 +258,20 @@ def test_to_corporate_action_event_always_none(adapter):
 # get_timestamp
 # ---------------------------------------------------------------------------
 
+
 def test_get_timestamp_returns_midnight_utc(adapter):
     bar = ClickhouseBar(
         symbol="AAPL",
         trade_date=date(2024, 6, 15),
-        open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"),
-        open_adj=None, high_adj=None, low_adj=None, close_adj=None, volume=0,
+        open=Decimal("1"),
+        high=Decimal("1"),
+        low=Decimal("1"),
+        close=Decimal("1"),
+        open_adj=None,
+        high_adj=None,
+        low_adj=None,
+        close_adj=None,
+        volume=0,
     )
     ts = adapter.get_timestamp(bar)
     assert ts.date() == date(2024, 6, 15)
@@ -270,6 +282,7 @@ def test_get_timestamp_returns_midnight_utc(adapter):
 # ---------------------------------------------------------------------------
 # get_available_date_range
 # ---------------------------------------------------------------------------
+
 
 def test_get_available_date_range_returns_from_clickhouse(adapter):
     rows = [("2020-01-02", "2024-12-31")]
@@ -293,6 +306,7 @@ def test_get_available_date_range_returns_none_on_error(adapter):
 # ---------------------------------------------------------------------------
 # Registry name
 # ---------------------------------------------------------------------------
+
 
 def test_adapter_registry_name():
     """Confirm _generate_adapter_name produces 'clickhouse' for ClickhouseDataAdapter."""
