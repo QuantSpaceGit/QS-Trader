@@ -14,24 +14,37 @@ import pytest
 
 from qs_trader.services.features.service import FeatureService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _service(**kwargs) -> FeatureService:
+
+def _service(
+    *,
+    host: str = "localhost",
+    port: int = 8123,
+    username: str = "default",
+    password: str = "testpass",
+    database: str = "market_test",
+    feature_version: str = "v1",
+    regime_version: str = "v1",
+    connect_timeout: int = 10,
+    query_timeout: int = 30,
+    default_columns: list[str] | None = None,
+) -> FeatureService:
     """Construct a FeatureService with test defaults."""
-    defaults = dict(
-        host="localhost",
-        port=8123,
-        username="default",
-        password="testpass",
-        database="market_test",
-        feature_version="v1",
-        regime_version="v1",
+    return FeatureService(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        database=database,
+        feature_version=feature_version,
+        regime_version=regime_version,
+        connect_timeout=connect_timeout,
+        query_timeout=query_timeout,
+        default_columns=default_columns,
     )
-    defaults.update(kwargs)
-    return FeatureService(**defaults)
 
 
 def _make_client(rows: list) -> MagicMock:
@@ -45,6 +58,7 @@ def _make_client(rows: list) -> MagicMock:
 # ---------------------------------------------------------------------------
 # Construction / from_config
 # ---------------------------------------------------------------------------
+
 
 def test_from_config_reads_clickhouse_subkey():
     config = {
@@ -97,6 +111,7 @@ def test_from_config_flat_dict():
 # ---------------------------------------------------------------------------
 # _resolve_secid
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_secid_returns_int(monkeypatch):
     svc = _service()
@@ -176,14 +191,15 @@ def test_resolve_secid_returns_none_on_exception():
 # get_features
 # ---------------------------------------------------------------------------
 
+
 def test_get_features_returns_dict_with_all_columns():
     svc = _service()
     # Mock: secid resolution → 99, feature query → one row of 23 floats/strings
     feature_vals = [0.1] * 18 + ["bull", "low", "low", "positive", "risk_on"]
     mock_client = MagicMock()
     mock_client.query.side_effect = [
-        SimpleNamespace(result_rows=[(99,)]),          # secid
-        SimpleNamespace(result_rows=[feature_vals]),   # features
+        SimpleNamespace(result_rows=[(99,)]),  # secid
+        SimpleNamespace(result_rows=[feature_vals]),  # features
     ]
     svc._client = mock_client
 
@@ -236,8 +252,8 @@ def test_get_features_returns_none_when_no_row():
     svc = _service()
     mock_client = MagicMock()
     mock_client.query.side_effect = [
-        SimpleNamespace(result_rows=[(99,)]),   # secid found
-        SimpleNamespace(result_rows=[]),         # no feature row
+        SimpleNamespace(result_rows=[(99,)]),  # secid found
+        SimpleNamespace(result_rows=[]),  # no feature row
     ]
     svc._client = mock_client
 
@@ -269,6 +285,7 @@ def test_get_features_handles_inf_as_nan():
 # ---------------------------------------------------------------------------
 # get_indicators
 # ---------------------------------------------------------------------------
+
 
 def test_get_indicators_returns_dict():
     svc = _service()
@@ -316,6 +333,7 @@ def test_get_indicators_caches_none():
 # ---------------------------------------------------------------------------
 # get_regime
 # ---------------------------------------------------------------------------
+
 
 def test_get_regime_returns_dict_of_strings():
     svc = _service()
@@ -371,6 +389,7 @@ def test_get_regime_converts_non_string_values():
 # close
 # ---------------------------------------------------------------------------
 
+
 def test_close_calls_client_close_and_resets():
     svc = _service()
     mock_client = MagicMock()
@@ -392,6 +411,7 @@ def test_close_is_idempotent():
 # FeatureBarEvent regime payload (Finding 3)
 # ---------------------------------------------------------------------------
 
+
 def test_feature_bar_event_accepts_regime_strings():
     """FeatureBarEvent.features must accept str regime values without validation error."""
     from qs_trader.events.events import FeatureBarEvent
@@ -399,7 +419,7 @@ def test_feature_bar_event_accepts_regime_strings():
     features = {
         "momentum_score": 0.75,
         "trend_strength": 0.6,
-        "trend_regime": "bull",        # string — would fail if type were dict[str, float]
+        "trend_regime": "bull",  # string — would fail if type were dict[str, float]
         "vol_regime": "low",
         "composite_regime": "risk_on",
     }
@@ -413,7 +433,7 @@ def test_feature_bar_event_accepts_regime_strings():
     assert event.features["momentum_score"] == pytest.approx(0.75)
 
 
-def test_feature_bar_event_round_trips_full_feature_row():
+def test_feature_bar_event_round_trips_full_feature_row() -> None:
     """A complete get_features() row (18 floats + 5 regime strings) must survive the event."""
     from qs_trader.events.events import FeatureBarEvent
     from qs_trader.services.features.service import FeatureService
@@ -421,7 +441,7 @@ def test_feature_bar_event_round_trips_full_feature_row():
     # Simulate a full get_features() return value
     numeric_cols = FeatureService._FEATURE_COLUMNS[:18]
     regime_cols = FeatureService._FEATURE_COLUMNS[18:]
-    features: dict = {col: 0.5 for col in numeric_cols}
+    features: dict[str, float | str] = {col: 0.5 for col in numeric_cols}
     features.update({col: "bull" for col in regime_cols})
 
     event = FeatureBarEvent(
@@ -439,19 +459,17 @@ def test_feature_bar_event_round_trips_full_feature_row():
 # stream_universe + FeatureBarEvent end-to-end (Finding 1)
 # ---------------------------------------------------------------------------
 
-def test_stream_universe_emits_feature_bar_event():
+
+def test_stream_universe_emits_feature_bar_event() -> None:
     """When feature_service is passed to stream_universe, FeatureBarEvent is published
     with timestamp matching the corresponding PriceBarEvent."""
-    import math
-    from datetime import date, timezone
+    from datetime import date
     from decimal import Decimal
-    from types import SimpleNamespace
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     from qs_trader.events.event_bus import EventBus
-    from qs_trader.events.events import FeatureBarEvent, PriceBarEvent
+    from qs_trader.events.events import BaseEvent, FeatureBarEvent, PriceBarEvent
     from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseBar, ClickhouseDataAdapter
-    from qs_trader.services.data.models import Instrument
     from qs_trader.services.data.service import DataService
 
     # ---- set up a mock DataService backed by a stub ClickhouseDataAdapter ----
@@ -459,10 +477,14 @@ def test_stream_universe_emits_feature_bar_event():
     bar = ClickhouseBar(
         symbol="AAPL",
         trade_date=trade_date,
-        open=Decimal("185.00"), high=Decimal("186.00"),
-        low=Decimal("184.00"), close=Decimal("185.50"),
-        open_adj=Decimal("185.00"), high_adj=Decimal("186.00"),
-        low_adj=Decimal("184.00"), close_adj=Decimal("185.50"),
+        open=Decimal("185.00"),
+        high=Decimal("186.00"),
+        low=Decimal("184.00"),
+        close=Decimal("185.50"),
+        open_adj=Decimal("185.00"),
+        high_adj=Decimal("186.00"),
+        low_adj=Decimal("184.00"),
+        close_adj=Decimal("185.50"),
         volume=1_000_000,
     )
 
@@ -476,8 +498,10 @@ def test_stream_universe_emits_feature_bar_event():
         asset_class="equity",
         interval="1d",
         timestamp="2024-01-02T21:00:00+00:00",
-        open=Decimal("185.00"), high=Decimal("186.00"),
-        low=Decimal("184.00"), close=Decimal("185.50"),
+        open=Decimal("185.00"),
+        high=Decimal("186.00"),
+        low=Decimal("184.00"),
+        close=Decimal("185.50"),
         volume=1_000_000,
         source="test",
     )
@@ -488,7 +512,6 @@ def test_stream_universe_emits_feature_bar_event():
     # Use monkeypatch-style substitution on the DataService
     svc = DataService.__new__(DataService)
     svc._event_bus = event_bus
-    svc._create_adapter = MagicMock(return_value=stub_adapter)
 
     # ---- mock feature service ----
     mock_feature_service = MagicMock()
@@ -499,15 +522,21 @@ def test_stream_universe_emits_feature_bar_event():
     }
 
     # ---- collect published events ----
-    published: list = []
-    event_bus.subscribe("feature_bar", published.append)
+    published: list[FeatureBarEvent] = []
 
-    svc.stream_universe(
-        symbols=["AAPL"],
-        start_date=date(2024, 1, 2),
-        end_date=date(2024, 1, 2),
-        feature_service=mock_feature_service,
-    )
+    def handle_feature_bar(event: BaseEvent) -> None:
+        assert isinstance(event, FeatureBarEvent)
+        published.append(event)
+
+    event_bus.subscribe("feature_bar", handle_feature_bar)
+
+    with patch.object(DataService, "_create_adapter", return_value=stub_adapter):
+        svc.stream_universe(
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 2),
+            feature_service=mock_feature_service,
+        )
 
     assert len(published) == 1
     fb = published[0]
