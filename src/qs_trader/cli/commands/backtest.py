@@ -342,10 +342,15 @@ def backtest_command(
             console.print("[bold yellow]⚠ Backtest completed, but DuckDB persistence failed.[/bold yellow]")
             if db_status.reason:
                 console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")
-        elif system_config.output.database.enabled and db_status is not None and db_status.state in {
-            "skipped",
-            "not_attempted",
-        }:
+        elif (
+            system_config.output.database.enabled
+            and db_status is not None
+            and db_status.state
+            in {
+                "skipped",
+                "not_attempted",
+            }
+        ):
             console.print("[bold yellow]⚠ Backtest completed, but DuckDB results were not written.[/bold yellow]")
             if db_status.reason:
                 console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")

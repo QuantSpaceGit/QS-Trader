@@ -176,7 +176,7 @@ QS-Trader requires Python 3.13+. We recommend using [uv](https://docs.astral.sh/
 uv add git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.7
+uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.8
 ```
 
 #### Using pip
@@ -186,7 +186,7 @@ uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.7
 pip install git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.7
+pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.8
 ```
 
 #### Verify Installation
