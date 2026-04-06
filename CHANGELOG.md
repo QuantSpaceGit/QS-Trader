@@ -6,7 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
-______________________________________________________________________
+---
 
 ## [0.2.0-beta.8] - 2026-04-06
 
@@ -38,12 +38,10 @@ ______________________________________________________________________
 ### Fixed
 
 - **Backtest CLI Database Status**: Backtest summaries now report when DuckDB persistence failed or was skipped instead of always showing the database as merely enabled
-
   - `ReportingService` tracks the DuckDB write outcome for each run and preserves the underlying `duckdb_write.failed` log details
   - The CLI results panel now distinguishes `saved`, `not written`, and `unavailable` database states so lock/conflict errors are visible immediately in the console
 
 - **HTML Report Generation**: `performance.json` is now written whenever the HTML report is enabled, even if standalone JSON output is disabled
-
   - Prevents HTML report generation from failing when the run is configured to emit HTML-only artifacts
 
 ## [0.2.0-beta.7] - 2026-03-31
@@ -110,7 +108,6 @@ ______________________________________________________________________
 ### Added
 
 - **Event-Triggered Debugging**: Enhanced interactive debugger with breakpoint system
-
   - New `--break-on EVENT` option for event-triggered pausing (e.g., `signal`, `signal:BUY`)
   - Two debugging modes: step-through (pause at every timestamp) and event-triggered (pause only on matching events)
   - Extensible breakpoint system with `BreakpointRule` ABC supporting signal filters
@@ -121,7 +118,6 @@ ______________________________________________________________________
   - See [docs/cli/interactive.md](docs/cli/interactive.md) for usage guide
 
 - **Interactive Debugging**: Step-through debugging for backtest development
-
   - `--interactive` / `-i` flag to pause execution at each timestamp
   - `--break-at DATE` option to start debugging from specific date
   - `--inspect LEVEL` option to control detail level (`bars`, `full`, or `strategy`)
@@ -133,7 +129,6 @@ ______________________________________________________________________
 ### Fixed
 
 - **Manager Service**: Prevent duplicate CLOSE signals from opening erroneous positions
-
   - Framework-level duplicate detection for full close signals (confidence ≥ 1.0)
   - Partial closes (confidence < 1.0) still allowed to accumulate
   - Prevents second CLOSE from opening opposite position when first hasn't filled yet
@@ -179,6 +174,6 @@ ______________________________________________________________________
 
 - Baseline project README and scaffold files.
 
-______________________________________________________________________
+---
 
 Earlier versions were internal and not formally tracked.

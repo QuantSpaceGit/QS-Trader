@@ -4,7 +4,7 @@
 
 QS-Trader helps you design, test, and iterate on trading ideas using historical market data. It provides an extensible, typed, and composable environment focused on correctness, transparency, and reproducibility.
 
-______________________________________________________________________
+---
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ ______________________________________________________________________
 1. Status & Roadmap
 1. License
 
-______________________________________________________________________
+---
 
 ## 1. Intro & Philosophy
 
@@ -32,7 +32,7 @@ QS-Trader aims to:
 
 > 📦 This repository is the **package source**. End users create a _project_ via `qs-trader init-project`. The scaffolded project has its own structure (configs, strategies, data) distinct from this source tree.
 
-______________________________________________________________________
+---
 
 ## 2. Architecture & Workflow (Event Driven)
 
@@ -90,21 +90,19 @@ The engine processes a stream of domain events. Each service reacts deterministi
 - **Deterministic Runs**: Same inputs → same sequence of events → same results.
 - **Progressive Extension**: Start with defaults, selectively override pieces.
 
-______________________________________________________________________
+---
 
 ### Concept: Strategies vs Backtest Experiments
 
 QS-Trader treats a **strategy** and a **backtest configuration** (experiment) as distinct layers:
 
 - **Strategy (Code + StrategyConfig)**
-
   - Lives in a Python module (e.g., `library/strategies/sma_crossover.py`).
   - Pairs a `Strategy` class (PROCESS / logic) with a `StrategyConfig` object (PARAMETERS / defaults).
   - Encapsulates reusable trading logic: indicator usage, signal emission rules, warmup behavior.
   - The config supplies tunable parameters (`fast_period`, `slow_period`, etc.) plus identity metadata (`name`, `display_name`, version, description).
 
 - **Backtest Experiment (BacktestConfig YAML)**
-
   - Defines a single run of one or more strategies under specific market conditions.
   - Specifies: date range, initial equity, data sources + universes, adjustment modes, risk policy, and per-strategy overrides.
   - Each entry in `strategies:` references a registered strategy by `strategy_id` and may provide a `config:` block that overrides defaults from the base `StrategyConfig` (e.g., shorter lookback, different warmup).
@@ -161,7 +159,7 @@ Suggested Workflow:
 
 Outcome: You maintain a high-quality library of strategies while scaling the number of experiments safely.
 
-______________________________________________________________________
+---
 
 ## 3. User Guide (Getting Started)
 
@@ -368,7 +366,7 @@ qs-trader init-library ./library --type strategy --type indicator
 qs-trader data list
 ```
 
-______________________________________________________________________
+---
 
 ## 4. CLI Reference (Essentials)
 
@@ -411,7 +409,7 @@ qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15
 - **Strategy Development**: [docs/packages/strategy.md](docs/packages/strategy.md)
 - **Indicators**: [docs/packages/indicators/indicators.md](docs/packages/indicators/indicators.md)
 
-______________________________________________________________________
+---
 
 ## 5. Extending
 
@@ -476,7 +474,7 @@ custom_libraries:
   risk_policies: null
 ```
 
-______________________________________________________________________
+---
 
 ## 6. Developer Guide
 
@@ -508,7 +506,7 @@ Current internal metrics (may differ in CI): ~1600+ tests, ~80% coverage.
 - Services are cohesive; cross-service communication only via events.
 - Deterministic sequencing enables replay & debugging.
 
-______________________________________________________________________
+---
 
 ## 7. Indicator Library Overview
 
@@ -524,14 +522,14 @@ Indicators are accessible through the strategy context (e.g., `context.sma(...)`
 
 See: `docs/packages/indicators/README.md` for parameters & formulas.
 
-______________________________________________________________________
+---
 
-______________________________________________________________________
+---
 
 ## 8. License
 
 MIT License. See [LICENSE](LICENSE).
 
-______________________________________________________________________
+---
 
 Enjoy backtesting! If you have any questions or feedback, feel free to reach out.
