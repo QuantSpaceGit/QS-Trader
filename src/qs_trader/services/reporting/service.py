@@ -138,6 +138,12 @@ class ReportingService:
         self._input_manifest: "ClickHouseInputManifest | None" = None
         self._database_write_status = DatabaseWriteStatus(state="not_attempted")
 
+        # Remote-runner / job metadata (populated from backtest_config in teardown).
+        self._job_group_id: str | None = None
+        self._submission_source: str | None = None
+        self._split_pct: float | None = None
+        self._split_role: str | None = None
+
         # Subscribe to events
         self._subscribe_to_events()
 
@@ -1135,6 +1141,10 @@ class ReportingService:
                 trades=self._trade_stats_calc.trades,
                 drawdowns=metrics.drawdown_periods,
                 manifest=self._input_manifest,
+                job_group_id=self._job_group_id,
+                submission_source=self._submission_source,
+                split_pct=self._split_pct,
+                split_role=self._split_role,
             )
             self._set_database_write_status(state="succeeded", db_path=db_path)
 
@@ -1281,6 +1291,14 @@ class ReportingService:
         # Build full metrics report
         full_metrics = self._build_full_metrics(final_equity, total_return_pct)
 
+        # Extract remote-runner / job metadata from backtest_config (if supplied).
+        backtest_config = context.get("backtest_config")
+        if backtest_config is not None:
+            self._job_group_id = getattr(backtest_config, "job_group_id", None)
+            self._submission_source = getattr(backtest_config, "submission_source", None)
+            self._split_pct = getattr(backtest_config, "split_pct", None)
+            self._split_role = getattr(backtest_config, "split_role", None)
+
         # Write outputs based on configuration
         if self._backtest_id:
             self._write_outputs(full_metrics)
@@ -1303,6 +1321,10 @@ class ReportingService:
         self._last_portfolio_state = None
         self._portfolio_states_history = {}
         self._input_manifest = None
+        self._job_group_id = None
+        self._submission_source = None
+        self._split_pct = None
+        self._split_role = None
         self._set_database_write_status(state="not_attempted")
 
         # Reset calculators

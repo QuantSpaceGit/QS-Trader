@@ -322,6 +322,32 @@ class BacktestConfig(BaseModel):
         "connect_timeout (int, default 10), query_timeout (int, default 30).",
     )
 
+    # Remote-runner / job metadata (optional)
+    job_group_id: str | None = Field(
+        default=None,
+        description="Opaque identifier that groups related runs (e.g. a parameter sweep). "
+        "Persisted to the DuckDB runs table so sweep results can be aggregated.",
+    )
+    submission_source: str | None = Field(
+        default=None,
+        description="System or agent that submitted this run (e.g. 'dashboard', 'cli'). "
+        "Persisted to the DuckDB runs table for provenance tracking.",
+    )
+
+    # In-sample / out-of-sample split metadata (optional)
+    split_pct: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of the date range used as in-sample data (0.0–1.0). "
+        "NULL when no IS/OOS split is applied. Persisted to DuckDB runs table.",
+    )
+    split_role: str | None = Field(
+        default=None,
+        description="Role of this run within an IS/OOS split: 'in_sample' or 'out_of_sample'. "
+        "NULL when no split is applied. Persisted to DuckDB runs table.",
+    )
+
     @property
     def all_symbols(self) -> set[str]:
         """Get all symbols across all data sources."""

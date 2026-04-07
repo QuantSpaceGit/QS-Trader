@@ -593,3 +593,86 @@ class TestFeatureConfig:
         }
         cfg = BacktestConfig(**raw)
         assert cfg.feature_config is None
+
+
+# ============================================================================
+# Phase 1 engine-hooks field tests
+# ============================================================================
+
+
+def _base_raw() -> dict:
+    """Minimal valid BacktestConfig dict."""
+    return {
+        "backtest_id": "hook_test",
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "initial_equity": "100000",
+        "data": {"sources": [{"name": "ds1", "universe": ["AAPL"]}]},
+        "strategies": [{"strategy_id": "s", "universe": ["AAPL"], "data_sources": ["ds1"]}],
+        "risk_policy": {"name": "naive", "config": {}},
+    }
+
+
+class TestBacktestConfigPhase1Fields:
+    """Tests for job_group_id, submission_source, split_pct, split_role."""
+
+    def test_all_new_fields_default_to_none(self) -> None:
+        """All Phase-1 fields default to None when not supplied."""
+        cfg = BacktestConfig(**_base_raw())
+        assert cfg.job_group_id is None
+        assert cfg.submission_source is None
+        assert cfg.split_pct is None
+        assert cfg.split_role is None
+
+    def test_job_group_id_accepted(self) -> None:
+        """job_group_id is stored when provided."""
+        raw = {**_base_raw(), "job_group_id": "sweep-abc-123"}
+        cfg = BacktestConfig(**raw)
+        assert cfg.job_group_id == "sweep-abc-123"
+
+    def test_submission_source_accepted(self) -> None:
+        """submission_source is stored when provided."""
+        raw = {**_base_raw(), "submission_source": "dashboard"}
+        cfg = BacktestConfig(**raw)
+        assert cfg.submission_source == "dashboard"
+
+    def test_split_pct_accepted(self) -> None:
+        """split_pct accepts a float in [0.0, 1.0]."""
+        raw = {**_base_raw(), "split_pct": 0.7}
+        cfg = BacktestConfig(**raw)
+        assert cfg.split_pct == pytest.approx(0.7)
+
+    def test_split_pct_zero_and_one_valid(self) -> None:
+        """split_pct boundary values 0.0 and 1.0 are valid."""
+        for val in (0.0, 1.0):
+            cfg = BacktestConfig(**{**_base_raw(), "split_pct": val})
+            assert cfg.split_pct == pytest.approx(val)
+
+    def test_split_pct_out_of_range_raises(self) -> None:
+        """split_pct outside [0.0, 1.0] raises a validation error."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        for bad_val in (-0.1, 1.1):
+            with pytest.raises(PydanticValidationError):
+                BacktestConfig(**{**_base_raw(), "split_pct": bad_val})
+
+    def test_split_role_accepted(self) -> None:
+        """split_role stores an arbitrary string."""
+        for role in ("in_sample", "out_of_sample"):
+            cfg = BacktestConfig(**{**_base_raw(), "split_role": role})
+            assert cfg.split_role == role
+
+    def test_all_fields_accepted_together(self) -> None:
+        """All four Phase-1 fields can be set simultaneously."""
+        raw = {
+            **_base_raw(),
+            "job_group_id": "grp-001",
+            "submission_source": "cli",
+            "split_pct": 0.8,
+            "split_role": "in_sample",
+        }
+        cfg = BacktestConfig(**raw)
+        assert cfg.job_group_id == "grp-001"
+        assert cfg.submission_source == "cli"
+        assert cfg.split_pct == pytest.approx(0.8)
+        assert cfg.split_role == "in_sample"

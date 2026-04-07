@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS runs (
     total_commissions      DOUBLE NOT NULL,
     commission_pct_of_pnl  DOUBLE NOT NULL,
     input_manifest_json    VARCHAR,
+    job_group_id           VARCHAR,
+    submission_source      VARCHAR,
+    split_pct              FLOAT,
+    split_role             VARCHAR,
     created_at      TIMESTAMP DEFAULT current_timestamp,
     PRIMARY KEY (experiment_id, run_id)
 );
@@ -184,6 +188,10 @@ class DuckDBWriter:
         trades: list[TradeRecord],
         drawdowns: list[DrawdownPeriod],
         manifest: "ClickHouseInputManifest | None" = None,
+        job_group_id: str | None = None,
+        submission_source: str | None = None,
+        split_pct: float | None = None,
+        split_role: str | None = None,
     ) -> None:
         """Persist a complete backtest run to DuckDB.
 
@@ -203,6 +211,16 @@ class DuckDBWriter:
                 inputs consumed by this run.  Pass ``None`` (default) for
                 Yahoo/CSV runs or any run where input provenance is not
                 tracked yet.
+            job_group_id: Optional opaque identifier grouping related runs
+                (e.g. a parameter sweep job).  ``None`` writes ``NULL``.
+            submission_source: Optional string identifying the system that
+                submitted this run (e.g. ``'dashboard'``, ``'cli'``).
+                ``None`` writes ``NULL``.
+            split_pct: Optional fraction (0–1) of the date range used as
+                in-sample data for IS/OOS splits.  ``None`` writes ``NULL``.
+            split_role: Optional role label for IS/OOS splits
+                (``'in_sample'`` or ``'out_of_sample'``).  ``None`` writes
+                ``NULL``.
         """
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -211,7 +229,17 @@ class DuckDBWriter:
             con.execute("BEGIN TRANSACTION")
             self._ensure_schema(con)
             self._delete_existing_run(con, experiment_id, run_id)
-            self._insert_run(con, experiment_id, run_id, metrics, manifest)
+            self._insert_run(
+                con,
+                experiment_id,
+                run_id,
+                metrics,
+                manifest,
+                job_group_id=job_group_id,
+                submission_source=submission_source,
+                split_pct=split_pct,
+                split_role=split_role,
+            )
             self._insert_equity_curve(con, experiment_id, run_id, equity_curve)
             self._insert_returns(con, experiment_id, run_id, returns)
             self._insert_trades(con, experiment_id, run_id, trades)
@@ -252,6 +280,11 @@ class DuckDBWriter:
         # DuckDB supports ``ADD COLUMN IF NOT EXISTS``; this is a no-op when
         # the column is already present (e.g. freshly created schemas).
         con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS input_manifest_json VARCHAR")
+        # Migration: add remote-runner / job metadata columns (Phase 1 engine hooks).
+        con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS job_group_id VARCHAR")
+        con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS submission_source VARCHAR")
+        con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS split_pct FLOAT")
+        con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS split_role VARCHAR")
 
     def _delete_existing_run(self, con: duckdb.DuckDBPyConnection, experiment_id: str, run_id: str) -> None:
         """Remove previous data for this run (upsert semantics)."""
@@ -284,6 +317,11 @@ class DuckDBWriter:
         run_id: str,
         metrics: FullMetrics,
         manifest: "ClickHouseInputManifest | None" = None,
+        *,
+        job_group_id: str | None = None,
+        submission_source: str | None = None,
+        split_pct: float | None = None,
+        split_role: str | None = None,
     ) -> None:
         """Insert run-level summary row.
 
@@ -296,6 +334,10 @@ class DuckDBWriter:
                 and stored in ``input_manifest_json``.  ``None`` writes
                 ``NULL`` (Yahoo/CSV runs, or runs without provenance
                 tracking).
+            job_group_id: Optional job-group identifier for sweep runs.
+            submission_source: Optional source system label.
+            split_pct: Optional IS fraction (0–1) for IS/OOS splits.
+            split_role: Optional role label for IS/OOS splits.
         """
         manifest_json: str | None = manifest.to_json() if manifest is not None else None
         con.execute(
@@ -317,7 +359,9 @@ class DuckDBWriter:
                 expectancy, max_consecutive_wins, max_consecutive_losses,
                 avg_trade_duration_days,
                 total_commissions, commission_pct_of_pnl,
-                input_manifest_json
+                input_manifest_json,
+                job_group_id, submission_source,
+                split_pct, split_role
             ) VALUES (
                 $1, $2, $3,
                 $4, $5, $6,
@@ -335,7 +379,9 @@ class DuckDBWriter:
                 $35, $36, $37,
                 $38,
                 $39, $40,
-                $41
+                $41,
+                $42, $43,
+                $44, $45
             )
             """,
             [
@@ -380,6 +426,10 @@ class DuckDBWriter:
                 _to_float(metrics.total_commissions),
                 _to_float(metrics.commission_pct_of_pnl),
                 manifest_json,
+                job_group_id,
+                submission_source,
+                split_pct,
+                split_role,
             ],
         )
 

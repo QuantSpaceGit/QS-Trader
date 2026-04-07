@@ -6,12 +6,16 @@ Validates that:
 - A -100% return does not crash teardown (math.log domain error).
 - save_run() is called with manifest=None by default (Phase 1 baseline).
 - save_run() can be invoked with an explicit manifest (Phase 1 contract).
+- BacktestConfig Phase 1 fields (job_group_id, submission_source, split_pct, split_role)
+  flow correctly through ReportingService.teardown() → DuckDBWriter.save_run.
 """
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.libraries.performance.models import FullMetrics
@@ -877,3 +881,226 @@ class TestConfigResolutionWarning:
         # The service should complete without error
         # We verify via the logger's bound calls
         assert svc.logger is not None  # Service didn't crash
+
+
+# ============================================================================
+# Tests: Phase 1 field flow (BacktestConfig → teardown → DuckDBWriter)
+# ============================================================================
+
+
+def _make_backtest_config(**overrides):
+    """Build a minimal BacktestConfig with the Phase 1 fields set to non-None values.
+
+    Overrides any of the Phase 1 fields via keyword args.
+    """
+    from qs_trader.engine.config import (
+        BacktestConfig,
+        DataSelectionConfig,
+        DataSourceConfig,
+        RiskPolicyConfig,
+        StrategyConfigItem,
+    )
+
+    defaults = {
+        "backtest_id": "phase1_integration_test",
+        "start_date": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "end_date": datetime(2024, 6, 30, tzinfo=timezone.utc),
+        "initial_equity": Decimal("100000"),
+        "data": DataSelectionConfig(
+            sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])]
+        ),
+        "strategies": [
+            StrategyConfigItem(
+                strategy_id="buy_and_hold",
+                universe=["AAPL"],
+                data_sources=["yahoo-us-equity-1d-csv"],
+            )
+        ],
+        "risk_policy": RiskPolicyConfig(name="naive"),
+        # Phase 1 fields — all populated to non-None
+        "job_group_id": "sweep-abc123",
+        "submission_source": "dashboard",
+        "split_pct": 0.7,
+        "split_role": "in_sample",
+    }
+    defaults.update(overrides)
+    return BacktestConfig(**defaults)
+
+
+def _build_reporting_service_with_db(tmp_path: Path) -> "ReportingService":
+    """Build a ReportingService wired to a real tmp output_dir."""
+    config = ReportingConfig(
+        write_parquet=False,
+        write_json=False,
+        write_html_report=False,
+        write_csv_timeline=False,
+        display_final_report=False,
+    )
+    output_dir = tmp_path / "experiments" / "phase1_test" / "runs" / "20260101_000000"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    event_bus = EventBus()
+    svc = ReportingService(event_bus=event_bus, config=config, output_dir=output_dir)
+    svc._backtest_id = "phase1_integration_test"
+    return svc
+
+
+def _inject_minimal_teardown_state(svc: "ReportingService") -> None:
+    """Inject the minimum instance state so teardown() passes the early-return guard."""
+    svc._start_datetime = "2024-01-01T00:00:00+00:00"
+    svc._initial_equity = Decimal("100000")
+    svc._last_portfolio_state = None
+
+    # Mock calculators to return neutral/empty data
+    svc._equity_calc = MagicMock()
+    svc._equity_calc.latest_timestamp.return_value = None
+    svc._equity_calc.latest_equity.return_value = Decimal("105000")
+    svc._equity_calc.get_curve.return_value = []
+
+    svc._returns_calc = MagicMock()
+    svc._returns_calc.returns = []
+
+    svc._drawdown_calc = MagicMock()
+    svc._drawdown_calc.max_drawdown_pct = Decimal("0")
+    svc._drawdown_calc.current_drawdown_pct = Decimal("0")
+    svc._drawdown_calc.drawdown_periods = []
+
+    svc._trade_stats_calc = MagicMock()
+    svc._trade_stats_calc.trades = []
+    svc._trade_stats_calc.max_consecutive_wins = 0
+    svc._trade_stats_calc.max_consecutive_losses = 0
+
+    svc._period_calc = MagicMock()
+    svc._period_calc.calculate_periods.return_value = []
+
+    svc._strategy_perf_calc = MagicMock()
+    svc._strategy_perf_calc.calculate_performance.return_value = []
+
+
+class TestReportingServicePhase1Fields:
+    """Integration test: BacktestConfig Phase 1 fields flow through teardown to DuckDB.
+
+    Verifies that job_group_id, submission_source, split_pct, and split_role set
+    on a BacktestConfig are extracted by ReportingService.teardown() and forwarded
+    to DuckDBWriter.save_run() with the correct non-None values.
+    """
+
+    def test_four_phase1_fields_reach_save_run(self, tmp_path: Path) -> None:
+        """All four Phase 1 fields on BacktestConfig must be passed to save_run."""
+        svc = _build_reporting_service_with_db(tmp_path)
+        _inject_minimal_teardown_state(svc)
+
+        config = _make_backtest_config(
+            job_group_id="sweep-abc123",
+            submission_source="dashboard",
+            split_pct=0.7,
+            split_role="in_sample",
+        )
+        db_path = str(tmp_path / "test_runs.duckdb")
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+            patch("qs_trader.services.reporting.service.write_backtest_metadata"),
+        ):
+            svc.teardown({"backtest_config": config})
+
+        mock_instance = mock_writer_cls.return_value
+        mock_instance.save_run.assert_called_once()
+        kwargs = mock_instance.save_run.call_args.kwargs
+
+        assert kwargs["job_group_id"] == "sweep-abc123"
+        assert kwargs["submission_source"] == "dashboard"
+        assert kwargs["split_pct"] == pytest.approx(0.7)
+        assert kwargs["split_role"] == "in_sample"
+
+    def test_none_phase1_fields_reach_save_run_as_none(self, tmp_path: Path) -> None:
+        """Phase 1 fields absent from BacktestConfig must arrive as None at save_run."""
+        svc = _build_reporting_service_with_db(tmp_path)
+        _inject_minimal_teardown_state(svc)
+
+        config = _make_backtest_config(
+            job_group_id=None,
+            submission_source=None,
+            split_pct=None,
+            split_role=None,
+        )
+        db_path = str(tmp_path / "test_runs.duckdb")
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+            patch("qs_trader.services.reporting.service.write_backtest_metadata"),
+        ):
+            svc.teardown({"backtest_config": config})
+
+        mock_instance = mock_writer_cls.return_value
+        mock_instance.save_run.assert_called_once()
+        kwargs = mock_instance.save_run.call_args.kwargs
+
+        assert kwargs["job_group_id"] is None
+        assert kwargs["submission_source"] is None
+        assert kwargs["split_pct"] is None
+        assert kwargs["split_role"] is None
+
+    def test_phase1_fields_persist_in_duckdb_with_correct_values(self, tmp_path: Path) -> None:
+        """End-to-end: Phase 1 fields must be stored with correct values in a real DuckDB file."""
+        import duckdb
+
+        from qs_trader.services.reporting.db_writer import DuckDBWriter
+
+        svc = _build_reporting_service_with_db(tmp_path)
+        _inject_minimal_teardown_state(svc)
+
+        config = _make_backtest_config(
+            job_group_id="e2e-group-999",
+            submission_source="cli",
+            split_pct=0.8,
+            split_role="out_of_sample",
+        )
+        db_path = tmp_path / "e2e_runs.duckdb"
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=str(db_path))
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.service.write_backtest_metadata"),
+        ):
+            svc.teardown({"backtest_config": config})
+
+        assert db_path.exists(), "DuckDB file must be created"
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute(
+            "SELECT job_group_id, submission_source, split_pct, split_role FROM runs"
+        ).fetchone()
+        con.close()
+
+        assert row is not None
+        assert row[0] == "e2e-group-999"
+        assert row[1] == "cli"
+        assert abs(row[2] - 0.8) < 1e-6
+        assert row[3] == "out_of_sample"
+
+    def test_teardown_without_backtest_config_leaves_phase1_fields_none(self, tmp_path: Path) -> None:
+        """When teardown context omits backtest_config, Phase 1 fields stay None (no crash)."""
+        svc = _build_reporting_service_with_db(tmp_path)
+        _inject_minimal_teardown_state(svc)
+
+        db_path = str(tmp_path / "test_runs.duckdb")
+        sys_config = _make_system_config_mock(db_enabled=True, db_path=db_path)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_config),
+            patch("qs_trader.services.reporting.db_writer.DuckDBWriter") as mock_writer_cls,
+        ):
+            # No backtest_config key in context
+            svc.teardown({})
+
+        mock_instance = mock_writer_cls.return_value
+        mock_instance.save_run.assert_called_once()
+        kwargs = mock_instance.save_run.call_args.kwargs
+
+        assert kwargs["job_group_id"] is None
+        assert kwargs["submission_source"] is None
+        assert kwargs["split_pct"] is None
+        assert kwargs["split_role"] is None

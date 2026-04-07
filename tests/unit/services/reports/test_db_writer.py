@@ -1446,3 +1446,250 @@ class TestClickHouseInputManifestValidation:
 
         with pytest.raises(AttributeError):
             manifest.feature_columns.append("rsi_14")  # type: ignore[union-attr]
+
+
+# ============================================================================
+# Phase 1 schema additions — job_group_id, submission_source, split_pct, split_role
+# ============================================================================
+
+
+class TestPhase1SchemaColumns:
+    """DuckDB schema and persistence tests for Phase-1 engine-hook columns."""
+
+    def _save(
+        self,
+        writer: DuckDBWriter,
+        metrics: FullMetrics,
+        *,
+        job_group_id: str | None = None,
+        submission_source: str | None = None,
+        split_pct: float | None = None,
+        split_role: str | None = None,
+    ) -> None:
+        writer.save_run(
+            experiment_id="exp1",
+            run_id="run1",
+            metrics=metrics,
+            equity_curve=[],
+            returns=[],
+            trades=[],
+            drawdowns=[],
+            job_group_id=job_group_id,
+            submission_source=submission_source,
+            split_pct=split_pct,
+            split_role=split_role,
+        )
+
+    def test_new_columns_exist_in_schema(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """All four Phase-1 columns are present in the runs table."""
+        self._save(writer, sample_metrics)
+
+        con = duckdb.connect(str(db_path))
+        try:
+            cols = {
+                row[0]
+                for row in con.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'runs'"
+                ).fetchall()
+            }
+        finally:
+            con.close()
+
+        assert "job_group_id" in cols
+        assert "submission_source" in cols
+        assert "split_pct" in cols
+        assert "split_role" in cols
+
+    def test_new_columns_default_to_null(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """When Phase-1 fields are not supplied, columns contain NULL."""
+        self._save(writer, sample_metrics)
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT job_group_id, submission_source, split_pct, split_role"
+                " FROM runs WHERE experiment_id = 'exp1' AND run_id = 'run1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None
+        assert row[0] is None  # job_group_id
+        assert row[1] is None  # submission_source
+        assert row[2] is None  # split_pct
+        assert row[3] is None  # split_role
+
+    def test_job_group_id_persisted(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """job_group_id value is round-tripped through DuckDB."""
+        self._save(writer, sample_metrics, job_group_id="sweep-001")
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT job_group_id FROM runs WHERE experiment_id = 'exp1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None and row[0] == "sweep-001"
+
+    def test_submission_source_persisted(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """submission_source value is round-tripped through DuckDB."""
+        self._save(writer, sample_metrics, submission_source="dashboard")
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT submission_source FROM runs WHERE experiment_id = 'exp1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None and row[0] == "dashboard"
+
+    def test_split_pct_persisted(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """split_pct float value is round-tripped through DuckDB."""
+        self._save(writer, sample_metrics, split_pct=0.7)
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT split_pct FROM runs WHERE experiment_id = 'exp1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None
+        assert row[0] == pytest.approx(0.7, rel=1e-5)
+
+    def test_split_role_persisted(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """split_role string value is round-tripped through DuckDB."""
+        self._save(writer, sample_metrics, split_role="in_sample")
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT split_role FROM runs WHERE experiment_id = 'exp1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None and row[0] == "in_sample"
+
+    def test_all_phase1_fields_persisted_together(
+        self, writer: DuckDBWriter, db_path: Path, sample_metrics: FullMetrics
+    ) -> None:
+        """All four Phase-1 fields are stored correctly in the same row."""
+        self._save(
+            writer,
+            sample_metrics,
+            job_group_id="grp-x",
+            submission_source="cli",
+            split_pct=0.8,
+            split_role="out_of_sample",
+        )
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT job_group_id, submission_source, split_pct, split_role"
+                " FROM runs WHERE experiment_id = 'exp1' AND run_id = 'run1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None
+        assert row[0] == "grp-x"
+        assert row[1] == "cli"
+        assert row[2] == pytest.approx(0.8, rel=1e-5)
+        assert row[3] == "out_of_sample"
+
+    def test_migration_adds_columns_to_existing_db(self, tmp_path: Path, sample_metrics: FullMetrics) -> None:
+        """Columns are added by migration when opening a pre-Phase-1 database."""
+        db_path = tmp_path / "legacy.duckdb"
+
+        # Create a database with the legacy schema (no Phase-1 columns)
+        legacy_ddl = """
+            CREATE TABLE IF NOT EXISTS runs (
+                experiment_id   VARCHAR NOT NULL,
+                run_id          VARCHAR NOT NULL,
+                backtest_id     VARCHAR NOT NULL,
+                start_date      VARCHAR NOT NULL,
+                end_date        VARCHAR NOT NULL,
+                duration_days   INTEGER NOT NULL,
+                initial_equity  DOUBLE NOT NULL,
+                final_equity    DOUBLE NOT NULL,
+                total_return_pct    DOUBLE NOT NULL,
+                cagr                DOUBLE NOT NULL,
+                best_day_return_pct DOUBLE,
+                worst_day_return_pct DOUBLE,
+                volatility_annual_pct DOUBLE NOT NULL,
+                max_drawdown_pct      DOUBLE NOT NULL,
+                max_drawdown_duration_days INTEGER NOT NULL,
+                avg_drawdown_pct      DOUBLE NOT NULL,
+                current_drawdown_pct  DOUBLE NOT NULL,
+                sharpe_ratio    DOUBLE  NOT NULL,
+                sortino_ratio   DOUBLE,
+                calmar_ratio    DOUBLE  NOT NULL,
+                risk_free_rate  DOUBLE  NOT NULL,
+                total_trades    INTEGER NOT NULL,
+                winning_trades  INTEGER NOT NULL,
+                losing_trades   INTEGER NOT NULL,
+                win_rate        DOUBLE  NOT NULL,
+                profit_factor   DOUBLE,
+                avg_win         DOUBLE  NOT NULL,
+                avg_loss        DOUBLE  NOT NULL,
+                avg_win_pct     DOUBLE  NOT NULL,
+                avg_loss_pct    DOUBLE  NOT NULL,
+                largest_win     DOUBLE  NOT NULL,
+                largest_loss    DOUBLE  NOT NULL,
+                largest_win_pct DOUBLE  NOT NULL,
+                largest_loss_pct DOUBLE NOT NULL,
+                expectancy      DOUBLE  NOT NULL,
+                max_consecutive_wins   INTEGER NOT NULL,
+                max_consecutive_losses INTEGER NOT NULL,
+                avg_trade_duration_days DOUBLE,
+                total_commissions      DOUBLE NOT NULL,
+                commission_pct_of_pnl  DOUBLE NOT NULL,
+                created_at      TIMESTAMP DEFAULT current_timestamp,
+                PRIMARY KEY (experiment_id, run_id)
+            )
+        """
+        con = duckdb.connect(str(db_path))
+        con.execute(legacy_ddl)
+        con.close()
+
+        # Writing via DuckDBWriter should migrate and succeed
+        writer = DuckDBWriter(db_path)
+        writer.save_run(
+            experiment_id="exp1",
+            run_id="run1",
+            metrics=sample_metrics,
+            equity_curve=[],
+            returns=[],
+            trades=[],
+            drawdowns=[],
+            job_group_id="migrated",
+        )
+
+        con = duckdb.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT job_group_id FROM runs WHERE experiment_id = 'exp1'"
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None and row[0] == "migrated"

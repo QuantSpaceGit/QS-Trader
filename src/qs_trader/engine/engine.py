@@ -8,6 +8,7 @@ Pure event-driven orchestrator that coordinates services via EventBus.
 """
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -761,7 +762,7 @@ class BacktestEngine:
         """Context manager exit - ensures cleanup."""
         self.shutdown()
 
-    def run(self) -> BacktestResult:
+    def run(self, on_progress: Callable[[int, int], None] | None = None) -> BacktestResult:
         """
         Run the backtest - stream data and publish events.
 
@@ -779,6 +780,15 @@ class BacktestEngine:
         - Publish RiskEvaluationTriggerEvent for signal processing
         - Collect portfolio metrics and trade statistics
         - Generate comprehensive results
+
+        Args:
+            on_progress: Optional callback invoked after every bar with
+                ``(bars_processed, bars_total)``.  ``bars_total`` is an
+                estimate based on calendar-day count and universe size; it
+                may differ slightly from the actual bar count.  Pass
+                ``None`` (default); the bars_total estimate is computed
+                once before the loop (negligible one-time overhead) and
+                the per-bar callback invocation is skipped entirely.
 
         Returns:
             BacktestResult with basic metrics
@@ -849,6 +859,16 @@ class BacktestEngine:
             # Reset bar count for this run
             self._bar_count = 0
 
+            # Pre-compute an estimated bars_total for the on_progress callback.
+            # Uses calendar-day count (5/7 ≈ trading days) × universe size.
+            # This is an estimate; actual bar count depends on market calendars
+            # and symbol data availability.
+            _est_source = self.config.data.sources[0]
+            _est_symbols = _est_source.universe
+            _calendar_days = max(0, (self.config.end_date - self.config.start_date).days)
+            _est_trading_days = max(1, _calendar_days * 5 // 7)
+            bars_total: int = _est_trading_days * len(_est_symbols)
+
             # Setup progress bar for silent mode
             progress_bar = None
             progress_task = None
@@ -878,6 +898,8 @@ class BacktestEngine:
                 self._bar_count += 1
                 if progress_bar and progress_task is not None:
                     progress_bar.update(progress_task, advance=1)
+                if on_progress is not None:
+                    on_progress(self._bar_count, bars_total)
 
             self._event_bus.subscribe("bar", count_bars, priority=1000)
 
