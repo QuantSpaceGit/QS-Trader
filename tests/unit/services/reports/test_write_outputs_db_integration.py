@@ -541,7 +541,7 @@ class TestManifestIntegration:
             source_name="qs-datamaster",
             database="market_data",
             bars_table="equity_daily",
-            symbols=["AAPL"],
+            symbols=("AAPL",),
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31),
             feature_set_version="v1",

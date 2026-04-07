@@ -7,6 +7,7 @@ Covers:
 """
 
 from datetime import datetime
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ def _minimal_config() -> BacktestConfig:
         backtest_id="progress_test",
         start_date=datetime(2023, 1, 1),
         end_date=datetime(2023, 3, 31),
-        initial_equity=100_000,
+        initial_equity=Decimal("100000"),
         data=DataSelectionConfig(
             sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL", "MSFT"])]
         ),
