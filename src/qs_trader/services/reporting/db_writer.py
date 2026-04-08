@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS runs (
     submission_source      VARCHAR,
     split_pct              FLOAT,
     split_role             VARCHAR,
-    created_at      TIMESTAMP DEFAULT current_timestamp,
+    created_at      TIMESTAMPTZ DEFAULT current_timestamp,
     PRIMARY KEY (experiment_id, run_id)
 );
 
@@ -285,6 +285,13 @@ class DuckDBWriter:
         con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS submission_source VARCHAR")
         con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS split_pct FLOAT")
         con.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS split_role VARCHAR")
+        # Migration: upgrade created_at from naive TIMESTAMP to TIMESTAMPTZ
+        # so the UTC offset is preserved and clients render correct local time.
+        col_type = con.execute(
+            "SELECT data_type FROM information_schema.columns WHERE table_name = 'runs' AND column_name = 'created_at'"
+        ).fetchone()
+        if col_type and col_type[0] == "TIMESTAMP":
+            con.execute("ALTER TABLE runs ALTER COLUMN created_at TYPE TIMESTAMPTZ")
 
     def _delete_existing_run(self, con: duckdb.DuckDBPyConnection, experiment_id: str, run_id: str) -> None:
         """Remove previous data for this run (upsert semantics)."""
