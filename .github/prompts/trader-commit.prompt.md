@@ -1,5 +1,7 @@
 ---
+name: trader-commit
 description: 'Trader: run make qa, then create scoped conventional commits'
+argument-hint: '[optional scope, e.g. engine+tests]'
 ---
 
 Review the codebase changes and create logically separated commits based on the scope of work:

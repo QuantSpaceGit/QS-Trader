@@ -50,7 +50,7 @@ Each code contribution or review must ensure:
 
 ## Commit Message Standards
 
-- Follow instruction in .github/prompts/commit.prompt.md
+- Follow instruction in `.github/prompts/trader-commit.prompt.md`
 
 ## Testing Standards
 
