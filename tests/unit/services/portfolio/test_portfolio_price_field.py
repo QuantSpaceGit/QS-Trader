@@ -19,18 +19,18 @@ def event_bus():
 
 @pytest.fixture
 def sample_bar():
-    """Create sample bar with both close and close_adj."""
+    """Create sample bar with both base and adjusted close values."""
     return PriceBarEvent(
         symbol="AAPL",
         timestamp="2024-01-02T16:00:00Z",
         open=Decimal("100.00"),
         high=Decimal("101.00"),
         low=Decimal("99.00"),
-        close=Decimal("100.50"),  # Split-adjusted
+        close=Decimal("100.50"),
         open_adj=Decimal("105.00"),
         high_adj=Decimal("106.00"),
         low_adj=Decimal("104.00"),
-        close_adj=Decimal("105.50"),  # Total-return adjusted
+        close_adj=Decimal("105.50"),
         volume=1000,
         source="test",
         interval="1d",
@@ -67,8 +67,8 @@ class TestPortfolioConfigAdjustmentMode:
 class TestPortfolioServiceSplitAdjusted:
     """Test PortfolioService with adjustment_mode='split_adjusted'."""
 
-    def test_on_bar_updates_prices_with_close(self, event_bus, sample_bar):
-        """on_bar updates prices using 'close' when adjustment_mode='split_adjusted'."""
+    def test_on_bar_updates_prices_with_adjusted_close(self, event_bus, sample_bar):
+        """on_bar updates prices using close_adj when adjustment_mode='split_adjusted'."""
         config = PortfolioConfig(
             initial_cash=Decimal("100000"),
             adjustment_mode="split_adjusted",
@@ -77,7 +77,7 @@ class TestPortfolioServiceSplitAdjusted:
 
         portfolio.on_bar(sample_bar)
 
-        assert portfolio._latest_prices["AAPL"] == Decimal("100.50")
+        assert portfolio._latest_prices["AAPL"] == Decimal("105.50")
 
     def test_process_dividend_with_split_adjusted_adds_cash(self, event_bus):
         """process_dividend adds cash when adjustment_mode='split_adjusted'."""

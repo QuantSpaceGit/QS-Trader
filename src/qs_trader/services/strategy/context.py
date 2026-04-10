@@ -113,8 +113,12 @@ class Context:
             max_bars: Maximum bars to cache per symbol (default 500)
             config: Optional strategy configuration dict for feature flags
             adjustment_mode: Adjustment mode for price resolution.
-                'split_adjusted' = use open/high/low/close fields (default),
-                'total_return' = use open_adj/high_adj/low_adj/close_adj fields.
+                                Both supported modes resolve to the adjusted ClickHouse OHLC
+                                fields (`open_adj/high_adj/low_adj/close_adj`) when they are
+                                available.
+                                - 'split_adjusted' keeps dividend cash flows separate.
+                                - 'total_return' is reserved for workflows that suppress
+                                    separate dividend cash-ins downstream.
         """
         self._strategy_id = strategy_id
         self._event_bus = event_bus
@@ -429,8 +433,10 @@ class Context:
         Called by StrategyService before on_bar() to maintain rolling window
         of bars per symbol for historical lookups.
 
-        Bars are already backward-adjusted by data service - no adjustment needed here.
-        All services (Strategy, Portfolio, Reporting) work with the same backward-adjusted prices.
+        Bars carry both base OHLC fields and the adjusted ClickHouse series
+        when available. Strategy price selection happens later via
+        adjustment-mode-aware accessors such as get_price() and
+        get_price_series().
 
         Args:
             event: PriceBarEvent to cache (already backward-adjusted from data service)
@@ -467,8 +473,8 @@ class Context:
             Latest price as Decimal, or None if no bars cached
 
         Example:
-            >>> # Context configured with price_field='close' (default)
-            >>> price = context.get_price("AAPL")  # Returns close (split-adjusted)
+            >>> # Context configured with the default split_adjusted workflow
+            >>> price = context.get_price("AAPL")  # Returns close_adj when available
             >>> if price:
             ...     context.emit_signal(
             ...         timestamp=event.timestamp,
@@ -478,18 +484,18 @@ class Context:
             ...         confidence=0.80
             ...     )
             >>>
-            >>> # Context configured with price_field='close_adj'
-            >>> price = context.get_price("AAPL")  # Returns close_adj (total-return)
-            >>> # Useful for long-term strategies avoiding dividend gap noise
+            >>> # Total-return workflows use the same adjusted series for price access
+            >>> price = context.get_price("AAPL")  # Returns close_adj when available
 
         Performance:
             O(1) - fast lookup from cache
 
         Note:
             Adjustment mode is configured at backtest level via BacktestConfig.strategy_adjustment_mode.
-            Default is 'split_adjusted' (uses close field, shows dividend drops).
-            Use 'total_return' for total-return adjusted (uses close_adj field, smoothed) prices.
-            Use resolve_field() to get other OHLC fields in the same adjustment mode.
+            Both supported workflows prefer the adjusted ClickHouse series so
+            strategies, fills, and Research-owned visualization stay on the
+            same basis. When an adapter does not populate the adjusted fields,
+            Context falls back to the base OHLC field for compatibility.
         """
         if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
             logger.debug(
@@ -500,9 +506,7 @@ class Context:
             return None
 
         latest_bar = self._bar_cache[symbol][-1]
-        # Use resolve_field to get correct field name based on adjustment_mode
-        field_name = self.resolve_field("close")
-        price: Decimal = getattr(latest_bar, field_name)
+        price, field_name = self._get_bar_value(latest_bar, "close")
 
         logger.debug(
             "strategy.context.get_price.success",
@@ -535,7 +539,8 @@ class Context:
             >>> # Calculate 20-period SMA manually
             >>> bars = context.get_bars("AAPL", n=20)
             >>> if bars and len(bars) == 20:
-            ...     prices = [bar.close for bar in bars]  # Can use .close or .close_adj
+            ...     field_name = context.resolve_field("close")
+            ...     prices = [getattr(bar, field_name, bar.close) for bar in bars]
             ...     sma_20 = sum(prices) / 20
             ...
             ...     current_price = bars[-1].close
@@ -631,17 +636,18 @@ class Context:
 
         Note:
             Uses same adjustment_mode as get_price() for consistency.
-            If adjustment_mode='split_adjusted', returns close field values.
-            If adjustment_mode='total_return', returns close_adj field values.
-            Use resolve_field() to get other OHLC fields (open, high, low).
+            Both supported workflows prefer the adjusted close series when it
+            exists and otherwise fall back to the base close field.
+            Use resolve_field() to get the matching OHLC field name for direct
+            bar access.
         """
         bars = self.get_bars(symbol, n)
         if bars is None:
             return None
 
-        # Use resolve_field to get correct field name based on adjustment_mode
-        field_name = self.resolve_field("close")
-        prices = [getattr(bar, field_name) for bar in bars]
+        prices_with_fields = [self._get_bar_value(bar, "close") for bar in bars]
+        prices = [price for price, _ in prices_with_fields]
+        field_name = prices_with_fields[-1][1] if prices_with_fields else self.resolve_field("close")
 
         logger.debug(
             "strategy.context.get_price_series.success",
@@ -738,32 +744,42 @@ class Context:
     def resolve_field(self, base_field: str) -> str:
         """Resolve base field name to actual field based on adjustment mode.
 
-        Allows strategies to request any OHLC field and get the correctly adjusted version.
+        Allows strategies to request any OHLC field and get the adjusted-field
+        name used by the canonical ClickHouse backtest path.
 
         Args:
             base_field: Base field name ('open', 'high', 'low', 'close', 'vwap')
 
         Returns:
             Adjusted field name based on adjustment_mode.
-            For split_adjusted: returns base_field as-is
-            For total_return: returns base_field + '_adj'
+            Both supported workflows resolve to base_field + '_adj'.
 
         Example:
             >>> context = Context(strategy_id="test", event_bus=bus, price_field="split_adjusted")
-            >>> context.resolve_field("open")  # Returns "open"
-            >>> context.resolve_field("close")  # Returns "close"
+            >>> context.resolve_field("open")  # Returns "open_adj"
+            >>> context.resolve_field("close")  # Returns "close_adj"
             >>>
             >>> context = Context(strategy_id="test", event_bus=bus, price_field="total_return")
             >>> context.resolve_field("open")  # Returns "open_adj"
             >>> context.resolve_field("close")  # Returns "close_adj"
         """
-        if self._adjustment_mode == "split_adjusted":
+        if base_field.endswith("_adj"):
             return base_field
-        elif self._adjustment_mode == "total_return":
-            # For total_return mode, append _adj to base field
+
+        if self._adjustment_mode in {"split_adjusted", "total_return"}:
             return f"{base_field}_adj"
-        else:
-            raise ValueError(f"Unknown adjustment_mode: {self._adjustment_mode}")
+
+        raise ValueError(f"Unknown adjustment_mode: {self._adjustment_mode}")
+
+    def _get_bar_value(self, bar: PriceBarEvent, base_field: str) -> tuple[Decimal, str]:
+        """Return the configured bar value with graceful fallback to the base field."""
+        resolved_field = self.resolve_field(base_field)
+        value = getattr(bar, resolved_field, None)
+        if value is not None:
+            return value, resolved_field
+
+        fallback_value = getattr(bar, base_field)
+        return fallback_value, base_field
 
     @property
     def strategy_id(self) -> str:

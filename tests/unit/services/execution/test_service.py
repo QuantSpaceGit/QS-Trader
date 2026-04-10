@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from qs_trader.events.events import PriceBarEvent
 from qs_trader.services.data.models import Bar
 from qs_trader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qs_trader.services.execution.models import Order, OrderSide, OrderState, OrderType
@@ -173,6 +174,43 @@ class TestExecutionServiceBasics:
 
 class TestExecutionServiceFills:
     """Test fill generation."""
+
+    def test_on_bar_event_uses_adjusted_open_for_split_adjusted_mode(self) -> None:
+        """split_adjusted fills should use the adjusted ClickHouse open when available."""
+        config = make_config(market_order_queue_bars=1, slippage_bps=Decimal("5"))
+        service = ExecutionService(config, adjustment_mode="split_adjusted")
+
+        order = Order(
+            symbol="AAPL",
+            side=OrderSide.BUY,
+            quantity=Decimal("100"),
+            order_type=OrderType.MARKET,
+            created_at=datetime.now(),
+        )
+        order.bars_queued = 1
+        service.submit_order(order)
+
+        event = PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2024-01-02T16:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("151.00"),
+            low=Decimal("149.00"),
+            close=Decimal("150.50"),
+            open_adj=Decimal("15.00"),
+            high_adj=Decimal("15.10"),
+            low_adj=Decimal("14.90"),
+            close_adj=Decimal("15.05"),
+            volume=1000000,
+            source="test",
+            interval="1d",
+        )
+
+        service.on_bar_event(event)
+
+        assert order.state == OrderState.FILLED
+        assert order.filled_quantity == Decimal("100")
+        assert order.avg_fill_price == Decimal("15.0") * Decimal("1.0005")
 
     def test_market_order_queued_no_fill(self) -> None:
         """Test market order queued doesn't fill immediately."""

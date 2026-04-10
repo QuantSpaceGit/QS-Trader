@@ -966,8 +966,12 @@ class PortfolioService:
         Process cash dividend.
 
         Behavior depends on portfolio adjustment_mode configuration:
-        - If adjustment_mode='split_adjusted': Process dividend as cash flow (prices show dividend drops)
-        - If adjustment_mode='total_return': Skip dividend (prices already include dividend appreciation)
+                - If adjustment_mode='split_adjusted': Process dividend as a separate
+                    cash flow while valuation still uses the adjusted ClickHouse bar
+                    series.
+                - If adjustment_mode='total_return': Skip the separate cash flow for
+                    workflows that treat dividend effects as already accounted for in the
+                    reporting path.
 
         For long positions: Cash increases (income)
         For short positions: Cash decreases (expense)
@@ -988,7 +992,7 @@ class PortfolioService:
             >>>
             >>> # Portfolio using 'total_return'
             >>> portfolio.process_dividend("AAPL", datetime.now(), Decimal("0.82"))
-            >>> # Skipped - dividend already reflected in price appreciation
+            >>> # Skipped - dividend cash is intentionally suppressed
         """
         # Skip dividend processing if using total-return adjusted prices
         if self._adjustment_mode == "total_return":
@@ -998,7 +1002,7 @@ class PortfolioService:
                 symbol=symbol,
                 effective_date=effective_date.isoformat(),
                 amount_per_share=str(amount_per_share),
-                reason="Using total-return adjusted prices - dividends already reflected in price appreciation",
+                reason="Using total-return workflow - dividend cash is intentionally suppressed",
                 adjustment_mode=self._adjustment_mode,
             )
 
@@ -1022,7 +1026,7 @@ class PortfolioService:
                         total_amount=0.0,  # No cash flow - dividend in price
                         position_type="LONG" if position.quantity > 0 else "SHORT",
                         strategy_id=strategy_id,
-                        note="No cash flow - dividend already reflected in total-return adjusted prices",
+                        note="No cash flow - total-return workflow suppresses separate dividend cash",
                     )
             else:
                 # No position - show zero impact
@@ -1739,11 +1743,10 @@ class PortfolioService:
         Args:
             event: Price bar event with symbol and OHLCV data
         """
-        # Update latest price using configured adjustment mode (default to close)
-        if self._adjustment_mode == "split_adjusted":
-            price = event.close
-        else:  # total_return
-            price = event.close_adj if event.close_adj is not None else event.close
+        # Both supported workflows value positions from the adjusted ClickHouse
+        # close when it is available so portfolio marks stay aligned with
+        # strategy signals, fills, and Research-owned visualization.
+        price = event.close_adj if event.close_adj is not None else event.close
         self._latest_prices[event.symbol] = price
         logger.debug(
             "portfolio_service.price_updated",

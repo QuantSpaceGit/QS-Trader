@@ -4,9 +4,12 @@ Reads per-symbol daily OHLC bars from `market.as_us_equity_ohlc_daily`
 in the QS-Datamaster ClickHouse database.
 
 Canonical PriceBarEvent mapping:
-  - open/high/low/close → raw split-adjusted prices
-  - open_adj/high_adj/low_adj/close_adj → total-return adjusted prices
-    (openadj, highadj, lowadj, closeadj from AlgoSeek)
+    - open/high/low/close → base OHLC columns preserved for diagnostics and
+        compatibility
+    - open_adj/high_adj/low_adj/close_adj → canonical adjusted ClickHouse
+        series used by the QS-Trader split_adjusted execution path and the
+        Research-owned visualization contract (openadj, highadj, lowadj,
+        closeadj from AlgoSeek)
   - volume → dailyvolumeadj (adjusted daily volume, rounded to int)
 
 Design:
@@ -14,7 +17,7 @@ Design:
   - Uses clickhouse-connect HTTP client (port 8123)
   - Timestamps use market close 16:00 ET → UTC (same as YahooCSVDataAdapter)
   - Symbol resolution: ticker name matches `ticker` column in OHLC table
-  - No corporate action support (AlgoSeek prices are pre-adjusted)
+    - No corporate action support (AlgoSeek adjusted series are pre-adjusted)
   - Cache: all bars for the full date range are fetched in one query
 
 Example:

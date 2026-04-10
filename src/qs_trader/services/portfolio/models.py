@@ -348,8 +348,10 @@ class PortfolioConfig(BaseModel):
         keep_position_history: Keep flat positions for reporting
         max_ledger_entries: Max ledger size (0 = unlimited)
         adjustment_mode: Adjustment mode for valuation and mark-to-market.
-            'split_adjusted' = use close field (process dividend cash-ins),
-            'total_return' = use close_adj field (skip dividend cash-ins).
+            Both supported workflows prefer the adjusted ClickHouse close when
+            it is available.
+            - 'split_adjusted' = process dividend cash-ins separately.
+            - 'total_return' = skip separate dividend cash-ins.
             Default: 'split_adjusted'
 
     Example:

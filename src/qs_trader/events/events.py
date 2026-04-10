@@ -262,13 +262,12 @@ class PriceBarEvent(ValidatedEvent):
     Pydantic auto-converts to Decimal for Python domain use.
 
     Price adjustment modes:
-    - open/high/low/close: Split-adjusted only (CumulativeVolumeFactor)
-      Shows real market prices with dividend drops on ex-dates.
-      Use for: Trading signals, execution, realistic price action.
+        - open/high/low/close: Base adapter OHLC columns kept for compatibility
+            and diagnostics.
 
-    - open_adj/high_adj/low_adj/close_adj: Total-return adjusted (CumulativePriceFactor)
-      Smooths dividend drops, assumes reinvestment at ex-date.
-      Use for: Performance analysis, long-term backtests, benchmarking.
+        - open_adj/high_adj/low_adj/close_adj: Adjusted ClickHouse OHLC series
+            used by the canonical QS-Trader / QS-Research backtest path when the
+            adapter provides those fields.
     """
 
     SCHEMA_BASE: ClassVar[Optional[str]] = "data/bar"
@@ -282,14 +281,14 @@ class PriceBarEvent(ValidatedEvent):
     timestamp_local: Optional[str] = None  # RFC3339 with offset (e.g., 09:30:00-05:00)
     timezone: Optional[str] = None  # IANA timezone (e.g., America/New_York)
 
-    # Split-adjusted prices (backward-adjusted using CumulativeVolumeFactor)
+    # Base OHLC columns preserved from the adapter payload
     open: Decimal  # String on wire, Decimal in Python
     high: Decimal
     low: Decimal
     close: Decimal
 
-    # Total-return adjusted prices (backward-adjusted using CumulativePriceFactor)
-    # Optional - only populated by adapters that support dividend adjustment
+    # Canonical adjusted OHLC series. Optional - only populated by adapters
+    # that expose adjusted fields.
     open_adj: Optional[Decimal] = None
     high_adj: Optional[Decimal] = None
     low_adj: Optional[Decimal] = None

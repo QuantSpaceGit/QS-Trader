@@ -40,12 +40,14 @@ The engine processes a stream of domain events. Each service reacts deterministi
 
 ### High-Level Components
 
-- **Data Service**: Reads raw bars via adapters, emits `PriceBarEvent`.
+- **Data Service**: Reads bars via adapters, emits `PriceBarEvent` with base OHLC plus adjusted fields when the source provides them.
 - **Strategy Service**: Consumes market events, computes indicators, emits `SignalEvent` (intentions).
 - **Execution Service**: Translates signals → orders, applies slippage/commission, emits `OrderEvent` / `FillEvent`.
 - **Portfolio Service**: Updates positions, cash, P&L on fills.
 - **Metrics/Reporting Service**: Aggregates performance and writes outputs.
 - **Event Bus / Store**: Dispatches & persists ordered events for replay and inspection.
+
+For canonical ClickHouse-backed backtests, the trading/reporting path consumes the adjusted ClickHouse OHLC series (`openadj/highadj/lowadj/closeadj`) so strategy signals, fills, portfolio valuation, and downstream Research visualization stay on the same price basis. The legacy `split_adjusted` workflow name remains the default, but it now means “use the adjusted ClickHouse series and process dividends as separate cash flows”.
 
 ### Event Flow Diagram
 

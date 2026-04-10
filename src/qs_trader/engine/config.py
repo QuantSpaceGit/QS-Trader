@@ -204,8 +204,10 @@ class BacktestConfig(BaseModel):
         - Uses strategy_adjustment_mode (default: 'split_adjusted')
         - Strategies can use any OHLC field (open, high, low, close, vwap)
         - All fields come from same adjustment mode for internal consistency
-        - 'split_adjusted': Uses open, high, low, close (shows dividend drops)
-        - 'total_return': Uses open_adj, high_adj, low_adj, close_adj (smoothed)
+                - 'split_adjusted': Uses the adjusted ClickHouse OHLC series
+                    (open_adj/high_adj/low_adj/close_adj) for the canonical backtest path.
+                - 'total_return': Uses the same adjusted OHLC series for price access;
+                    the distinction is reserved for downstream dividend-accounting policy.
 
     Group 2 - Manager/Execution/Portfolio/Reporting:
         - Uses portfolio_adjustment_mode (default: 'split_adjusted')
@@ -213,8 +215,10 @@ class BacktestConfig(BaseModel):
         - Manager: Uses signal prices (from strategy's adjustment mode)
         - Execution: Can use any field (e.g., next open for realistic fills)
         - Portfolio: Can use any field for valuation (typically close)
-        - If 'split_adjusted': Process dividend cash-ins (dividends as separate cash flows)
-        - If 'total_return': Skip dividend cash-ins (dividends already in price appreciation)
+                - If 'split_adjusted': Process dividend cash-ins as separate cash flows
+                    while still valuing from the adjusted ClickHouse series.
+                - If 'total_return': Skip separate dividend cash-ins for workflows that
+                    treat dividend effects as already accounted for downstream.
 
     Quantitative Finance Rationale:
     - Adjustment mode consistency within each group prevents mixed price bases
@@ -232,12 +236,12 @@ class BacktestConfig(BaseModel):
         replay_speed: 0.0  # Full speed (default). Use 1.0 for 1 sec/bar
 
         # Adjustment mode selection (optional, defaults shown)
-        strategy_adjustment_mode: split_adjusted      # Strategy uses split-adjusted OHLC
-        portfolio_adjustment_mode: split_adjusted     # Portfolio/Manager/Execution use split-adjusted OHLC
+        strategy_adjustment_mode: split_adjusted      # Strategy uses adjusted ClickHouse OHLC
+        portfolio_adjustment_mode: split_adjusted     # Portfolio/Manager/Execution use adjusted ClickHouse OHLC
 
-        # Alternative: Total-return mode for long-term strategies
-        # strategy_adjustment_mode: total_return   # Use *_adj fields (smooth, no dividend gaps)
-        # portfolio_adjustment_mode: total_return  # Smooth equity curve, skip dividend cash-ins
+        # Alternative: suppress separate dividend cash-ins downstream
+        # strategy_adjustment_mode: total_return   # Same adjusted OHLC basis for strategy evaluation
+        # portfolio_adjustment_mode: total_return  # Same adjusted OHLC basis, skip dividend cash-ins
 
         data:
           sources:
@@ -294,14 +298,15 @@ class BacktestConfig(BaseModel):
         default="split_adjusted",
         description="Adjustment mode for Group 1 (Strategy & Indicators). "
         "Strategies can use any OHLC field (open, high, low, close) from this mode. "
-        "Valid: 'split_adjusted' (use open/high/low/close, shows dividend drops) or "
-        "'total_return' (use open_adj/high_adj/low_adj/close_adj, smoothed).",
+        "Valid: 'split_adjusted' (canonical adjusted ClickHouse OHLC series) or "
+        "'total_return' (same adjusted OHLC basis, reserved for total-return workflows).",
     )
     portfolio_adjustment_mode: str = Field(
         default="split_adjusted",
         description="Adjustment mode for Group 2 (Manager/Execution/Portfolio/Reporting). "
         "Services can use any OHLC field from this mode (e.g., execution uses next open). "
-        "Valid: 'split_adjusted' (process dividends) or 'total_return' (skip dividends).",
+        "Valid: 'split_adjusted' (use adjusted OHLC and process dividends separately) or "
+        "'total_return' (use adjusted OHLC and skip separate dividend cash-ins).",
     )
 
     # Reporting (optional)
@@ -419,7 +424,8 @@ class BacktestConfig(BaseModel):
         if v not in valid_modes:
             raise ValueError(
                 f"strategy_adjustment_mode must be one of {valid_modes}, got '{v}'. "
-                "Use 'split_adjusted' for open/high/low/close or 'total_return' for *_adj fields."
+                "Use 'split_adjusted' for the canonical adjusted ClickHouse OHLC series or "
+                "'total_return' for the same adjusted OHLC basis in total-return workflows."
             )
         return v
 

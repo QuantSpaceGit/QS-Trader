@@ -63,7 +63,9 @@ class ExecutionService:
             config: Execution configuration
             event_bus: Optional event bus for Phase 5 event-driven mode
             adjustment_mode: Adjustment mode to use for fills ('split_adjusted' or 'total_return').
-                Must match portfolio adjustment_mode for consistent accounting.
+                Both supported workflows consume the adjusted ClickHouse OHLC
+                series when it is available so fills stay aligned with
+                portfolio accounting and Research-owned visualization.
                 Default: 'split_adjusted'
         """
         self.config = config
@@ -391,17 +393,13 @@ class ExecutionService:
 
         trade_datetime = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
 
-        # Extract OHLC prices using configured adjustment mode
-        if self._adjustment_mode == "split_adjusted":
-            open_price = float(event.open)
-            high_price = float(event.high)
-            low_price = float(event.low)
-            close_price = float(event.close)
-        else:  # total_return - use _adj fields with fallback to regular fields
-            open_price = float(event.open_adj if event.open_adj is not None else event.open)
-            high_price = float(event.high_adj if event.high_adj is not None else event.high)
-            low_price = float(event.low_adj if event.low_adj is not None else event.low)
-            close_price = float(event.close_adj if event.close_adj is not None else event.close)
+        # Both supported workflows fill orders from the adjusted ClickHouse bar
+        # series when available. Fall back to base OHLC only for adapters that
+        # do not populate the adjusted fields.
+        open_price = float(event.open_adj if event.open_adj is not None else event.open)
+        high_price = float(event.high_adj if event.high_adj is not None else event.high)
+        low_price = float(event.low_adj if event.low_adj is not None else event.low)
+        close_price = float(event.close_adj if event.close_adj is not None else event.close)
 
         bar = Bar(
             trade_datetime=trade_datetime,
