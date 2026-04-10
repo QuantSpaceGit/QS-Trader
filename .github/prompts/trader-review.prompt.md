@@ -18,6 +18,7 @@ Check for:
 - **Logging & observability**: silent failures, missing log context (symbol, date, strategy name), overly verbose debug logs in hot paths
 - **Logical bugs**: incorrect conditional logic, wrong comparison operators (e.g. `is` vs `==`), silent integer truncation
 - **Edge cases**: empty dataframes, missing bars, strategies with zero positions, untested warmup period behaviour
+- **Documentation**: if public API, engine behaviour, CLI commands, or config schema changed, verify `docs/` and `README.md` are updated to match
 - If more information is provided, adjust to the context of the code being reviewed.
 
 Return only actionable recommendations in a bullet list format like:
