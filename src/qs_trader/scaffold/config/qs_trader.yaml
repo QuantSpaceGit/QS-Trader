@@ -159,21 +159,13 @@ output:
   # Timestamp format for run subdirectories (always used)
   run_id_format: "%Y%m%d_%H%M%S" # Format: 20241024_142153
 
-  # Database persistence for API / Dashboard consumption (DuckDB)
+  # Database persistence for API / Dashboard consumption.
   # When enabled, each backtest run writes summary metrics, equity curves,
-  # returns, trades, and drawdowns to a DuckDB file alongside the regular
-  # file-based outputs (JSON/Parquet/HTML).
-  # Downstream services (e.g. QS-Datamaster /backtest router) can open this
-  # file read-only to serve data to dashboards without filesystem coupling.
+  # returns, trades, and drawdowns to the PostgreSQL operational store.
   database:
-    enabled: false # Set to true to activate DuckDB output
-    path: "data/backtest_runs.duckdb" # Relative to project root
-    # DuckDB stores all run-owned outputs: metrics, equity_curve, returns,
-    # trades, and drawdowns.  Canonical ClickHouse-backed runs additionally
-    # persist a lightweight input manifest in runs.input_manifest_json so
-    # downstream consumers (e.g. QS-Datamaster /backtest/inputs) can
-    # re-resolve market data directly from ClickHouse without duplicating
-    # bar rows into DuckDB.
+    enabled: false # Set to true to activate PostgreSQL persistence
+    backend: "postgres"
+    postgres_url: "postgresql+psycopg://${RESEARCH_POSTGRES_USER}:${RESEARCH_POSTGRES_PASSWORD}@${RESEARCH_POSTGRES_HOST}:${RESEARCH_POSTGRES_PORT}/${RESEARCH_POSTGRES_DB}?sslmode=${RESEARCH_POSTGRES_SSLMODE}"
 
 # ============================================================
 # Logging Configuration

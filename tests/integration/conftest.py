@@ -41,6 +41,8 @@ def mock_system_config(tmp_path: Path):
     mock_config.output = Mock()
     mock_config.output.experiments_root = str(output_dir)
     mock_config.output.run_id_format = "%Y%m%d_%H%M%S"
+    mock_config.output.artifact_policy = Mock()
+    mock_config.output.artifact_policy.mode = "filesystem"
     mock_config.output.capture_git_info = False
     mock_config.output.capture_environment = False
     mock_config.output.event_store = Mock()

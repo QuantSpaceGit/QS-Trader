@@ -19,6 +19,7 @@ import structlog
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+from qs_trader.engine.artifact_mode import validate_artifact_mode
 from qs_trader.engine.config import BacktestConfig
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.event_store import EventStore, InMemoryEventStore, ParquetEventStore, SQLiteEventStore
@@ -57,7 +58,7 @@ def _build_clickhouse_manifest(
     (e.g. Yahoo/CSV), or when any required metadata cannot be discovered.
 
     The resulting manifest captures *what the run consumed* so that it can be
-    stored alongside the DuckDB run-output summary (Phase 1 schema) and later
+    stored alongside the operational-store run-output summary (Phase 1 schema) and later
     used by downstream consumers (Phase 4) to re-resolve canonical inputs from
     ClickHouse without re-executing the backtest.
 
@@ -267,7 +268,7 @@ class BacktestEngine:
             input_manifest: Optional ClickHouseInputManifest describing the canonical
                 ClickHouse inputs consumed by this run. ``None`` for Yahoo/CSV runs.
                 Passed to ReportingService.setup() so it can be persisted alongside
-                the DuckDB run summary.
+                the operational-store run summary.
         """
         self.config = config
         self._event_bus = event_bus
@@ -325,6 +326,10 @@ class BacktestEngine:
         """
         # Load system configuration
         system_config = get_system_config()
+
+        # Validate artifact mode before proceeding
+        # Raises ArtifactModeError if database_only mode has incompatible config
+        validate_artifact_mode(system_config)
 
         # Initialize logging from system config
         LoggerFactory.configure(system_config.logging.to_logger_config())
@@ -838,6 +843,7 @@ class BacktestEngine:
                         "end_date": self.config.end_date,
                         "strategy_ids": strategy_ids,
                         "input_manifest": self._input_manifest,
+                        "backtest_config": self.config,
                     }
                     self._reporting_service.setup(context)
                 except Exception as e:

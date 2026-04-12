@@ -63,7 +63,7 @@ DatabaseWriteState = Literal["not_attempted", "disabled", "skipped", "succeeded"
 
 @dataclass(frozen=True)
 class DatabaseWriteStatus:
-    """Status of the optional DuckDB persistence step for a backtest run."""
+    """Status of the optional database persistence step for a backtest run."""
 
     state: DatabaseWriteState
     db_path: str | None = None
@@ -112,8 +112,8 @@ class ReportingService:
 
         # State tracking
         self._backtest_id: str | None = None
-        self._start_datetime: str | None = None
-        self._end_datetime: str | None = None
+        self._start_datetime: datetime | None = None
+        self._end_datetime: datetime | None = None
         self._initial_equity: Decimal | None = None
         self._bar_count = 0
         self._last_portfolio_state: PortfolioStateEvent | None = None
@@ -133,22 +133,24 @@ class ReportingService:
         self._open_trades: dict[str, dict[str, Any]] = {}  # symbol → entry info
 
         # Manifest populated in setup() only for canonical ClickHouse-backed runs.
-        # Persisted to DuckDB alongside the run summary via _write_to_database().
+        # Persisted alongside the run summary via _write_to_database().
         # None for Yahoo/CSV runs and when setup() is not called with a manifest.
         self._input_manifest: "ClickHouseInputManifest | None" = None
         self._database_write_status = DatabaseWriteStatus(state="not_attempted")
 
         # Remote-runner / job metadata (populated from backtest_config in teardown).
+        self._run_id: str | None = None
         self._job_group_id: str | None = None
         self._submission_source: str | None = None
         self._split_pct: float | None = None
         self._split_role: str | None = None
+        self._backtest_config: Any | None = None
 
         # Subscribe to events
         self._subscribe_to_events()
 
     def get_database_write_status(self) -> DatabaseWriteStatus:
-        """Return the latest DuckDB persistence outcome for this run."""
+        """Return the latest database persistence outcome for this run."""
         return self._database_write_status
 
     def _set_database_write_status(
@@ -159,7 +161,7 @@ class ReportingService:
         reason: str | None = None,
         error_type: str | None = None,
     ) -> None:
-        """Store the latest DuckDB persistence outcome for CLI/result reporting."""
+        """Store the latest database persistence outcome for CLI/result reporting."""
         self._database_write_status = DatabaseWriteStatus(
             state=state,
             db_path=str(db_path) if db_path is not None else None,
@@ -205,7 +207,7 @@ class ReportingService:
 
         # Initialize on first event
         if self._start_datetime is None:
-            self._start_datetime = event.snapshot_datetime
+            self._start_datetime = snapshot_dt  # Store as datetime object, not string
             self._initial_equity = event.current_portfolio_equity
 
         # Update calculators
@@ -537,7 +539,7 @@ class ReportingService:
         ).quantize(Decimal("0.01"))
 
         # Calculate duration for CAGR
-        start_dt = datetime.fromisoformat(self._start_datetime.replace("Z", "+00:00"))
+        start_dt = self._start_datetime
         current_dt = datetime.fromisoformat(portfolio_event.snapshot_datetime.replace("Z", "+00:00"))
         duration_days = (current_dt - start_dt).days
 
@@ -713,9 +715,9 @@ class ReportingService:
         assert self._end_datetime is not None
         assert self._initial_equity is not None
 
-        # Parse datetime strings
-        start_dt = datetime.fromisoformat(self._start_datetime.replace("Z", "+00:00"))
-        end_dt = datetime.fromisoformat(self._end_datetime.replace("Z", "+00:00"))
+        # Use datetime objects directly (already parsed)
+        start_dt = self._start_datetime
+        end_dt = self._end_datetime
         duration_days = (end_dt - start_dt).days
 
         # Calculate returns
@@ -909,16 +911,16 @@ class ReportingService:
         if not self._backtest_id:
             return
 
-        output_path = self.config.get_output_path(self.output_dir)
-
         # Resolve system config once for both gating and database writing.
         from qs_trader.system.config import get_system_config
 
         system_config = None
         db_enabled = False
+        should_write_files = True
         try:
             system_config = get_system_config()
             db_enabled = system_config.output.database.enabled
+            should_write_files = system_config.output.artifact_policy.mode != "database_only"
         except Exception:
             self._set_database_write_status(
                 state="skipped",
@@ -928,6 +930,8 @@ class ReportingService:
                 "reporting.system_config_unavailable",
                 reason="Could not load system config; database output disabled for this run",
             )
+
+        output_path = self.config.get_output_path(self.output_dir) if should_write_files else None
 
         # Only build each time-series when at least one consumer needs it
         needs_equity = db_enabled or (self.config.write_parquet and self.config.include_equity_curve)
@@ -1000,12 +1004,12 @@ class ReportingService:
 
         # HTML report generation depends on performance.json, so write the
         # summary whenever either JSON output or HTML output is enabled.
-        if self.config.write_json or self.config.write_html_report:
+        if should_write_files and output_path is not None and (self.config.write_json or self.config.write_html_report):
             json_path = output_path / "performance.json"
             write_json_report(metrics, json_path)
 
         # Write JSON time-series
-        if self.config.write_parquet:
+        if should_write_files and output_path is not None and self.config.write_parquet:
             ts_path = self.config.get_timeseries_path(self.output_dir)
 
             if self.config.include_equity_curve and equity_points:
@@ -1021,7 +1025,7 @@ class ReportingService:
                 write_drawdowns_json(metrics.drawdown_periods, ts_path / "drawdowns.json")
 
         # Write chart data JSON (one file per strategy)
-        if self.config.write_csv_timeline:
+        if should_write_files and output_path is not None and self.config.write_csv_timeline:
             if not self._event_store:
                 self.logger.warning(
                     "chart_data.skipped",
@@ -1060,7 +1064,7 @@ class ReportingService:
                         )
 
         # Write HTML report
-        if self.config.write_html_report:
+        if should_write_files and output_path is not None and self.config.write_html_report:
             try:
                 from qs_trader.services.reporting.html_reporter import HTMLReportGenerator
 
@@ -1074,9 +1078,47 @@ class ReportingService:
                     error_type=type(e).__name__,
                 )
 
-        # Write to DuckDB database (if enabled in system config)
+        # Write to database (if enabled in system config)
         if system_config is not None:
             self._write_to_database(system_config, metrics, equity_points, returns_points)
+
+    def _resolve_run_identifiers(self) -> tuple[str | None, str | None]:
+        """Resolve experiment_id/run_id for persistence.
+
+        Prefers explicit backtest metadata, which is required for
+        ``database_only`` service runs where no run-directory path exists.
+        Falls back to the historical output-directory structure for CLI and
+        filesystem artifact workflows.
+        """
+        experiment_id: str | None = None
+        run_id = self._run_id
+
+        if self._backtest_config is not None:
+            config_experiment_id = getattr(self._backtest_config, "sanitized_backtest_id", None) or getattr(
+                self._backtest_config, "backtest_id", None
+            )
+            config_run_id = getattr(self._backtest_config, "run_id", None)
+
+            if config_experiment_id is not None:
+                experiment_id = str(config_experiment_id)
+            if config_run_id is not None:
+                run_id = str(config_run_id)
+
+        parts = self.output_dir.parts
+        try:
+            runs_idx = parts.index("runs")
+        except ValueError:
+            return experiment_id, run_id
+
+        if experiment_id is None and runs_idx >= 1:
+            experiment_id = parts[runs_idx - 1]
+        if run_id is None and runs_idx + 1 < len(parts):
+            run_id = parts[runs_idx + 1]
+
+        if experiment_id is None:
+            experiment_id = self._backtest_id
+
+        return experiment_id, run_id
 
     def _write_to_database(
         self,
@@ -1085,13 +1127,10 @@ class ReportingService:
         equity_points: list[EquityCurvePoint],
         returns_points: list[ReturnPoint],
     ) -> None:
-        """Write backtest results to DuckDB if enabled in system config.
+        """Write backtest results to the configured database backend if enabled.
 
-        Extracts experiment_id and run_id from the output directory path
-        structure: ``{experiments_root}/{experiment_id}/runs/{run_id}/``
-
-        Relative database paths are resolved against ``system_config.config_root``
-        (the project root derived from the loaded config file location).
+        PostgreSQL is the only supported operational persistence backend.
+        Extracts experiment_id and run_id from the output directory path structure.
 
         Args:
             system_config: Resolved system configuration.
@@ -1104,63 +1143,132 @@ class ReportingService:
             self._set_database_write_status(state="disabled")
             return
 
-        # Derive experiment_id and run_id from output_dir path
-        # Expected: .../{experiment_id}/runs/{run_id}
-        parts = self.output_dir.parts
-        try:
-            runs_idx = parts.index("runs")
-            experiment_id = parts[runs_idx - 1]
-            run_id = parts[runs_idx + 1]
-        except (ValueError, IndexError):
+        experiment_id, run_id = self._resolve_run_identifiers()
+        if not experiment_id or not run_id:
             self._set_database_write_status(
                 state="skipped",
-                reason="Cannot derive experiment_id/run_id from output path",
+                reason="Cannot resolve experiment_id/run_id for database persistence",
             )
             self.logger.warning(
-                "duckdb_write.skipped",
-                reason="Cannot derive experiment_id/run_id from output path",
+                "database_write.skipped",
+                reason="Cannot resolve experiment_id/run_id for database persistence",
                 output_dir=str(self.output_dir),
             )
             return
 
-        # Resolve relative paths against config_root (project root)
-        db_path = Path(db_config.path)
-        if not db_path.is_absolute():
-            db_path = system_config.config_root / db_path
+        # Determine if we can provide run_manifest and config_snapshot
+        # (for database-only mode, these replace filesystem artifacts)
+        run_manifest = self._build_run_manifest()
+        config_snapshot = self._build_config_snapshot()
+        artifact_mode = system_config.output.artifact_policy.mode
 
         try:
-            from qs_trader.services.reporting.db_writer import DuckDBWriter
+            from qs_trader.services.reporting.writer_factory import create_persistence_writer
 
-            writer = DuckDBWriter(db_path)
-            writer.save_run(
-                experiment_id=experiment_id,
-                run_id=run_id,
-                metrics=metrics,
-                equity_curve=equity_points,
-                returns=returns_points,
-                trades=self._trade_stats_calc.trades,
-                drawdowns=metrics.drawdown_periods,
-                manifest=self._input_manifest,
-                job_group_id=self._job_group_id,
-                submission_source=self._submission_source,
-                split_pct=self._split_pct,
-                split_role=self._split_role,
+            writer = create_persistence_writer(system_config)
+            try:
+                writer.save_run(
+                    experiment_id=experiment_id,
+                    run_id=run_id,
+                    metrics=metrics,
+                    equity_curve=equity_points,
+                    returns=returns_points,
+                    trades=self._trade_stats_calc.trades,
+                    drawdowns=metrics.drawdown_periods,
+                    manifest=self._input_manifest,
+                    run_manifest=run_manifest,
+                    config_snapshot=config_snapshot,
+                    artifact_mode=artifact_mode,
+                    job_group_id=self._job_group_id,
+                    submission_source=self._submission_source,
+                    split_pct=self._split_pct,
+                    split_role=self._split_role,
+                )
+            finally:
+                close_writer = getattr(writer, "close", None)
+                if callable(close_writer):
+                    try:
+                        close_writer()
+                    except Exception as close_exc:
+                        self.logger.warning(
+                            "database_write.close_failed",
+                            error=str(close_exc),
+                            error_type=type(close_exc).__name__,
+                        )
+            write_target = db_config.postgres_url or db_config.backend
+            self._set_database_write_status(
+                state="succeeded",
+                db_path=write_target,
             )
-            self._set_database_write_status(state="succeeded", db_path=db_path)
 
         except Exception as e:
             self._set_database_write_status(
                 state="failed",
-                db_path=db_path,
                 reason=str(e),
                 error_type=type(e).__name__,
             )
             self.logger.error(
-                "duckdb_write.failed",
+                "database_write.failed",
                 error=str(e),
                 error_type=type(e).__name__,
-                db_path=str(db_path),
+                backend=db_config.backend,
+                exc_info=True,
             )
+
+    def _build_run_manifest(self) -> dict | None:
+        """Build run manifest dict for database-only execution mode.
+
+        The run manifest describes execution sources and context, replacing
+        the on-disk manifest.json file for service-owned runs.
+
+        Returns:
+            Run manifest dict or None if insufficient data is available.
+        """
+        if not self._backtest_id:
+            return None
+
+        manifest: dict[str, Any] = {
+            "backtest_id": self._backtest_id,
+            "start_datetime": self._start_datetime.isoformat() if self._start_datetime else None,
+            "end_datetime": self._end_datetime.isoformat() if self._end_datetime else None,
+            "submission_source": self._submission_source,
+            "job_group_id": self._job_group_id,
+            "run_id": self._run_id,
+        }
+
+        # Include input manifest if present (ClickHouse-backed runs)
+        if self._input_manifest is not None:
+            manifest["input_source"] = {
+                "kind": "clickhouse",
+                "manifest": self._input_manifest.model_dump()
+                if hasattr(self._input_manifest, "model_dump")
+                else self._input_manifest.dict(),
+            }
+
+        return manifest
+
+    def _build_config_snapshot(self) -> dict | None:
+        """Build normalized config snapshot for database-only execution mode.
+
+        Returns serialized backtest config, replacing the on-disk
+        config_snapshot.yaml file for service-owned runs.
+
+        Returns:
+            Config dict or None if backtest_config is not available.
+        """
+        if self._backtest_config is None:
+            return None
+
+        # Convert config to dict using Pydantic v2 model_dump or v1 dict
+        if hasattr(self._backtest_config, "model_dump"):
+            config_snapshot = self._backtest_config.model_dump(mode="json")
+            return config_snapshot if isinstance(config_snapshot, dict) else None
+        elif hasattr(self._backtest_config, "dict"):
+            config_snapshot = self._backtest_config.dict()
+            return config_snapshot if isinstance(config_snapshot, dict) else None
+        else:
+            # Fallback: try to serialize as-is
+            return dict(self._backtest_config) if hasattr(self._backtest_config, "__iter__") else None
 
     def _write_metadata(self, context: dict) -> None:
         """
@@ -1238,7 +1346,15 @@ class ReportingService:
         self._backtest_id = context.get("backtest_id", "unknown")
         self._strategy_ids = context.get("strategy_ids", [])
         self._input_manifest = context.get("input_manifest")  # None for Yahoo/CSV runs
+        self._backtest_config = context.get("backtest_config")
         self._set_database_write_status(state="not_attempted")
+
+        if self._backtest_config is not None:
+            self._run_id = getattr(self._backtest_config, "run_id", None)
+            self._job_group_id = getattr(self._backtest_config, "job_group_id", None)
+            self._submission_source = getattr(self._backtest_config, "submission_source", None)
+            self._split_pct = getattr(self._backtest_config, "split_pct", None)
+            self._split_role = getattr(self._backtest_config, "split_role", None)
 
         # Initialize strategy performance calculator with strategy IDs
         self._strategy_perf_calc = StrategyPerformanceCalculator(self._strategy_ids)
@@ -1269,9 +1385,12 @@ class ReportingService:
         if last_timestamp is not None:
             self._drawdown_calc.finalize(last_timestamp)
 
-        self._end_datetime = (
-            self._last_portfolio_state.snapshot_datetime if self._last_portfolio_state else self._start_datetime
-        )
+        # Set end_datetime as datetime object
+        if self._last_portfolio_state:
+            end_dt_str = self._last_portfolio_state.snapshot_datetime
+            self._end_datetime = datetime.fromisoformat(end_dt_str.replace("Z", "+00:00"))
+        else:
+            self._end_datetime = self._start_datetime
 
         # Generate final metrics
         final_equity = self._equity_calc.latest_equity() or Decimal("0")
@@ -1294,6 +1413,8 @@ class ReportingService:
         # Extract remote-runner / job metadata from backtest_config (if supplied).
         backtest_config = context.get("backtest_config")
         if backtest_config is not None:
+            self._backtest_config = backtest_config
+            self._run_id = getattr(backtest_config, "run_id", None)
             self._job_group_id = getattr(backtest_config, "job_group_id", None)
             self._submission_source = getattr(backtest_config, "submission_source", None)
             self._split_pct = getattr(backtest_config, "split_pct", None)
@@ -1305,7 +1426,16 @@ class ReportingService:
 
             # Write metadata.json if backtest_config provided
             if "backtest_config" in context:
-                self._write_metadata(context)
+                from qs_trader.system.config import get_system_config
+
+                should_write_metadata = True
+                try:
+                    should_write_metadata = get_system_config().output.artifact_policy.mode != "database_only"
+                except Exception:
+                    should_write_metadata = True
+
+                if should_write_metadata:
+                    self._write_metadata(context)
 
         # Display console report
         if self.config.display_final_report:
@@ -1321,10 +1451,12 @@ class ReportingService:
         self._last_portfolio_state = None
         self._portfolio_states_history = {}
         self._input_manifest = None
+        self._run_id = None
         self._job_group_id = None
         self._submission_source = None
         self._split_pct = None
         self._split_role = None
+        self._backtest_config = None
         self._set_database_write_status(state="not_attempted")
 
         # Reset calculators

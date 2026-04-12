@@ -328,15 +328,21 @@ class BacktestConfig(BaseModel):
     )
 
     # Remote-runner / job metadata (optional)
+    run_id: str | None = Field(
+        default=None,
+        description="Opaque per-run identifier assigned by the caller. "
+        "Used by service-owned database-only executions where run metadata "
+        "cannot be derived from a filesystem path.",
+    )
     job_group_id: str | None = Field(
         default=None,
         description="Opaque identifier that groups related runs (e.g. a parameter sweep). "
-        "Persisted to the DuckDB runs table so sweep results can be aggregated.",
+        "Persisted to the operational runs table so sweep results can be aggregated.",
     )
     submission_source: str | None = Field(
         default=None,
         description="System or agent that submitted this run (e.g. 'dashboard', 'cli'). "
-        "Persisted to the DuckDB runs table for provenance tracking.",
+        "Persisted to the operational runs table for provenance tracking.",
     )
 
     # In-sample / out-of-sample split metadata (optional)
@@ -345,12 +351,12 @@ class BacktestConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Fraction of the date range used as in-sample data (0.0–1.0). "
-        "NULL when no IS/OOS split is applied. Persisted to DuckDB runs table.",
+        "NULL when no IS/OOS split is applied. Persisted to the operational runs table.",
     )
     split_role: str | None = Field(
         default=None,
         description="Role of this run within an IS/OOS split: 'in_sample' or 'out_of_sample'. "
-        "NULL when no split is applied. Persisted to DuckDB runs table.",
+        "NULL when no split is applied. Persisted to the operational runs table.",
     )
 
     @property

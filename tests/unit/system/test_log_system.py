@@ -316,3 +316,29 @@ def test_file_logs_are_machine_readable_json(tmp_path):
     # Ensure key metadata is present exactly once
     assert "log_timestamp" in record  # Renamed to avoid conflicts with event domain fields
     assert record["level"].upper() == "ERROR"
+
+
+def test_console_exc_info_renders_traceback_once(
+    capsys: pytest.CaptureFixture[str],
+):
+    """Console logging should render a single traceback when exc_info is enabled."""
+    LoggerFactory.configure(
+        LoggingConfig(
+            format="console",
+            enable_file=False,
+        )
+    )
+    logger = LoggerFactory.get_logger("tests.log_system")
+
+    try:
+        raise ValueError("bad boom")
+    except ValueError:
+        logger.error("test.traceback", exc_info=True)
+
+    captured = capsys.readouterr()
+    console_output = captured.out + captured.err
+    normalized_output = console_output.lower()
+
+    assert "test.traceback" in normalized_output
+    assert "ValueError: bad boom" in console_output
+    assert console_output.count("ValueError: bad boom") == 1

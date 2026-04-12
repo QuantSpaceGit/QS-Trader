@@ -3,14 +3,24 @@
 import logging
 import sys
 from datetime import datetime, timezone
+from io import StringIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Callable, Literal
 
 import structlog
 from pydantic import BaseModel, Field
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None]
+
+
+def _render_plain_traceback(exc_info: ExcInfo) -> str:
+    """Render exception info using structlog's plain traceback formatter."""
+    string_buffer = StringIO()
+    structlog.dev.plain_traceback(string_buffer, exc_info)
+    return string_buffer.getvalue().rstrip()
 
 
 class LoggingConfig(BaseModel):
@@ -177,7 +187,7 @@ class LoggerFactory:
                 [
                     structlog.dev.set_exc_info,
                     structlog.processors.ExceptionRenderer(
-                        structlog.dev.plain_traceback,  # type: ignore[arg-type]
+                        _render_plain_traceback,
                     ),
                 ]
             )

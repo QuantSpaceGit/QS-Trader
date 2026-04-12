@@ -85,6 +85,7 @@ def mock_system_config():
     config.output.event_store.filename = "events.{backend}"
     config.output.experiments_root = "experiments"
     config.output.run_id_format = "%Y%m%d_%H%M%S"
+    config.output.artifact_policy.mode = "filesystem"
     config.output.capture_git_info = False
     config.output.capture_environment = False
     config.output.database.enabled = False
@@ -477,6 +478,7 @@ class TestBacktestCommandDisplay:
         system_config = Mock()
         system_config.output.event_store.backend = "sqlite"
         system_config.output.event_store.filename = "events.{backend}"
+        system_config.output.artifact_policy.mode = "filesystem"
         system_config.output.run_id_format = "%Y%m%d_%H%M%S"
         system_config.output.capture_git_info = False
         system_config.output.capture_environment = False
@@ -514,7 +516,7 @@ class TestBacktestCommandDisplay:
         tmp_path,
         mock_experiment_setup,
     ):
-        """CLI should clearly surface DuckDB write failures even when the run itself succeeds."""
+        """CLI should clearly surface database write failures even when the run itself succeeds."""
         mock_config = Mock()
         mock_config.backtest_id = "test"
         mock_config.start_date = datetime(2020, 1, 1)
@@ -523,23 +525,24 @@ class TestBacktestCommandDisplay:
         mock_config.replay_speed = -1.0
         mock_config.display_events = None
 
-        db_path = tmp_path / "data" / "backtest_runs.duckdb"
+        db_path = tmp_path / "data" / "backtest_runs.postgres"
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         system_config = Mock()
         system_config.output.event_store.backend = "memory"
         system_config.output.event_store.filename = "events.{backend}"
+        system_config.output.artifact_policy.mode = "filesystem"
         system_config.output.run_id_format = "%Y%m%d_%H%M%S"
         system_config.output.capture_git_info = False
         system_config.output.capture_environment = False
         system_config.output.database.enabled = True
-        system_config.output.database.path = str(db_path)
+        system_config.output.database.postgres_url = "postgresql+psycopg://research:secret@localhost:5432/research"
         system_config.config_root = tmp_path
 
         mock_engine._reporting_service.get_database_write_status.return_value = DatabaseWriteStatus(
             state="failed",
             db_path=str(db_path),
-            reason="Could not set lock on file",
+            reason="could not connect to postgres",
             error_type="IOException",
         )
 
@@ -551,10 +554,10 @@ class TestBacktestCommandDisplay:
         result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 0
-        assert "DuckDB persistence failed" in result.output
+        assert "database persistence failed" in result.output
         assert "Database:" in result.output
         assert "unavailable" in result.output
-        assert "IOException: Could not set lock on file" in result.output
+        assert "IOException: could not connect to postgres" in result.output
 
 
 # ============================================================================

@@ -51,20 +51,42 @@ class EventStoreConfig:
 
 @dataclass
 class DatabaseOutputConfig:
-    """DuckDB database output configuration.
+    """Operational persistence configuration.
 
-    When enabled, backtest results are persisted to a DuckDB file
-    alongside the standard file-based outputs. This enables downstream
-    API services (e.g. QS-Datamaster) to serve backtest data to dashboards.
+    Supports PostgreSQL operational persistence for service-owned runs.
+    Standalone workflows can also disable database persistence entirely while
+    still writing filesystem artifacts.
 
     Attributes:
-        enabled: Whether DuckDB persistence is active.
-        path: Path to the DuckDB file.  Relative paths are resolved against
-            the project root (parent of ``config/`` in conventional layouts).
+        enabled: Whether database persistence is active.
+        backend: Storage backend. PostgreSQL is the only supported value.
+        postgres_url: PostgreSQL connection URL when database persistence is enabled.
+            Format: postgresql://user:pass@host:port/dbname
+            Can use environment variables for sensitive values.
     """
 
     enabled: bool = False
-    path: str = "data/backtest_runs.duckdb"
+    backend: Literal["postgres"] = "postgres"
+    postgres_url: str | None = None
+
+
+@dataclass
+class ArtifactPolicyConfig:
+    """Artifact generation policy for backtest runs.
+
+    Controls whether run directories and filesystem artifacts are created.
+
+    Modes:
+        - filesystem: Create run directories with manifests, config snapshots,
+          event stores, time-series JSON, and HTML reports (CLI default)
+        - database_only: Skip run-directory creation; persist only database-captured
+          metadata (QS-Research service mode)
+
+    Attributes:
+        mode: Artifact generation mode.
+    """
+
+    mode: Literal["filesystem", "database_only"] = "filesystem"
 
 
 @dataclass
@@ -75,7 +97,9 @@ class OutputConfig:
     Example: experiments/momentum_strategy/runs/20251119_143022/
 
     The run_id is generated using run_id_format (timestamp-based by default).
-    Each run is isolated with its own directory containing all artifacts.
+    Each run is isolated with its own directory containing all artifacts
+    when artifact_policy.mode is 'filesystem'. In 'database_only' mode,
+    run directories are not created.
     """
 
     experiments_root: str = "experiments"
@@ -83,6 +107,7 @@ class OutputConfig:
     display_format: Literal["line", "table"] = "line"
     event_store: EventStoreConfig = field(default_factory=EventStoreConfig)
     database: DatabaseOutputConfig = field(default_factory=DatabaseOutputConfig)
+    artifact_policy: ArtifactPolicyConfig = field(default_factory=ArtifactPolicyConfig)
 
     # Metadata capture toggles
     capture_git_info: bool = True
@@ -186,7 +211,7 @@ class SystemConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     custom_libraries: CustomLibrariesConfig = field(default_factory=CustomLibrariesConfig)
 
-    # Root directory for resolving relative paths in config (e.g. output.database.path).
+    # Root directory for resolving relative paths in config.
     # Set to the parent of the loaded config file, or CWD if no file was found.
     config_root: Path = field(default_factory=Path.cwd)
 
@@ -297,9 +322,22 @@ class SystemConfig:
 
         # Database output configuration
         database_dict = output_dict.get("database", {})
+        backend = database_dict.get("backend", "postgres")
+        if backend != "postgres":
+            raise ValueError(
+                "QS-Trader operational database backend must be 'postgres'. "
+                "DuckDB and dual-write persistence were removed after cutover."
+            )
         database = DatabaseOutputConfig(
             enabled=database_dict.get("enabled", False),
-            path=database_dict.get("path", "data/backtest_runs.duckdb"),
+            backend="postgres",
+            postgres_url=database_dict.get("postgres_url"),
+        )
+
+        # Artifact policy configuration
+        artifact_policy_dict = output_dict.get("artifact_policy", {})
+        artifact_policy = ArtifactPolicyConfig(
+            mode=artifact_policy_dict.get("mode", "filesystem"),
         )
 
         output = OutputConfig(
@@ -308,6 +346,7 @@ class SystemConfig:
             display_format=output_dict.get("display_format", "line"),
             event_store=event_store,
             database=database,
+            artifact_policy=artifact_policy,
             capture_git_info=output_dict.get("capture_git_info", True),
             capture_environment=output_dict.get("capture_environment", True),
         )

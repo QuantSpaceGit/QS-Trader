@@ -52,7 +52,8 @@ dependencies = [
     # Market data
     "yfinance>=0.2.66",
     # Database
-    "duckdb>=1.2.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg[binary]>=3.2.0",
     # ClickHouse integration (QS-Datamaster feature store)
     "clickhouse-connect>=0.7",
 ]
@@ -152,10 +153,6 @@ strict_equality = true
 show_error_codes = true
 
 # Per-module options for third-party libraries without stubs
-[[tool.mypy.overrides]]
-module = "duckdb"
-ignore_missing_imports = true
-
 [[tool.mypy.overrides]]
 module = "pyarrow.*"
 ignore_missing_imports = true

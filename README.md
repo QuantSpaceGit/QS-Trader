@@ -263,22 +263,32 @@ qs-trader backtest experiments/sma_crossover
 qs-trader backtest --help
 ```
 
-Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, config snapshot).
+Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, config snapshot) when filesystem artifacts are enabled.
 
-If `output.database.enabled: true` is set in `qs_trader.yaml`, QS-Trader also persists run data to a DuckDB file (default: `data/backtest_runs.duckdb`) for downstream querying and API consumption.
+If `output.database.enabled: true` is set in `qs_trader.yaml`, QS-Trader also persists run data to the PostgreSQL operational store used by `QS-Research`. Historical DuckDB files may still exist as offline archives from the migration window, but DuckDB is no longer a supported operational persistence backend.
 
-### DuckDB Storage & ClickHouse Input Boundary
+### Operational Persistence & ClickHouse Input Boundary
 
-QS-Trader maintains a clear boundary between **run-owned outputs** and **pre-existing inputs**:
+QS-Trader maintains a clear boundary between **run-owned outputs**, **canonical market/feature inputs**, and **optional filesystem artifacts**:
 
-| Layer          | Responsibility                                                    | Store                     |
-| -------------- | ----------------------------------------------------------------- | ------------------------- |
-| **DuckDB**     | Run-produced artifacts (summary, trades, equity curve, drawdowns) | Local `.duckdb` file      |
-| **ClickHouse** | Canonical OHLCV + feature inputs consumed by the backtest         | Remote ClickHouse cluster |
+<!-- markdownlint-disable MD060 -->
 
-For **canonical ClickHouse-backed runs**, QS-Trader stores a lightweight `ClickHouseInputManifest` (table names, symbol universe, date range, feature-set version) in the `runs.input_manifest_json` column instead of duplicating bar rows into DuckDB. Input data is never written to DuckDB — bar-level inputs remain exclusively in ClickHouse and are re-queried on demand via the QS-Datamaster `/inputs` endpoint.
+| Layer          | Responsibility                                                                                                              | Backing store              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| **PostgreSQL** | Run-produced operational artifacts (summary, equity curve, returns, trades, drawdowns, manifests, config snapshot metadata) | Research operational store |
+| **ClickHouse** | Canonical OHLCV + feature/regime inputs consumed by the backtest                                                            | Remote ClickHouse cluster  |
+| **Filesystem** | Optional standalone/manual run directories when `artifact_policy.mode=filesystem`                                           | Local project directories  |
+
+<!-- markdownlint-enable MD060 -->
+
+For **canonical ClickHouse-backed runs** with database persistence enabled, QS-Trader stores a lightweight `ClickHouseInputManifest` alongside the run row in PostgreSQL instead of duplicating market bars into the operational database. Input data is never written to PostgreSQL — bar-level inputs remain exclusively in ClickHouse and are re-queried on demand by Research-owned backtest endpoints.
 
 **Non-canonical runs** (OHLCV sourced from Yahoo Finance or CSV files) produce no manifest; `input_manifest_json` is `NULL`.
+
+Artifact modes are now explicit:
+
+- `artifact_policy.mode: filesystem` keeps traditional run directories for standalone/manual workflows.
+- `artifact_policy.mode: database_only` skips durable run-directory creation and is the supported mode for `QS-Research` service-owned jobs.
 
 Configure in `qs_trader.yaml`:
 
@@ -286,10 +296,13 @@ Configure in `qs_trader.yaml`:
 output:
   database:
     enabled: true
-    path: "data/backtest_runs.duckdb"
+    backend: "postgres"
+    postgres_url: "postgresql+psycopg://..."
+  artifact_policy:
+    mode: "filesystem" # use "database_only" for service-owned Research jobs
 ```
 
-For the full storage-boundary design rationale, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md).
+For the archived DuckDB-era design note and the current storage-boundary context, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md) and `QS-Infra/docs/archive/research-operational-postgres-migration.md`.
 
 ### Interactive Debugging
 

@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 
 from qs_trader.cli.ui.interactive import InteractiveDebugger
+from qs_trader.engine.artifact_mode import should_create_run_directory
 from qs_trader.engine.config import load_backtest_config
 from qs_trader.engine.engine import BacktestEngine
 from qs_trader.engine.experiment import ExperimentMetadata, ExperimentResolver, RunMetadata
@@ -19,16 +20,18 @@ from qs_trader.system.config import get_system_config, reload_system_config
 console = Console()
 
 
-def _resolve_database_path(system_config) -> Path:
-    """Resolve the configured DuckDB path against the active config root."""
-    db_path = Path(system_config.output.database.path)
-    if not db_path.is_absolute():
-        db_path = system_config.config_root / db_path
-    return db_path
+def _resolve_database_target(system_config) -> str | None:
+    """Return a human-readable database persistence target for CLI output."""
+    db_config = system_config.output.database
+
+    if not db_config.enabled:
+        return None
+
+    return db_config.postgres_url or "PostgreSQL"
 
 
 def _get_database_write_status(engine: object) -> DatabaseWriteStatus | None:
-    """Safely retrieve the ReportingService DuckDB write status from the engine."""
+    """Safely retrieve the ReportingService database write status from the engine."""
     reporting_service = getattr(engine, "_reporting_service", None)
     getter = getattr(reporting_service, "get_database_write_status", None)
     if not callable(getter):
@@ -218,11 +221,18 @@ def backtest_command(
         system_config = get_system_config()
 
         # Create run directory and metadata
+        # In database_only mode, skip run directory creation
         run_id = ExperimentResolver.generate_run_id(system_config.output.run_id_format)
-        run_dir = ExperimentResolver.create_run_dir(experiment_dir, run_id)
 
-        console.print(f"  Run ID: [yellow]{run_id}[/yellow]")
-        console.print(f"  Run directory: [dim]{run_dir}[/dim]")
+        run_dir: Path | None = None
+        if should_create_run_directory(system_config):
+            run_dir = ExperimentResolver.create_run_dir(experiment_dir, run_id)
+            console.print(f"  Run ID: [yellow]{run_id}[/yellow]")
+            console.print(f"  Run directory: [dim]{run_dir}[/dim]")
+        else:
+            # database_only mode: no persistent run directory
+            console.print(f"  Run ID: [yellow]{run_id}[/yellow]")
+            console.print(f"  Artifact mode: [yellow]database_only[/yellow] (no persistent run directory)")
         console.print()
 
         # Initialize run metadata
@@ -243,8 +253,9 @@ def backtest_command(
         if system_config.output.capture_environment:
             run_metadata.environment = ExperimentMetadata.capture_environment()
 
-        # Save config snapshot
-        ExperimentMetadata.save_config_snapshot(resolved_config_path, run_dir)
+        # Save config snapshot (only in filesystem mode)
+        if run_dir is not None:
+            ExperimentMetadata.save_config_snapshot(resolved_config_path, run_dir)
 
         # Apply log level override if specified
         if log_level:
@@ -331,15 +342,16 @@ def backtest_command(
             run_metadata.error = str(e)
             raise
         finally:
-            # Always write metadata
-            ExperimentMetadata.write_run_metadata(run_dir, run_metadata)
-            ExperimentMetadata.create_latest_symlink(experiment_dir, run_id)
+            # Write metadata and create symlink (only in filesystem mode)
+            if run_dir is not None:
+                ExperimentMetadata.write_run_metadata(run_dir, run_metadata)
+                ExperimentMetadata.create_latest_symlink(experiment_dir, run_id)
 
         db_status = _get_database_write_status(engine)
 
         console.print()
         if system_config.output.database.enabled and db_status is not None and db_status.state == "failed":
-            console.print("[bold yellow]⚠ Backtest completed, but DuckDB persistence failed.[/bold yellow]")
+            console.print("[bold yellow]⚠ Backtest completed, but database persistence failed.[/bold yellow]")
             if db_status.reason:
                 console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")
         elif (
@@ -351,7 +363,7 @@ def backtest_command(
                 "not_attempted",
             }
         ):
-            console.print("[bold yellow]⚠ Backtest completed, but DuckDB results were not written.[/bold yellow]")
+            console.print("[bold yellow]⚠ Backtest completed, but database results were not written.[/bold yellow]")
             if db_status.reason:
                 console.print(f"[yellow]Reason:[/yellow] {db_status.reason}")
         else:
@@ -369,15 +381,18 @@ def backtest_command(
         console.print()
 
         # Experiment artifacts
-        console.print(f"[cyan]Run Directory:[/cyan]   {run_dir}")
-        console.print(f"[cyan]Metadata:[/cyan]        manifest.json")
+        if run_dir is not None:
+            console.print(f"[cyan]Run Directory:[/cyan]   {run_dir}")
+            console.print(f"[cyan]Metadata:[/cyan]        manifest.json")
+        else:
+            console.print(f"[cyan]Artifact mode:[/cyan]   database_only (no run directory created)")
 
         # Event store info
         backend_type = system_config.output.event_store.backend
 
         if backend_type == "memory":
             console.print("[cyan]Event Store:[/cyan]     memory (no files created)")
-        elif hasattr(engine, "_results_dir") and engine._results_dir:
+        elif run_dir is not None and hasattr(engine, "_results_dir") and engine._results_dir:
             event_store_filename = system_config.output.event_store.filename
             if "{backend}" in event_store_filename:
                 extension_map = {"sqlite": "sqlite", "parquet": "parquet"}
@@ -396,20 +411,21 @@ def backtest_command(
         # Database output status
         db_cfg = system_config.output.database
         if db_cfg.enabled:
-            _db_path = _resolve_database_path(system_config)
+            db_label = _resolve_database_target(system_config) or "PostgreSQL"
+
             if db_status is not None and db_status.state == "succeeded":
-                console.print(f"[cyan]Database:[/cyan]        [green]saved[/green] → {_db_path}")
+                console.print(f"[cyan]Database:[/cyan]        [green]saved[/green] → {db_label}")
             elif db_status is not None and db_status.state == "failed":
-                console.print(f"[cyan]Database:[/cyan]        [bold red]unavailable[/bold red] → {_db_path}")
+                console.print(f"[cyan]Database:[/cyan]        [bold red]unavailable[/bold red] → {db_label}")
                 error_label = db_status.error_type or "Error"
-                error_text = db_status.reason or "Unknown DuckDB persistence error"
+                error_text = db_status.reason or "Unknown database persistence error"
                 console.print(f"[cyan]Database Error:[/cyan]  {error_label}: {error_text}")
             elif db_status is not None and db_status.state in {"skipped", "not_attempted"}:
-                console.print(f"[cyan]Database:[/cyan]        [yellow]not written[/yellow] → {_db_path}")
+                console.print(f"[cyan]Database:[/cyan]        [yellow]not written[/yellow] → {db_label}")
                 if db_status.reason:
                     console.print(f"[cyan]Database Note:[/cyan]   {db_status.reason}")
             else:
-                console.print(f"[cyan]Database:[/cyan]        [green]enabled[/green] → {_db_path}")
+                console.print(f"[cyan]Database:[/cyan]        [green]enabled[/green] → {db_label}")
         else:
             console.print("[cyan]Database:[/cyan]        [dim]disabled[/dim]")
 

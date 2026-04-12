@@ -1,19 +1,19 @@
-"""ClickHouse input manifest for DuckDB-backed backtest runs.
+"""ClickHouse input manifest for operational-store-backed backtest runs.
 
 The manifest is a lightweight, immutable JSON record stored in the nullable
-``input_manifest_json`` column on the DuckDB ``runs`` table. It describes
+``input_manifest_json`` column on the operational ``runs`` table. It describes
 the canonical ClickHouse data that a run **consumed**, not what it produced.
 
 Architectural boundary
 -----------------------
-- **DuckDB** stores what the run *produced*: ``runs``, ``equity_curve``,
+- **Operational store** stores what the run *produced*: ``runs``, ``equity_curve``,
   ``returns``, ``trades``, ``drawdowns``.
 - **ClickHouse** stores what the run *consumed*: canonical market bars,
   precomputed features, regime context.
 
 Only canonical ClickHouse-backed runs carry a manifest. Yahoo/CSV runs
 leave the ``input_manifest_json`` column ``NULL``. This avoids duplicating
-large market-data payloads inside DuckDB during parameter sweeps while
+large market-data payloads inside the operational store during parameter sweeps while
 keeping the full provenance of every canonical run auditable.
 
 Schema versioning
@@ -51,7 +51,7 @@ ISO-8601 strings (``"YYYY-MM-DD"``) are also accepted and coerced to
         ...
     )
 
-Serialise for DuckDB storage::
+Serialise for database storage::
 
     json_str = manifest.to_json()           # compact JSON string
     roundtripped = ClickHouseInputManifest.from_json(json_str)
