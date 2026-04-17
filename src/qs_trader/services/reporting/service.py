@@ -387,15 +387,20 @@ class ReportingService:
                 )
                 continue
 
-            if trade_event.entry_price is None or trade_event.entry_timestamp is None:
+            if trade_event.entry_timestamp is None:
                 self.logger.warning(
                     "synthesize_open_trades.incomplete_trade_event",
                     trade_id=trade_id,
-                    reason="Missing entry_price or entry_timestamp",
+                    reason="Missing entry_timestamp",
                 )
                 continue
 
-            entry_price: Decimal = trade_event.entry_price
+            # Use live average fill price as the entry basis.
+            # TradeEvent.entry_price is set once at the initial fill and is never
+            # updated on scale-ins, so it does not match the lot-level cost basis
+            # that PortfolioService uses to compute unrealized_pl.
+            # PortfolioPosition.average_fill_price is the authoritative live average.
+            entry_price: Decimal = open_pos.average_fill_price
             entry_time = datetime.fromisoformat(trade_event.entry_timestamp.replace("Z", "+00:00"))
             exit_time = self._end_datetime
             duration_seconds = max(0, int((exit_time - entry_time).total_seconds()))

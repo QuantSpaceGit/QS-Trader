@@ -738,6 +738,21 @@ class TestPartialCloseRegression:
         rec = svc._open_trade_records[0]
         assert rec.quantity == 150, "quantity must reflect live position, not stale TradeEvent fill"
         assert rec.pnl == Decimal("2700.00")
+        # Entry basis must come from the live position, not the stale initial fill.
+        # average_fill_price = (100*10 + 50*12) / 150 = 102.00
+        assert rec.entry_price == Decimal("102.00"), (
+            "entry_price must use average_fill_price from PortfolioPosition, not stale TradeEvent"
+        )
+        # exit_price == market_price from position snapshot
+        assert rec.exit_price == Decimal("120.00")
+        # Field-level reconciliation: pnl == (exit - entry) * |qty|
+        expected_pnl = (rec.exit_price - rec.entry_price) * abs(rec.quantity)
+        assert rec.pnl == expected_pnl, (
+            f"pnl={rec.pnl} does not reconcile with (exit - entry) * qty = {expected_pnl}"
+        )
+        # pnl_pct denominator must also use live average_fill_price
+        expected_pct = (rec.pnl / (rec.entry_price * abs(rec.quantity))) * Decimal("100")
+        assert rec.pnl_pct == expected_pct
 
     def test_partial_exit_uses_live_position_quantity(self, tmp_path: Path) -> None:
         """After a partial exit, synthesized quantity must reflect remaining live shares.
@@ -774,6 +789,15 @@ class TestPartialCloseRegression:
         rec = svc._open_trade_records[0]
         assert rec.quantity == 60, "quantity must reflect remaining shares after partial exit"
         assert rec.pnl == Decimal("900.00")
+        # Entry basis from live position's average_fill_price, not the stale trade event
+        assert rec.entry_price == Decimal("100.00")
+        assert rec.exit_price == Decimal("115.00")
+        # Field-level reconciliation: pnl == (exit - entry) * |qty|
+        expected_pnl = (rec.exit_price - rec.entry_price) * abs(rec.quantity)
+        assert rec.pnl == expected_pnl
+        # pnl_pct denominator consistency
+        expected_pct = (rec.pnl / (rec.entry_price * abs(rec.quantity))) * Decimal("100")
+        assert rec.pnl_pct == expected_pct
 
     def test_partial_close_pnl_reconciliation(self, tmp_path: Path) -> None:
         """realized_pnl + unrealized_pnl must equal portfolio total_pl for partial-close.
