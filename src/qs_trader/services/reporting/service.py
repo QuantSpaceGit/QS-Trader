@@ -367,8 +367,6 @@ class ReportingService:
             )
             return
 
-        from typing import cast
-
         from qs_trader.events.events import PortfolioPosition
 
         # Build position lookup: (strategy_id, symbol) → PortfolioPosition
@@ -405,19 +403,18 @@ class ReportingService:
             mtm_price: Decimal = open_pos.market_price
             pnl: Decimal = open_pos.unrealized_pl
 
-            current_qty = trade_event.current_quantity or Decimal("0")
-            quantity_abs = int(abs(current_qty))
+            # Use live position quantity from PortfolioPosition.
+            # TradeEvent.current_quantity is only set at the initial open and zeroed
+            # on full close; it is NOT updated on scale-ins or partial exits.
+            quantity_signed: int = open_pos.open_quantity  # signed (positive=long, negative=short)
+            quantity_abs = abs(quantity_signed)
             pnl_pct = (
                 (pnl / (entry_price * quantity_abs)) * Decimal("100")
                 if entry_price > Decimal("0") and quantity_abs > 0
                 else Decimal("0")
             )
 
-            side: Literal["long", "short"] = cast(
-                Literal["long", "short"],
-                trade_event.side or ("long" if current_qty > 0 else "short"),
-            )
-            quantity_signed = quantity_abs if side == "long" else -quantity_abs
+            side: Literal["long", "short"] = "long" if quantity_signed > 0 else "short"
 
             record = TradeRecord(
                 trade_id=trade_event.trade_id,
@@ -937,9 +934,11 @@ class ReportingService:
             strategy_performance=self._strategy_perf_calc.calculate_performance() if self._strategy_perf_calc else [],
             drawdown_periods=drawdown_periods,
             open_trades=len(self._open_trade_records),
-            realized_pnl=Decimal(str(sum(t.pnl for t in trades))) if trades else Decimal("0"),
-            unrealized_pnl=Decimal(str(sum(t.pnl for t in self._open_trade_records)))
-            if self._open_trade_records
+            realized_pnl=self._last_portfolio_state.total_realized_pl
+            if self._last_portfolio_state is not None
+            else Decimal("0"),
+            unrealized_pnl=self._last_portfolio_state.total_unrealized_pl
+            if self._last_portfolio_state is not None
             else Decimal("0"),
             benchmark_symbol=self.config.benchmark_symbol,
             benchmark_return_pct=None,

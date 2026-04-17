@@ -565,6 +565,31 @@ class TestBuildFullMetricsNewFields:
             )
             for i, p in enumerate(open_pnls)
         ]
+
+        # Portfolio snapshot is the authoritative P&L source after B2 fix.
+        # totals must match the test data so assertions remain correct.
+        total_realized = sum(Decimal(p) for p in closed_pnls)
+        total_unrealized = sum(Decimal(p) for p in open_pnls)
+        svc._last_portfolio_state = PortfolioStateEvent.model_construct(
+            portfolio_id="p-001",
+            start_datetime=_ENTRY_TS,
+            snapshot_datetime="2024-03-31T20:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000"),
+            cash_balance=Decimal("85000"),
+            current_portfolio_equity=Decimal("115000"),
+            total_market_value=Decimal("15000"),
+            total_unrealized_pl=total_unrealized,
+            total_realized_pl=total_realized,
+            total_pl=total_realized + total_unrealized,
+            long_exposure=Decimal("0.15"),
+            short_exposure=Decimal("0"),
+            net_exposure=Decimal("0.15"),
+            gross_exposure=Decimal("0.15"),
+            leverage=Decimal("0.15"),
+            total_commissions_paid=Decimal("1.00"),
+            strategies_groups=[],
+        )
         return svc
 
     def test_full_metrics_open_trades_count(self, tmp_path: Path) -> None:
@@ -581,8 +606,8 @@ class TestBuildFullMetricsNewFields:
 
         assert metrics.open_trades == 1
 
-    def test_full_metrics_realized_pnl_is_sum_of_closed_trades(self, tmp_path: Path) -> None:
-        """realized_pnl should be the sum of pnl from all closed trades."""
+    def test_full_metrics_realized_pnl_sourced_from_portfolio_snapshot(self, tmp_path: Path) -> None:
+        """realized_pnl must equal PortfolioStateEvent.total_realized_pl (authoritative)."""
         svc = self._build_service_with_trades(
             tmp_path,
             closed_pnls=["500", "300"],
@@ -592,8 +617,8 @@ class TestBuildFullMetricsNewFields:
 
         assert metrics.realized_pnl == Decimal("800")
 
-    def test_full_metrics_unrealized_pnl_is_sum_of_open_trades(self, tmp_path: Path) -> None:
-        """unrealized_pnl should be the sum of pnl from all synthesized open trades."""
+    def test_full_metrics_unrealized_pnl_sourced_from_portfolio_snapshot(self, tmp_path: Path) -> None:
+        """unrealized_pnl must equal PortfolioStateEvent.total_unrealized_pl (authoritative)."""
         svc = self._build_service_with_trades(
             tmp_path,
             closed_pnls=["500"],
@@ -666,3 +691,150 @@ class TestTradeStatsCalcClosedOnly:
 
         real_stats_calc.add_trade.assert_not_called()
         assert len(svc._open_trade_records) == 1
+
+
+# ---------------------------------------------------------------------------
+# W1 — Partial-close regression: scale-in and partial-exit quantity correctness
+# ---------------------------------------------------------------------------
+
+
+class TestPartialCloseRegression:
+    """Regression tests for scale-in and partial-exit correctness (human reviewer W1)."""
+
+    def test_scale_in_uses_live_position_quantity(self, tmp_path: Path) -> None:
+        """After a scale-in, synthesized quantity must reflect live position size.
+
+        Scenario: buy 100 shares (TradeEvent.current_quantity=100), then scale in
+        50 more. Live PortfolioPosition.open_quantity=150, but TradeEvent still
+        holds the stale initial fill of 100.
+        """
+        svc = _build_service(tmp_path)
+
+        # TradeEvent from initial fill — current_quantity is stale (100, not 150)
+        trade_event = _make_trade_event(
+            trade_id="T00001",
+            symbol="AAPL",
+            entry_price="100.00",
+            current_quantity="100",  # stale: initial fill only
+        )
+        svc._active_trade_events = {"T00001": trade_event}
+
+        # Live position after two fills: 100 + 50 = 150
+        pos = _make_portfolio_position(
+            symbol="AAPL",
+            side="long",
+            open_quantity=150,  # live authoritative quantity
+            average_fill_price="102.00",
+            market_price="120.00",
+            unrealized_pl="2700.00",
+        )
+        svc._last_portfolio_state = _make_portfolio_state(
+            [StrategyGroup(strategy_id="sma", positions=[pos])]
+        )
+
+        svc._synthesize_open_trades()
+
+        assert len(svc._open_trade_records) == 1
+        rec = svc._open_trade_records[0]
+        assert rec.quantity == 150, "quantity must reflect live position, not stale TradeEvent fill"
+        assert rec.pnl == Decimal("2700.00")
+
+    def test_partial_exit_uses_live_position_quantity(self, tmp_path: Path) -> None:
+        """After a partial exit, synthesized quantity must reflect remaining live shares.
+
+        Scenario: buy 100, then sell 40. TradeEvent.current_quantity stays 100
+        (stale); live PortfolioPosition.open_quantity = 60.
+        """
+        svc = _build_service(tmp_path)
+
+        trade_event = _make_trade_event(
+            trade_id="T00001",
+            symbol="AAPL",
+            entry_price="100.00",
+            current_quantity="100",  # stale: original fill before partial exit
+        )
+        svc._active_trade_events = {"T00001": trade_event}
+
+        # 40 shares sold — only 60 remain open
+        pos = _make_portfolio_position(
+            symbol="AAPL",
+            side="long",
+            open_quantity=60,  # live remaining quantity
+            average_fill_price="100.00",
+            market_price="115.00",
+            unrealized_pl="900.00",  # 60 * (115 - 100)
+        )
+        svc._last_portfolio_state = _make_portfolio_state(
+            [StrategyGroup(strategy_id="sma", positions=[pos])]
+        )
+
+        svc._synthesize_open_trades()
+
+        assert len(svc._open_trade_records) == 1
+        rec = svc._open_trade_records[0]
+        assert rec.quantity == 60, "quantity must reflect remaining shares after partial exit"
+        assert rec.pnl == Decimal("900.00")
+
+    def test_partial_close_pnl_reconciliation(self, tmp_path: Path) -> None:
+        """realized_pnl + unrealized_pnl must equal portfolio total_pl for partial-close.
+
+        The portfolio's total_realized_pl and total_unrealized_pl are the only
+        authoritative source when a position is partly realized but still open.
+        """
+        svc = _build_service(tmp_path)
+        svc._trade_stats_calc = MagicMock()
+        svc._trade_stats_calc.trades = []  # no fully closed trades
+        svc._trade_stats_calc.max_consecutive_wins = 0
+        svc._trade_stats_calc.max_consecutive_losses = 0
+
+        # Partial close: 40 of 100 sold, realizing 118.60; 60 shares remain open
+        realized = Decimal("118.60")
+        unrealized = Decimal("-100.00")
+        svc._last_portfolio_state = PortfolioStateEvent.model_construct(
+            portfolio_id="p-001",
+            start_datetime=_ENTRY_TS,
+            snapshot_datetime="2024-03-31T20:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000"),
+            cash_balance=Decimal("94000"),
+            current_portfolio_equity=Decimal("100018.60"),
+            total_market_value=Decimal("6900"),  # 60 * 115
+            total_unrealized_pl=unrealized,
+            total_realized_pl=realized,
+            total_pl=realized + unrealized,
+            long_exposure=Decimal("0.07"),
+            short_exposure=Decimal("0"),
+            net_exposure=Decimal("0.07"),
+            gross_exposure=Decimal("0.07"),
+            leverage=Decimal("0.07"),
+            total_commissions_paid=Decimal("2.00"),
+            strategies_groups=[],
+        )
+
+        # One synthesized open record for the remaining 60 shares
+        from qs_trader.libraries.performance.models import TradeRecord as TR
+
+        svc._open_trade_records = [
+            TR(
+                trade_id="T00001",
+                strategy_id="sma",
+                symbol="AAPL",
+                entry_timestamp=_ENTRY_DT,
+                exit_timestamp=_END_DT,
+                entry_price=Decimal("100"),
+                exit_price=Decimal("98.33"),
+                quantity=60,
+                side="long",
+                pnl=unrealized,
+                pnl_pct=Decimal("-1.67"),
+                commission=Decimal("1.00"),
+                duration_seconds=86400,
+                status="open",
+            )
+        ]
+
+        metrics = svc._build_full_metrics(Decimal("100018.60"), Decimal("0.019"))
+
+        assert metrics.realized_pnl == realized
+        assert metrics.unrealized_pnl == unrealized
+        assert metrics.realized_pnl + metrics.unrealized_pnl == svc._last_portfolio_state.total_pl
