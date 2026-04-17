@@ -8,6 +8,43 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ______________________________________________________________________
 
+## [0.2.0-beta.9] - 2026-04-17
+
+### Added
+
+- **Open-trade MTM synthesis at backtest teardown**: Positions that remain open when a backtest ends are now synthesized into `TradeRecord(status="open")` entries with mark-to-market pricing from the last bar close
+
+  - `TradeRecord` gains `status: Literal["closed", "open"] = "closed"` discriminator field (backward-compatible default)
+  - `FullMetrics` gains `open_trades: int`, `realized_pnl: Decimal`, and `unrealized_pnl: Decimal` fields sourced from the final portfolio snapshot (`PortfolioStateEvent.total_realized_pl` / `total_unrealized_pl`) — correct for partial-close scenarios
+  - `ReportingService._synthesize_open_trades()` builds MTM records entirely from live `PortfolioPosition` values: `average_fill_price` → `entry_price`, `open_quantity` → `quantity`, `market_price` → `exit_price`, `unrealized_pl` → `pnl`
+  - `PostgreSQLWriter` extended: `status` column on `trades` INSERT; `open_trades`, `realized_pnl`, `unrealized_pnl` on `runs` INSERT
+  - Trade statistics (win rate, profit factor, expectancy) remain closed-trades only — semantics preserved
+  - Requires QS-Research Alembic migration `20260417_002_open_trade_mtm_fields`
+
+- **PostgreSQL persistence**: Backtest reporting outputs now persist to PostgreSQL (via QS-Research) alongside the existing DuckDB path
+
+- **Remote backtest runner hooks (Phase 1)**: `BacktestEngine.run()` gains an optional `on_progress` callback and new `BacktestConfig` fields for distributed execution
+
+  - `job_group_id`, `submission_source`, `split_pct`, `split_role` fields in `BacktestConfig`
+  - `LogCaptureHandler` context manager for per-run WARNING+ log capture
+  - DuckDB `runs` schema extended with four new nullable columns; additive migration guards prevent failures on older databases
+
+### Fixed
+
+- **Open-trade record correctness after scale-ins and partial closes**: Synthesized open-trade records now use live `PortfolioPosition` data for all fields
+
+  - `entry_price` sourced from `PortfolioPosition.average_fill_price` (live lot-weighted cost basis) — was stale initial-fill price, producing internally inconsistent records after scale-ins
+  - `quantity` sourced from `PortfolioPosition.open_quantity` (live, authoritative) — was `TradeEvent.current_quantity`, set only at position open and never updated on subsequent fills
+  - `realized_pnl` / `unrealized_pnl` sourced from `PortfolioStateEvent.total_realized_pl` / `total_unrealized_pl` — was summed from closed/open `TradeRecord` lists, understating realized P&L when a still-open position had partial exits
+
+- **Canonical backtest visualization**: Adjusted price series now used consistently across all bar data in visualization output
+
+- **DuckDB `created_at` timezone**: `runs.created_at` schema type changed from `TIMESTAMP` to `TIMESTAMPTZ`; additive migration applied to existing databases so timestamps are stored and displayed in correct UTC
+
+- **Test fixture alignment**: `BacktestConfig` test fixtures updated to use `Decimal` for `initial_equity` and `tuple` for `symbols` to match the declared field types
+
+______________________________________________________________________
+
 ## [0.2.0-beta.8] - 2026-04-06
 
 ### Removed

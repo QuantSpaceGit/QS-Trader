@@ -251,8 +251,22 @@ def test_env_postgres_url_builder_encodes_reserved_characters(
     )
 
 
-def test_postgres_writer_factory_rejects_unexpanded_placeholders() -> None:
+def test_postgres_writer_factory_rejects_unexpanded_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Connection URLs must not retain unresolved ${...} placeholders."""
+    # Unset all RESEARCH_POSTGRES_* vars so the env-var URL builder returns None
+    # and the test exercises the db_config.postgres_url validation path.
+    for var in (
+        "RESEARCH_POSTGRES_HOST",
+        "RESEARCH_POSTGRES_PORT",
+        "RESEARCH_POSTGRES_DB",
+        "RESEARCH_POSTGRES_USER",
+        "RESEARCH_POSTGRES_PASSWORD",
+        "RESEARCH_POSTGRES_SSLMODE",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
     db_config = DatabaseOutputConfig(
         enabled=True,
         backend="postgres",
