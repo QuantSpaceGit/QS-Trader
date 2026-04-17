@@ -338,6 +338,7 @@ def test_postgresql_writer_batches_bulk_series_inserts() -> None:
                     pnl_pct=Decimal("3.73"),
                     commission=Decimal("1.00"),
                     duration_seconds=60,
+                    status="closed",
                 ),
                 SimpleNamespace(
                     trade_id="trade-002",
@@ -353,6 +354,7 @@ def test_postgresql_writer_batches_bulk_series_inserts() -> None:
                     pnl_pct=Decimal("1.50"),
                     commission=Decimal("0.50"),
                     duration_seconds=120,
+                    status="open",
                 ),
             ],
         ),
@@ -494,3 +496,28 @@ def test_postgresql_writer_close_disposes_engine() -> None:
     writer.close()
 
     writer._engine.dispose.assert_called_once()
+
+
+def test_insert_run_maps_open_trade_fields_to_correct_params() -> None:
+    """_insert_run must pass open_trades, realized_pnl, unrealized_pnl to the correct
+    parameter slots — a transposition of the two P&L fields would be undetected otherwise."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    metrics = _minimal_metrics()
+    metrics = metrics.model_copy(
+        update={
+            "open_trades": 2,
+            "realized_pnl": Decimal("1000.00"),
+            "unrealized_pnl": Decimal("500.00"),
+        }
+    )
+
+    writer._insert_run(conn, "exp", "run-001", metrics)
+
+    conn.execute.assert_called_once()
+    params = conn.execute.call_args.args[1]
+
+    assert params["open_trades"] == 2
+    assert params["realized_pnl"] == 1000.0
+    assert params["unrealized_pnl"] == 500.0

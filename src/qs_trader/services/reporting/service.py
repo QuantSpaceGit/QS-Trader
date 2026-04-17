@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent
+from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, TradeEvent
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore
@@ -132,6 +132,10 @@ class ReportingService:
         self._positions: dict[str, Decimal] = {}  # symbol → net quantity
         self._open_trades: dict[str, dict[str, Any]] = {}  # symbol → entry info
 
+        # Open-trade synthesis state (populated during bar loop from TradeEvents)
+        self._active_trade_events: dict[str, TradeEvent] = {}  # trade_id → TradeEvent (open trades only)
+        self._open_trade_records: list[TradeRecord] = []  # synthesized at teardown
+
         # Manifest populated in setup() only for canonical ClickHouse-backed runs.
         # Persisted alongside the run summary via _write_to_database().
         # None for Yahoo/CSV runs and when setup() is not called with a manifest.
@@ -228,13 +232,12 @@ class ReportingService:
         Args:
             event: TradeEvent from portfolio
         """
-        from qs_trader.events.events import TradeEvent
-
         if not isinstance(event, TradeEvent):
             return
 
-        # Only process closed trades for statistics
-        if event.status != "closed":
+        # Track open trades for MTM synthesis at teardown
+        if event.status == "open":
+            self._active_trade_events[event.trade_id] = event
             self.logger.debug(
                 "reporting_service.trade_open",
                 trade_id=event.trade_id,
@@ -243,6 +246,9 @@ class ReportingService:
                 status=event.status,
             )
             return
+
+        # Remove from active tracking when trade closes (will be processed below)
+        self._active_trade_events.pop(event.trade_id, None)
 
         # Validate required fields are present
         if not all(
@@ -340,6 +346,100 @@ class ReportingService:
             pnl=str(event.realized_pnl),
             pnl_pct=f"{pnl_pct:.2f}%",
             duration_seconds=duration_seconds,
+        )
+
+    def _synthesize_open_trades(self) -> None:
+        """Synthesize MTM TradeRecords for all open positions at backtest end.
+
+        For each trade that was opened but not yet closed (tracked via TradeEvent
+        with status="open"), locates the corresponding position in the last
+        portfolio state event to obtain the mark-to-market exit price (last bar
+        close). Builds a ``TradeRecord(status="open")`` and appends it to
+        ``_open_trade_records``. Does NOT feed these into ``_trade_stats_calc``.
+        """
+        if not self._active_trade_events:
+            return
+
+        if self._last_portfolio_state is None or self._end_datetime is None:
+            self.logger.warning(
+                "synthesize_open_trades.skipped",
+                reason="No portfolio state or end_datetime available",
+            )
+            return
+
+        from typing import cast
+
+        from qs_trader.events.events import PortfolioPosition
+
+        # Build position lookup: (strategy_id, symbol) → PortfolioPosition
+        position_lookup: dict[tuple[str, str], PortfolioPosition] = {}
+        for sg in self._last_portfolio_state.strategies_groups:
+            for pos in sg.positions:
+                if pos.open_quantity != 0:
+                    position_lookup[(sg.strategy_id, pos.symbol)] = pos
+
+        for trade_id, trade_event in self._active_trade_events.items():
+            open_pos = position_lookup.get((trade_event.strategy_id, trade_event.symbol))
+            if open_pos is None:
+                self.logger.warning(
+                    "synthesize_open_trades.position_not_found",
+                    trade_id=trade_id,
+                    strategy_id=trade_event.strategy_id,
+                    symbol=trade_event.symbol,
+                )
+                continue
+
+            if trade_event.entry_price is None or trade_event.entry_timestamp is None:
+                self.logger.warning(
+                    "synthesize_open_trades.incomplete_trade_event",
+                    trade_id=trade_id,
+                    reason="Missing entry_price or entry_timestamp",
+                )
+                continue
+
+            entry_price: Decimal = trade_event.entry_price
+            entry_time = datetime.fromisoformat(trade_event.entry_timestamp.replace("Z", "+00:00"))
+            exit_time = self._end_datetime
+            duration_seconds = max(0, int((exit_time - entry_time).total_seconds()))
+
+            mtm_price: Decimal = open_pos.market_price
+            pnl: Decimal = open_pos.unrealized_pl
+
+            current_qty = trade_event.current_quantity or Decimal("0")
+            quantity_abs = int(abs(current_qty))
+            pnl_pct = (
+                (pnl / (entry_price * quantity_abs)) * Decimal("100")
+                if entry_price > Decimal("0") and quantity_abs > 0
+                else Decimal("0")
+            )
+
+            side: Literal["long", "short"] = cast(
+                Literal["long", "short"],
+                trade_event.side or ("long" if current_qty > 0 else "short"),
+            )
+            quantity_signed = quantity_abs if side == "long" else -quantity_abs
+
+            record = TradeRecord(
+                trade_id=trade_event.trade_id,
+                strategy_id=trade_event.strategy_id,
+                symbol=trade_event.symbol,
+                entry_timestamp=entry_time,
+                exit_timestamp=exit_time,
+                entry_price=entry_price,
+                exit_price=mtm_price,
+                quantity=quantity_signed,
+                side=side,
+                pnl=pnl,
+                pnl_pct=pnl_pct,
+                commission=trade_event.commission_total,
+                duration_seconds=duration_seconds,
+                status="open",
+            )
+            self._open_trade_records.append(record)
+
+        self.logger.info(
+            "synthesize_open_trades.complete",
+            open_trade_count=len(self._open_trade_records),
         )
 
     def _handle_fill(self, event: BaseEvent) -> None:
@@ -836,6 +936,11 @@ class ReportingService:
             annual_returns=self._period_calc.calculate_periods("annual", self._initial_equity),
             strategy_performance=self._strategy_perf_calc.calculate_performance() if self._strategy_perf_calc else [],
             drawdown_periods=drawdown_periods,
+            open_trades=len(self._open_trade_records),
+            realized_pnl=Decimal(str(sum(t.pnl for t in trades))) if trades else Decimal("0"),
+            unrealized_pnl=Decimal(str(sum(t.pnl for t in self._open_trade_records)))
+            if self._open_trade_records
+            else Decimal("0"),
             benchmark_symbol=self.config.benchmark_symbol,
             benchmark_return_pct=None,
             beta=None,
@@ -1173,7 +1278,7 @@ class ReportingService:
                     metrics=metrics,
                     equity_curve=equity_points,
                     returns=returns_points,
-                    trades=self._trade_stats_calc.trades,
+                    trades=self._trade_stats_calc.trades + self._open_trade_records,
                     drawdowns=metrics.drawdown_periods,
                     manifest=self._input_manifest,
                     run_manifest=run_manifest,
@@ -1407,6 +1512,9 @@ class ReportingService:
             total_bars=self._bar_count,
         )
 
+        # Synthesize MTM TradeRecords for open positions before building metrics
+        self._synthesize_open_trades()
+
         # Build full metrics report
         full_metrics = self._build_full_metrics(final_equity, total_return_pct)
 
@@ -1458,6 +1566,8 @@ class ReportingService:
         self._split_role = None
         self._backtest_config = None
         self._set_database_write_status(state="not_attempted")
+        self._active_trade_events = {}
+        self._open_trade_records = []
 
         # Reset calculators
         self._equity_calc = EquityCurveCalculator(max_points=self.config.max_equity_points)

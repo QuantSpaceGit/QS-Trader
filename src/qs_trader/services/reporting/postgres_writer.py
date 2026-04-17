@@ -230,6 +230,7 @@ class PostgreSQLWriter:
                     expectancy, max_consecutive_wins, max_consecutive_losses,
                     avg_trade_duration_days,
                     total_commissions, commission_pct_of_pnl,
+                    open_trades, realized_pnl, unrealized_pnl,
                     input_manifest_json, run_manifest_json, config_snapshot_json,
                     artifact_mode,
                     job_group_id, submission_source,
@@ -251,6 +252,7 @@ class PostgreSQLWriter:
                     :expectancy, :max_consecutive_wins, :max_consecutive_losses,
                     :avg_trade_duration_days,
                     :total_commissions, :commission_pct_of_pnl,
+                    :open_trades, :realized_pnl, :unrealized_pnl,
                     CAST(:input_manifest_json AS jsonb), CAST(:run_manifest_json AS jsonb), CAST(:config_snapshot_json AS jsonb),
                     :artifact_mode,
                     :job_group_id, :submission_source,
@@ -298,6 +300,9 @@ class PostgreSQLWriter:
                 "avg_trade_duration_days": _to_float(metrics.avg_trade_duration_days),
                 "total_commissions": _to_float(metrics.total_commissions),
                 "commission_pct_of_pnl": _to_float(metrics.commission_pct_of_pnl),
+                "open_trades": metrics.open_trades,
+                "realized_pnl": _to_float(metrics.realized_pnl),
+                "unrealized_pnl": _to_float(metrics.unrealized_pnl),
                 "input_manifest_json": manifest_json,
                 "run_manifest_json": run_manifest_json,
                 "config_snapshot_json": config_snapshot_json,
@@ -421,6 +426,7 @@ class PostgreSQLWriter:
                 "pnl_pct": _to_float(trade.pnl_pct),
                 "commission": _to_float(trade.commission),
                 "duration_seconds": trade.duration_seconds,
+                "status": trade.status,
             }
             for trade in trades
         ]
@@ -431,12 +437,12 @@ class PostgreSQLWriter:
                     experiment_id, run_id, trade_id, strategy_id, symbol,
                     entry_timestamp, exit_timestamp,
                     entry_price, exit_price, quantity, side,
-                    pnl, pnl_pct, commission, duration_seconds
+                    pnl, pnl_pct, commission, duration_seconds, status
                 ) VALUES (
                     :experiment_id, :run_id, :trade_id, :strategy_id, :symbol,
                     :entry_timestamp, :exit_timestamp,
                     :entry_price, :exit_price, :quantity, :side,
-                    :pnl, :pnl_pct, :commission, :duration_seconds
+                    :pnl, :pnl_pct, :commission, :duration_seconds, :status
                 )
             """),
             rows,

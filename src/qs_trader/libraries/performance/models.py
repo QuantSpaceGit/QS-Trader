@@ -13,9 +13,11 @@ from pydantic import BaseModel, Field
 
 class TradeRecord(BaseModel):
     """
-    Record of a completed round-trip trade.
+    Record of a completed round-trip trade or an open (MTM) position at backtest end.
 
-    A round-trip trade is defined as entry + full exit (all shares closed).
+    A completed (closed) trade is defined as entry + full exit (all shares closed).
+    An open trade is synthesized at teardown using the last bar's close price as the
+    mark-to-market exit price. The ``status`` field discriminates between the two.
     Tracks P&L, duration, and metadata for trade analysis.
     """
 
@@ -32,6 +34,7 @@ class TradeRecord(BaseModel):
     pnl_pct: Decimal  # Percentage return
     commission: Decimal
     duration_seconds: int
+    status: Literal["closed", "open"] = "closed"  # default preserves backward compat
 
     @property
     def is_winner(self) -> bool:
@@ -185,6 +188,11 @@ class FullMetrics(BaseModel):
 
     # Drawdown history
     drawdown_periods: list[DrawdownPeriod] = Field(default_factory=list)
+
+    # Open-trade summary (populated at teardown; default 0 preserves backward compat)
+    open_trades: int = 0  # count of positions still open at backtest end
+    realized_pnl: Decimal = Decimal("0")  # sum of closed-trade P&L
+    unrealized_pnl: Decimal = Decimal("0")  # sum of open-trade MTM P&L
 
     # Benchmark (decision 1: extensible but not implemented yet)
     benchmark_symbol: str | None = None
