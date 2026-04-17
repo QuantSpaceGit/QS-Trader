@@ -730,7 +730,13 @@ def write_strategy_chart_data(
         )
 
 
-def write_backtest_metadata(backtest_config: dict[str, Any], system_config: dict[str, Any], output_path: Path) -> None:
+def write_backtest_metadata(
+    backtest_config: dict[str, Any],
+    system_config: dict[str, Any],
+    output_path: Path,
+    *,
+    effective_execution_spec: dict[str, Any] | None = None,
+) -> None:
     """
     Write backtest metadata to JSON file.
 
@@ -772,10 +778,16 @@ def write_backtest_metadata(backtest_config: dict[str, Any], system_config: dict
             }
         }
     """
+    metadata_version = "1.1" if effective_execution_spec is not None else "1.0"
     metadata = {
-        "metadata_version": "1.0",
+        "metadata_version": metadata_version,
         "generated_at": datetime.now().isoformat(),
-        "backtest": backtest_config,
+        "backtest": {
+            "submitted_config": backtest_config,
+            "effective_execution_spec": effective_execution_spec,
+        }
+        if effective_execution_spec is not None
+        else backtest_config,
         "system": system_config,
     }
 

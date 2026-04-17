@@ -31,7 +31,7 @@ from qs_trader.services.manager.service import ManagerService
 from qs_trader.services.portfolio.models import PortfolioConfig
 from qs_trader.services.portfolio.service import PortfolioService
 from qs_trader.services.reporting.config import ReportingConfig
-from qs_trader.services.reporting.service import ReportingService
+from qs_trader.services.reporting.service import ReportingService, build_effective_execution_spec
 from qs_trader.services.strategy.service import StrategyService
 from qs_trader.system.config import get_system_config
 from qs_trader.system.log_system import LoggerFactory
@@ -247,6 +247,7 @@ class BacktestEngine:
         debugger: Any | None = None,
         feature_service: Any | None = None,
         input_manifest: "ClickHouseInputManifest | None" = None,
+        effective_execution_spec: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize backtest engine.
@@ -283,6 +284,7 @@ class BacktestEngine:
         self._debugger = debugger
         self._feature_service = feature_service
         self._input_manifest = input_manifest
+        self._effective_execution_spec = effective_execution_spec
         self._bar_count = 0  # Initialize for tracking bars processed
 
         # Get all symbols from data sources
@@ -449,6 +451,7 @@ class BacktestEngine:
         # Initialize StrategyService if strategies configured
         strategy_service: StrategyService | None = None
         feature_service: Any | None = None  # built below if feature_config is set
+        strategy_instances: dict[str, "Strategy"] = {}
         if hasattr(config, "strategies") and config.strategies:
             logger.debug(
                 "backtest.engine.loading_strategies",
@@ -479,7 +482,6 @@ class BacktestEngine:
                     strategies_loaded = {}
 
             # Instantiate strategies from config
-            strategy_instances: dict[str, "Strategy"] = {}
             for strategy_cfg in config.strategies:
                 strategy_id = strategy_cfg.strategy_id
 
@@ -658,6 +660,11 @@ class BacktestEngine:
 
         # Initialize ReportingService if reporting configured (optional)
         reporting_service: ReportingService | None = None
+        effective_execution_spec = build_effective_execution_spec(
+            backtest_config=config,
+            strategy_instances=strategy_instances,
+            manager_service=manager_service,
+        )
         if hasattr(config, "reporting") and config.reporting:
             # Determine output directory: use timestamped results_dir if available, else experiments root
             reporting_output_dir = results_dir if results_dir else Path(system_config.output.experiments_root)
@@ -733,6 +740,7 @@ class BacktestEngine:
                 feature_service=feature_service,
                 feature_config=getattr(config, "feature_config", None),
             ),
+            effective_execution_spec=effective_execution_spec,
         )
 
     def shutdown(self) -> None:
@@ -844,6 +852,7 @@ class BacktestEngine:
                         "strategy_ids": strategy_ids,
                         "input_manifest": self._input_manifest,
                         "backtest_config": self.config,
+                        "effective_execution_spec": self._effective_execution_spec,
                     }
                     self._reporting_service.setup(context)
                 except Exception as e:

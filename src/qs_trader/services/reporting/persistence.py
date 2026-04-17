@@ -45,6 +45,7 @@ class RunPersistenceWriter(Protocol):
         manifest: ClickHouseInputManifest | None = None,
         run_manifest: dict | None = None,
         config_snapshot: dict | None = None,
+        effective_execution_spec: dict | None = None,
         artifact_mode: str | None = None,
         job_group_id: str | None = None,
         submission_source: str | None = None,
@@ -65,6 +66,8 @@ class RunPersistenceWriter(Protocol):
             run_manifest: Optional run-level manifest (sources, config refs)
             config_snapshot: Optional normalized config snapshot (replaces
                 on-disk config_snapshot.yaml for database-only runs)
+            effective_execution_spec: Optional immutable runtime provenance
+                artifact capturing resolved strategy/risk execution truth
             artifact_mode: Artifact policy ('filesystem' or 'database_only')
             job_group_id: Optional job group identifier for parameter sweeps
             submission_source: Optional source system label

@@ -123,3 +123,7 @@ class IManagerService(Protocol):
             >>> manager.on_portfolio_state(state)
         """
         ...
+
+    def get_effective_risk_config(self) -> dict[str, Any]:
+        """Return a serializable snapshot of the resolved effective risk config."""
+        ...

@@ -163,6 +163,58 @@ class HTMLReportGenerator:
         except Exception:
             return None
 
+    def _extract_backtest_metadata_payload(
+        self,
+        metadata: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Return submitted config and effective execution spec from metadata.
+
+        Supports both legacy metadata.json version 1.0, where `backtest`
+        contains the submitted configuration directly, and version 1.1, where
+        submitted configuration and effective runtime provenance are nested
+        under `backtest.submitted_config` and
+        `backtest.effective_execution_spec` respectively.
+        """
+        if not metadata:
+            return None, None
+
+        backtest = metadata.get("backtest")
+        if not isinstance(backtest, dict):
+            return None, None
+
+        submitted_config = backtest.get("submitted_config")
+        effective_execution_spec = backtest.get("effective_execution_spec")
+
+        if isinstance(submitted_config, dict):
+            return (
+                submitted_config,
+                effective_execution_spec if isinstance(effective_execution_spec, dict) else None,
+            )
+
+        return (
+            backtest,
+            effective_execution_spec if isinstance(effective_execution_spec, dict) else None,
+        )
+
+    def _get_effective_strategy_metadata(
+        self,
+        effective_execution_spec: dict[str, Any] | None,
+        strategy_id: str,
+    ) -> dict[str, Any] | None:
+        """Return effective runtime provenance for a single strategy."""
+        if not effective_execution_spec:
+            return None
+
+        strategies = effective_execution_spec.get("strategies")
+        if not isinstance(strategies, list):
+            return None
+
+        for strategy in strategies:
+            if isinstance(strategy, dict) and strategy.get("strategy_id") == strategy_id:
+                return strategy
+
+        return None
+
     def _build_html(
         self,
         performance: dict[str, Any],
@@ -480,6 +532,7 @@ class HTMLReportGenerator:
     ) -> str:
         """Build run information sections."""
         sections = []
+        backtest_config, effective_execution_spec = self._extract_backtest_metadata_payload(metadata)
 
         # Section 1: Run Information
         info_items_run = []
@@ -531,47 +584,28 @@ class HTMLReportGenerator:
         )
 
         # Section 2: Configuration (from metadata)
-        if metadata:
+        if backtest_config or effective_execution_spec:
             info_items_config = []
 
-            # Backtest metadata
-            if backtest := metadata.get("backtest"):
-                if backtest_id := backtest.get("backtest_id"):
+            # Submitted backtest configuration
+            if backtest_config:
+                if backtest_id := backtest_config.get("backtest_id"):
                     info_items_config.append(
                         f'<div class="info-item"><span class="info-label">Backtest ID</span><span class="info-value">{backtest_id}</span></div>'
                     )
 
-                if start_date := backtest.get("start_date"):
+                if start_date := backtest_config.get("start_date"):
                     info_items_config.append(
                         f'<div class="info-item"><span class="info-label">Requested Start</span><span class="info-value">{start_date[:10]}</span></div>'
                     )
 
-                if end_date := backtest.get("end_date"):
+                if end_date := backtest_config.get("end_date"):
                     info_items_config.append(
                         f'<div class="info-item"><span class="info-label">Requested End</span><span class="info-value">{end_date[:10]}</span></div>'
                     )
 
-                if strategy_adj := backtest.get("strategy_adjustment_mode"):
-                    info_items_config.append(
-                        f'<div class="info-item"><span class="info-label">Strategy Adjustment</span><span class="info-value">{strategy_adj}</span></div>'
-                    )
-
-                if portfolio_adj := backtest.get("portfolio_adjustment_mode"):
-                    info_items_config.append(
-                        f'<div class="info-item"><span class="info-label">Portfolio Adjustment</span><span class="info-value">{portfolio_adj}</span></div>'
-                    )
-
-                if risk_policy := backtest.get("risk_policy"):
-                    if isinstance(risk_policy, dict):
-                        policy_name = risk_policy.get("name", "N/A")
-                    else:
-                        policy_name = str(risk_policy)
-                    info_items_config.append(
-                        f'<div class="info-item"><span class="info-label">Risk Policy</span><span class="info-value">{policy_name}</span></div>'
-                    )
-
                 # Data sources from backtest.data.sources
-                if data_config := backtest.get("data"):
+                if data_config := backtest_config.get("data"):
                     if sources := data_config.get("sources"):
                         if isinstance(sources, list) and sources:
                             source_names = [s.get("name", "") for s in sources if isinstance(s, dict)]
@@ -581,11 +615,58 @@ class HTMLReportGenerator:
                             )
 
                 # Reporting config
-                if reporting := backtest.get("reporting"):
+                if reporting := backtest_config.get("reporting"):
                     if risk_free := reporting.get("risk_free_rate"):
                         info_items_config.append(
                             f'<div class="info-item"><span class="info-label">Risk-Free Rate</span><span class="info-value">{risk_free:.2%}</span></div>'
                         )
+
+            strategy_adjustment_mode = None
+            portfolio_adjustment_mode = None
+            risk_policy: dict[str, Any] | str | None = None
+
+            if effective_execution_spec:
+                if schema_version := effective_execution_spec.get("schema_version"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Provenance Schema</span><span class="info-value">v{schema_version}</span></div>'
+                    )
+
+                if captured_from := effective_execution_spec.get("captured_from"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Runtime Capture</span><span class="info-value">{captured_from}</span></div>'
+                    )
+
+                strategy_adjustment_mode = effective_execution_spec.get("strategy_adjustment_mode")
+                portfolio_adjustment_mode = effective_execution_spec.get("portfolio_adjustment_mode")
+                risk_policy = effective_execution_spec.get("risk_policy")
+
+            if strategy_adjustment_mode is None and backtest_config:
+                strategy_adjustment_mode = backtest_config.get("strategy_adjustment_mode")
+
+            if portfolio_adjustment_mode is None and backtest_config:
+                portfolio_adjustment_mode = backtest_config.get("portfolio_adjustment_mode")
+
+            if risk_policy is None and backtest_config:
+                risk_policy = backtest_config.get("risk_policy")
+
+            if strategy_adjustment_mode:
+                info_items_config.append(
+                    f'<div class="info-item"><span class="info-label">Strategy Adjustment</span><span class="info-value">{strategy_adjustment_mode}</span></div>'
+                )
+
+            if portfolio_adjustment_mode:
+                info_items_config.append(
+                    f'<div class="info-item"><span class="info-label">Portfolio Adjustment</span><span class="info-value">{portfolio_adjustment_mode}</span></div>'
+                )
+
+            if risk_policy:
+                if isinstance(risk_policy, dict):
+                    policy_name = risk_policy.get("name", "N/A")
+                else:
+                    policy_name = str(risk_policy)
+                info_items_config.append(
+                    f'<div class="info-item"><span class="info-label">Risk Policy</span><span class="info-value">{policy_name}</span></div>'
+                )
 
             if info_items_config:
                 sections.append(
@@ -600,11 +681,13 @@ class HTMLReportGenerator:
                 )
 
         # Section 3: Strategy & Universe (from config_snapshot)
-        if config_snapshot:
+        strategy_snapshot = config_snapshot or backtest_config
+
+        if strategy_snapshot:
             info_items_strategy = []
 
             # Get universe from data.sources
-            if data_config := config_snapshot.get("data"):
+            if data_config := strategy_snapshot.get("data"):
                 if sources := data_config.get("sources"):
                     if isinstance(sources, list):
                         all_symbols = set()
@@ -619,7 +702,7 @@ class HTMLReportGenerator:
                                 f'<div class="info-item"><span class="info-label">Universe</span><span class="info-value">{symbols_str}</span></div>'
                             )
 
-            if strategies := config_snapshot.get("strategies"):
+            if strategies := strategy_snapshot.get("strategies"):
                 if isinstance(strategies, list) and strategies:
                     strategy = strategies[0]
                     if strategy_id := strategy.get("strategy_id"):
@@ -627,8 +710,21 @@ class HTMLReportGenerator:
                             f'<div class="info-item"><span class="info-label">Strategy ID</span><span class="info-value">{strategy_id}</span></div>'
                         )
 
+                        effective_strategy = self._get_effective_strategy_metadata(
+                            effective_execution_spec,
+                            str(strategy_id),
+                        )
+                    else:
+                        effective_strategy = None
+
                     # Strategy universe
-                    if strat_universe := strategy.get("universe"):
+                    strat_universe = None
+                    if effective_strategy and isinstance(effective_strategy.get("universe"), list):
+                        strat_universe = effective_strategy.get("universe")
+                    elif strategy.get("universe"):
+                        strat_universe = strategy.get("universe")
+
+                    if strat_universe:
                         if isinstance(strat_universe, list):
                             strat_symbols = ", ".join(strat_universe)
                             info_items_strategy.append(
@@ -636,22 +732,42 @@ class HTMLReportGenerator:
                             )
 
                     # Strategy data sources
-                    if strat_data := strategy.get("data_sources"):
+                    strat_data = None
+                    if effective_strategy and isinstance(effective_strategy.get("data_sources"), list):
+                        strat_data = effective_strategy.get("data_sources")
+                    elif strategy.get("data_sources"):
+                        strat_data = strategy.get("data_sources")
+
+                    if strat_data:
                         if isinstance(strat_data, list):
                             data_str = ", ".join(strat_data)
                             info_items_strategy.append(
                                 f'<div class="info-item"><span class="info-label">Strategy Data</span><span class="info-value">{data_str}</span></div>'
                             )
 
-                    # Strategy config parameters (all of them)
-                    if config := strategy.get("config"):
-                        if isinstance(config, dict):
-                            for key, value in config.items():
-                                # Format the key nicely (convert snake_case to Title Case)
-                                label = key.replace("_", " ").title()
-                                info_items_strategy.append(
-                                    f'<div class="info-item"><span class="info-label">{label}</span><span class="info-value">{value}</span></div>'
-                                )
+                    submitted_params: dict[str, Any] = (
+                        dict(strategy.get("config")) if isinstance(strategy.get("config"), dict) else {}
+                    )
+                    effective_params: dict[str, Any] = {}
+                    if effective_strategy:
+                        candidate_effective_params = effective_strategy.get("effective_params")
+                        if isinstance(candidate_effective_params, dict):
+                            effective_params = dict(candidate_effective_params)
+
+                    for key, value in effective_params.items():
+                        label = key.replace("_", " ").title()
+                        info_items_strategy.append(
+                            f'<div class="info-item"><span class="info-label">{label}</span><span class="info-value">{value}</span></div>'
+                        )
+
+                    for key, value in submitted_params.items():
+                        if key in effective_params and effective_params[key] == value:
+                            continue
+
+                        label = f"{key.replace('_', ' ').title()} (Submitted)"
+                        info_items_strategy.append(
+                            f'<div class="info-item"><span class="info-label">{label}</span><span class="info-value">{value}</span></div>'
+                        )
 
             if info_items_strategy:
                 sections.append(

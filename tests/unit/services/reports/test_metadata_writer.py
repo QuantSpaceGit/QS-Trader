@@ -325,3 +325,38 @@ class TestWriteBacktestMetadata:
 
         assert metadata["backtest"] == {}
         assert metadata["system"]["data"] == {}
+
+    def test_effective_execution_spec_is_written_under_backtest_provenance(self, tmp_path: Path):
+        """Runtime provenance should be emitted in metadata.json when available."""
+        backtest_config = {
+            "backtest_id": "test",
+            "strategies": [{"strategy_id": "sma_crossover", "config": {"fast_period": 10}}],
+        }
+        system_config: dict[str, dict] = {"data": {}, "output": {}, "logging": {}}
+        effective_execution_spec = {
+            "schema_version": 1,
+            "captured_from": "qs_trader.reporting",
+            "strategies": [
+                {
+                    "strategy_id": "sma_crossover",
+                    "effective_params": {"fast_period": 10, "slow_period": 50},
+                }
+            ],
+        }
+        output_path = tmp_path / "metadata.json"
+
+        write_backtest_metadata(
+            backtest_config,
+            system_config,
+            output_path,
+            effective_execution_spec=effective_execution_spec,
+        )
+
+        import json
+
+        with output_path.open("r") as f:
+            metadata = json.load(f)
+
+        assert metadata["metadata_version"] == "1.1"
+        assert metadata["backtest"]["submitted_config"] == backtest_config
+        assert metadata["backtest"]["effective_execution_spec"] == effective_execution_spec

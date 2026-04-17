@@ -117,6 +117,7 @@ class PostgreSQLWriter:
         manifest: ClickHouseInputManifest | None = None,
         run_manifest: dict | None = None,
         config_snapshot: dict | None = None,
+        effective_execution_spec: dict | None = None,
         artifact_mode: str | None = None,
         job_group_id: str | None = None,
         submission_source: str | None = None,
@@ -139,6 +140,8 @@ class PostgreSQLWriter:
             manifest: Optional ClickHouse input manifest (serialized to JSON)
             run_manifest: Optional run manifest dict (sources, config refs)
             config_snapshot: Optional config snapshot dict (replaces on-disk YAML)
+            effective_execution_spec: Optional immutable runtime provenance
+                artifact (resolved strategy and risk config)
             artifact_mode: Artifact policy ('filesystem' or 'database_only')
             job_group_id: Optional job group identifier
             submission_source: Optional source system label
@@ -155,6 +158,7 @@ class PostgreSQLWriter:
                 manifest,
                 run_manifest,
                 config_snapshot,
+                effective_execution_spec,
                 artifact_mode=artifact_mode,
                 job_group_id=job_group_id,
                 submission_source=submission_source,
@@ -199,6 +203,7 @@ class PostgreSQLWriter:
         manifest: ClickHouseInputManifest | None = None,
         run_manifest: dict | None = None,
         config_snapshot: dict | None = None,
+        effective_execution_spec: dict | None = None,
         *,
         artifact_mode: str | None = None,
         job_group_id: str | None = None,
@@ -210,6 +215,9 @@ class PostgreSQLWriter:
         manifest_json = manifest.to_json() if manifest is not None else None
         run_manifest_json = _to_json(run_manifest) if run_manifest is not None else "{}"
         config_snapshot_json = _to_json(config_snapshot) if config_snapshot is not None else "{}"
+        effective_execution_spec_json = (
+            _to_json(effective_execution_spec) if effective_execution_spec is not None else None
+        )
 
         conn.execute(
             text("""
@@ -232,6 +240,7 @@ class PostgreSQLWriter:
                     total_commissions, commission_pct_of_pnl,
                     open_trades, realized_pnl, unrealized_pnl,
                     input_manifest_json, run_manifest_json, config_snapshot_json,
+                    effective_execution_spec_json,
                     artifact_mode,
                     job_group_id, submission_source,
                     split_pct, split_role
@@ -254,6 +263,7 @@ class PostgreSQLWriter:
                     :total_commissions, :commission_pct_of_pnl,
                     :open_trades, :realized_pnl, :unrealized_pnl,
                     CAST(:input_manifest_json AS jsonb), CAST(:run_manifest_json AS jsonb), CAST(:config_snapshot_json AS jsonb),
+                    CAST(:effective_execution_spec_json AS jsonb),
                     :artifact_mode,
                     :job_group_id, :submission_source,
                     :split_pct, :split_role
@@ -306,6 +316,7 @@ class PostgreSQLWriter:
                 "input_manifest_json": manifest_json,
                 "run_manifest_json": run_manifest_json,
                 "config_snapshot_json": config_snapshot_json,
+                "effective_execution_spec_json": effective_execution_spec_json,
                 "artifact_mode": artifact_mode or "filesystem",
                 "job_group_id": job_group_id,
                 "submission_source": submission_source,

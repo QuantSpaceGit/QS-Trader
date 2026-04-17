@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -17,8 +18,8 @@ from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
 from qs_trader.services.reporting.service import ReportingService
 from qs_trader.services.reporting.writer_factory import (
     WriterConfigurationError,
-    _create_postgres_writer,
     _build_postgres_url_from_env,
+    _create_postgres_writer,
 )
 from qs_trader.system.config import DatabaseOutputConfig
 
@@ -127,6 +128,7 @@ def test_database_enabled_uses_postgres_writer_with_database_only_metadata(tmp_p
     service = _build_reporting_service(tmp_path)
     service._job_group_id = "g-001"
     service._submission_source = "research_api"
+    service._effective_execution_spec = {"schema_version": 1, "captured_from": "qs_trader.reporting"}
     mock_writer = MagicMock()
 
     with (
@@ -151,7 +153,54 @@ def test_database_enabled_uses_postgres_writer_with_database_only_metadata(tmp_p
     assert kwargs["artifact_mode"] == "database_only"
     assert kwargs["job_group_id"] == "g-001"
     assert kwargs["submission_source"] == "research_api"
+    assert kwargs["effective_execution_spec"] == {
+        "schema_version": 1,
+        "captured_from": "qs_trader.reporting",
+    }
     assert service.get_database_write_status().state == "succeeded"
+
+
+def test_write_metadata_threads_effective_execution_spec(tmp_path: Path) -> None:
+    """metadata.json writes should include immutable runtime provenance when available."""
+    service = _build_reporting_service(tmp_path)
+    service._effective_execution_spec = {
+        "schema_version": 1,
+        "captured_from": "qs_trader.reporting",
+    }
+    backtest_config = MagicMock()
+    backtest_config.model_dump.return_value = {"backtest_id": "test-backtest"}
+    system_config = SimpleNamespace(
+        data=SimpleNamespace(
+            sources_config="config/data_sources.yaml",
+            default_timezone="UTC",
+            price_decimals=2,
+            validate_on_load=True,
+        ),
+        output=SimpleNamespace(
+            experiments_root="output/backtests",
+            run_id_format="%Y%m%d_%H%M%S",
+            display_format="tree",
+        ),
+        logging=SimpleNamespace(
+            level="INFO",
+            format="console",
+            timestamp_format="iso",
+            enable_file=False,
+            file_path=None,
+        ),
+    )
+
+    with (
+        patch("qs_trader.system.config.get_system_config", return_value=system_config),
+        patch("qs_trader.services.reporting.service.write_backtest_metadata") as mock_write,
+    ):
+        service._write_metadata({"backtest_config": backtest_config})
+
+    mock_write.assert_called_once()
+    assert mock_write.call_args.kwargs["effective_execution_spec"] == {
+        "schema_version": 1,
+        "captured_from": "qs_trader.reporting",
+    }
 
 
 def test_database_failure_is_captured_without_raising(tmp_path: Path) -> None:
@@ -246,8 +295,7 @@ def test_env_postgres_url_builder_encodes_reserved_characters(
     monkeypatch.setenv("RESEARCH_POSTGRES_SSLMODE", "disable")
 
     assert _build_postgres_url_from_env() == (
-        "postgresql+psycopg://research:s3cr%2Fet%3Awith%40chars"
-        "@localhost:5432/research?sslmode=disable"
+        "postgresql+psycopg://research:s3cr%2Fet%3Awith%40chars@localhost:5432/research?sslmode=disable"
     )
 
 
@@ -270,10 +318,7 @@ def test_postgres_writer_factory_rejects_unexpanded_placeholders(
     db_config = DatabaseOutputConfig(
         enabled=True,
         backend="postgres",
-        postgres_url=(
-            "postgresql+psycopg://research:${RESEARCH_POSTGRES_PASSWORD}"
-            "@localhost:5432/research"
-        ),
+        postgres_url=("postgresql+psycopg://research:${RESEARCH_POSTGRES_PASSWORD}@localhost:5432/research"),
     )
 
     with pytest.raises(
@@ -535,3 +580,40 @@ def test_insert_run_maps_open_trade_fields_to_correct_params() -> None:
     assert params["open_trades"] == 2
     assert params["realized_pnl"] == 1000.0
     assert params["unrealized_pnl"] == 500.0
+
+
+def test_insert_run_serializes_effective_execution_spec_json() -> None:
+    """_insert_run should pass the effective execution artifact to the JSONB column."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    writer._insert_run(
+        conn,
+        "exp",
+        "run-001",
+        _minimal_metrics(),
+        effective_execution_spec={
+            "schema_version": 1,
+            "captured_from": "qs_trader.reporting",
+            "strategies": [
+                {
+                    "strategy_id": "sma_crossover",
+                    "effective_params": {"fast_period": 10, "slow_period": 50},
+                }
+            ],
+        },
+    )
+
+    conn.execute.assert_called_once()
+    params = conn.execute.call_args.args[1]
+
+    assert json.loads(params["effective_execution_spec_json"]) == {
+        "schema_version": 1,
+        "captured_from": "qs_trader.reporting",
+        "strategies": [
+            {
+                "strategy_id": "sma_crossover",
+                "effective_params": {"fast_period": 10, "slow_period": 50},
+            }
+        ],
+    }

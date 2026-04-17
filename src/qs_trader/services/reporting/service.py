@@ -11,7 +11,7 @@ Architecture:
 
 import math
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -23,6 +23,8 @@ from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, TradeEvent
 
 if TYPE_CHECKING:
+    from qs_trader.libraries.strategies import Strategy
+    from qs_trader.services.manager.service import ManagerService
     from qs_trader.events.event_store import EventStore
     from qs_trader.services.reporting.manifest import ClickHouseInputManifest
     from qs_trader.system.config import SystemConfig
@@ -59,6 +61,117 @@ from qs_trader.services.reporting.writers import (
 )
 
 DatabaseWriteState = Literal["not_attempted", "disabled", "skipped", "succeeded", "failed"]
+
+_STRATEGY_CONFIG_METADATA_FIELDS = {
+    "name",
+    "display_name",
+    "description",
+    "author",
+    "created",
+    "updated",
+    "version",
+    "universe",
+}
+
+
+def _normalize_jsonish(value: Any) -> Any:
+    """Normalize nested config values into JSON-friendly built-ins."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return _normalize_jsonish(asdict(value))
+
+    if isinstance(value, dict):
+        return {str(key): _normalize_jsonish(item) for key, item in value.items()}
+
+    if isinstance(value, tuple):
+        return [_normalize_jsonish(item) for item in value]
+
+    if isinstance(value, list):
+        return [_normalize_jsonish(item) for item in value]
+
+    return value
+
+
+def _extract_strategy_effective_params(strategy: "Strategy") -> dict[str, Any]:
+    """Return the effective runtime params for a resolved strategy instance."""
+    config = getattr(strategy, "config", None)
+    if config is None:
+        return {}
+
+    if hasattr(config, "model_dump"):
+        raw_config = config.model_dump(mode="json")
+    elif hasattr(config, "dict"):
+        raw_config = config.dict()
+    else:
+        raw_config = dict(config) if hasattr(config, "__iter__") else {}
+
+    if not isinstance(raw_config, dict):
+        return {}
+
+    return {
+        key: _normalize_jsonish(value)
+        for key, value in raw_config.items()
+        if key not in _STRATEGY_CONFIG_METADATA_FIELDS
+    }
+
+
+def build_effective_execution_spec(
+    *,
+    backtest_config: Any,
+    strategy_instances: dict[str, "Strategy"],
+    manager_service: "ManagerService | None",
+) -> dict[str, Any]:
+    """Build the immutable effective execution spec for a run.
+
+    The producer preserves the submitted backtest configuration separately in
+    ``config_snapshot_json``. This artifact captures the resolved runtime truth
+    after defaults have been applied and strategies have been instantiated.
+    """
+    strategy_items = getattr(backtest_config, "strategies", []) or []
+    strategies_payload: list[dict[str, Any]] = []
+
+    for strategy_item in strategy_items:
+        strategy_id = getattr(strategy_item, "strategy_id", None)
+        if strategy_id is None:
+            continue
+
+        strategy_instance = strategy_instances.get(str(strategy_id))
+        effective_params = (
+            _extract_strategy_effective_params(strategy_instance)
+            if strategy_instance is not None
+            else _normalize_jsonish(getattr(strategy_item, "config", {}) or {})
+        )
+
+        strategies_payload.append(
+            {
+                "strategy_id": str(strategy_id),
+                "effective_params": effective_params,
+                "universe": [str(symbol) for symbol in (getattr(strategy_item, "universe", []) or [])],
+                "data_sources": [
+                    str(source_name) for source_name in (getattr(strategy_item, "data_sources", []) or [])
+                ],
+            }
+        )
+
+    risk_policy_name = getattr(getattr(backtest_config, "risk_policy", None), "name", None)
+    risk_policy_effective_config: dict[str, Any] = {}
+    if manager_service is not None:
+        risk_policy_effective_config = _normalize_jsonish(manager_service.get_effective_risk_config())
+    else:
+        risk_policy_effective_config = _normalize_jsonish(
+            getattr(getattr(backtest_config, "risk_policy", None), "config", {}) or {}
+        )
+
+    return {
+        "schema_version": 1,
+        "captured_from": "qs_trader.reporting",
+        "strategies": strategies_payload,
+        "risk_policy": {
+            "name": str(risk_policy_name) if risk_policy_name is not None else None,
+            "effective_config": risk_policy_effective_config,
+        },
+        "strategy_adjustment_mode": getattr(backtest_config, "strategy_adjustment_mode", None),
+        "portfolio_adjustment_mode": getattr(backtest_config, "portfolio_adjustment_mode", None),
+    }
 
 
 @dataclass(frozen=True)
@@ -149,6 +262,7 @@ class ReportingService:
         self._split_pct: float | None = None
         self._split_role: str | None = None
         self._backtest_config: Any | None = None
+        self._effective_execution_spec: dict[str, Any] | None = None
 
         # Subscribe to events
         self._subscribe_to_events()
@@ -1287,6 +1401,7 @@ class ReportingService:
                     manifest=self._input_manifest,
                     run_manifest=run_manifest,
                     config_snapshot=config_snapshot,
+                    effective_execution_spec=self._effective_execution_spec,
                     artifact_mode=artifact_mode,
                     job_group_id=self._job_group_id,
                     submission_source=self._submission_source,
@@ -1432,7 +1547,12 @@ class ReportingService:
 
             # Write metadata.json to root output directory
             metadata_path = self.output_dir / "metadata.json"
-            write_backtest_metadata(backtest_dict, system_dict, metadata_path)
+            write_backtest_metadata(
+                backtest_dict,
+                system_dict,
+                metadata_path,
+                effective_execution_spec=self._effective_execution_spec,
+            )
 
         except Exception as e:
             import traceback
@@ -1456,6 +1576,7 @@ class ReportingService:
         self._strategy_ids = context.get("strategy_ids", [])
         self._input_manifest = context.get("input_manifest")  # None for Yahoo/CSV runs
         self._backtest_config = context.get("backtest_config")
+        self._effective_execution_spec = _normalize_jsonish(context.get("effective_execution_spec"))
         self._set_database_write_status(state="not_attempted")
 
         if self._backtest_config is not None:
@@ -1569,6 +1690,7 @@ class ReportingService:
         self._split_pct = None
         self._split_role = None
         self._backtest_config = None
+        self._effective_execution_spec = None
         self._set_database_write_status(state="not_attempted")
         self._active_trade_events = {}
         self._open_trade_records = []

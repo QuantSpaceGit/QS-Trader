@@ -290,6 +290,23 @@ Artifact modes are now explicit:
 - `artifact_policy.mode: filesystem` keeps traditional run directories for standalone/manual workflows.
 - `artifact_policy.mode: database_only` skips durable run-directory creation and is the supported mode for `QS-Research` service-owned jobs.
 
+QS-Trader now preserves **two distinct configuration artifacts** for every persisted run:
+
+- **Submitted config snapshot** — the original operator intent as submitted in the backtest payload/YAML.
+- **Effective execution spec** — the resolved runtime truth after registry defaults, strategy config merging, and risk-policy resolution have been applied.
+
+When filesystem artifacts are enabled, `metadata.json` version `1.1` writes both under:
+
+- `backtest.submitted_config`
+- `backtest.effective_execution_spec`
+
+When PostgreSQL persistence is enabled, the same distinction is carried in the operational store:
+
+- `runs.config_snapshot_json` → submitted intent
+- `runs.effective_execution_spec_json` → immutable resolved runtime provenance
+
+This separation matters whenever a run inherits defaults. An empty submitted override block can now remain empty for auditability while the effective execution spec still records the concrete params that actually executed.
+
 Configure in `qs_trader.yaml`:
 
 ```yaml

@@ -31,6 +31,7 @@ Future Enhancements:
 - Advanced order types (limit, stop)
 """
 
+from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
 
@@ -144,6 +145,10 @@ class ManagerService:
             )
 
         return cls(risk_config=risk_config, event_bus=event_bus)
+
+    def get_effective_risk_config(self) -> dict[str, Any]:
+        """Return a serializable snapshot of the resolved risk config."""
+        return asdict(self._config)
 
     def _get_position_quantity(self, strategy_id: str, symbol: str) -> int:
         """
