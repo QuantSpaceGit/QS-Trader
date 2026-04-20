@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +25,8 @@ from qs_trader.events.events import (
 )
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.config import ReportingConfig
+from qs_trader.services.reporting.event_collector import collect_run_events
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
 from qs_trader.services.reporting.service import ReportingService
 from qs_trader.services.reporting.writer_factory import (
@@ -40,14 +42,30 @@ def _make_system_config_mock(
     db_enabled: bool,
     artifact_mode: str = "filesystem",
     postgres_url: str | None = None,
+    config_root: Path | None = None,
 ):
     mock = MagicMock()
     mock.output.database.enabled = db_enabled
     mock.output.database.backend = "postgres"
     mock.output.database.postgres_url = postgres_url
     mock.output.artifact_policy.mode = artifact_mode
-    mock.config_root = Path.cwd()
+    mock.config_root = config_root or Path.cwd()
     return mock
+
+
+def _minimal_manifest() -> ClickHouseInputManifest:
+    return ClickHouseInputManifest.model_validate(
+        {
+            "source_name": "qs-datamaster-equity-1d",
+            "database": "market",
+            "bars_table": "as_us_equity_ohlc_daily",
+            "symbols": ("AAPL",),
+            "start_date": date(2024, 1, 2),
+            "end_date": date(2024, 1, 2),
+            "strategy_adjustment_mode": "split_adjusted",
+            "portfolio_adjustment_mode": "split_adjusted",
+        }
+    )
 
 
 def _minimal_metrics() -> FullMetrics:
@@ -763,9 +781,7 @@ def test_insert_run_serializes_effective_execution_spec_json() -> None:
 
 def test_collect_run_events_aggregates_event_store_payloads() -> None:
     """Run-event collection should merge per-bar signal, order, fill, trade, feature, and indicator data."""
-    writer = object.__new__(PostgreSQLWriter)
-
-    rows = writer._collect_run_events("exp", "run-001", _build_run_event_store())
+    rows = collect_run_events("exp", "run-001", _build_run_event_store())
 
     assert len(rows) == 1
     row = rows[0]
@@ -856,3 +872,112 @@ def test_save_run_remains_backward_compatible_without_event_store() -> None:
     writer._insert_trades.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_drawdowns.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_run_events.assert_called_once_with(conn, "exp", "run-001", None)
+
+
+def test_postgresql_writer_updates_audit_export_path() -> None:
+    """Writer should update runs.audit_export_path with a simple parameterized statement."""
+    writer = cast(Any, object.__new__(PostgreSQLWriter))
+    conn = MagicMock()
+    begin_context = MagicMock()
+    begin_context.__enter__.return_value = conn
+    begin_context.__exit__.return_value = False
+    writer._engine = MagicMock()
+    writer._engine.begin.return_value = begin_context
+
+    writer.update_audit_export_path("exp", "run-001", "/tmp/audit.zip")
+
+    conn.execute.assert_called_once()
+    statement, params = conn.execute.call_args.args
+    assert "UPDATE runs" in str(statement)
+    assert params == {
+        "audit_export_path": "/tmp/audit.zip",
+        "experiment_id": "exp",
+        "run_id": "run-001",
+    }
+
+
+def test_postgresql_writer_warns_when_audit_export_path_update_hits_no_rows(caplog) -> None:
+    """A zero-row audit-export path update should emit a warning for orphaned ZIP diagnosis."""
+    writer = cast(Any, object.__new__(PostgreSQLWriter))
+    conn = MagicMock()
+    conn.execute.return_value = SimpleNamespace(rowcount=0)
+    begin_context = MagicMock()
+    begin_context.__enter__.return_value = conn
+    begin_context.__exit__.return_value = False
+    writer._engine = MagicMock()
+    writer._engine.begin.return_value = begin_context
+
+    with caplog.at_level("WARNING"):
+        writer.update_audit_export_path("exp", "run-001", "/tmp/audit.zip")
+
+    assert "postgresql_writer.audit_export_path_missing_run" in caplog.text
+
+
+def test_database_enabled_updates_audit_export_path_after_zip_generation(tmp_path: Path) -> None:
+    """Successful audit ZIP generation should persist the path after the run row is saved."""
+    service = _build_reporting_service(tmp_path)
+    service._event_store = _build_run_event_store()
+    service._input_manifest = _minimal_manifest()
+    save_writer = MagicMock()
+    path_writer = MagicMock()
+    audit_zip_path = tmp_path / "audit-exports" / "test_exp" / "20260101_000000.zip"
+
+    with (
+        patch(
+            "qs_trader.system.config.get_system_config",
+            return_value=_make_system_config_mock(
+                db_enabled=True,
+                postgres_url="postgresql+psycopg://research:secret@localhost:5432/research",
+                config_root=tmp_path,
+            ),
+        ),
+        patch(
+            "qs_trader.services.reporting.writer_factory.create_persistence_writer",
+            side_effect=[save_writer, path_writer],
+        ) as mock_factory,
+        patch(
+            "qs_trader.services.reporting.audit_export.AuditExportBuilder.build",
+            return_value=audit_zip_path,
+        ) as mock_build,
+    ):
+        service._write_outputs(_minimal_metrics())
+
+    mock_build.assert_called_once()
+    assert mock_factory.call_count == 2
+    path_writer.update_audit_export_path.assert_called_once_with(
+        experiment_id="test_exp",
+        run_id="20260101_000000",
+        audit_export_path=str(audit_zip_path),
+    )
+    path_writer.close.assert_called_once()
+
+
+def test_audit_export_failure_is_non_fatal_after_database_write(tmp_path: Path) -> None:
+    """ClickHouse-side audit export failures must not fail the overall reporting flow."""
+    service = _build_reporting_service(tmp_path)
+    service._event_store = _build_run_event_store()
+    service._input_manifest = _minimal_manifest()
+    save_writer = MagicMock()
+
+    with (
+        patch(
+            "qs_trader.system.config.get_system_config",
+            return_value=_make_system_config_mock(
+                db_enabled=True,
+                postgres_url="postgresql+psycopg://research:secret@localhost:5432/research",
+            ),
+        ),
+        patch(
+            "qs_trader.services.reporting.writer_factory.create_persistence_writer",
+            return_value=save_writer,
+        ) as mock_factory,
+        patch(
+            "qs_trader.services.reporting.audit_export.AuditExportBuilder.build",
+            side_effect=RuntimeError("clickhouse unavailable"),
+        ),
+    ):
+        service._write_outputs(_minimal_metrics())
+
+    assert mock_factory.call_count == 1
+    save_writer.save_run.assert_called_once()
+    assert service.get_database_write_status().state == "succeeded"

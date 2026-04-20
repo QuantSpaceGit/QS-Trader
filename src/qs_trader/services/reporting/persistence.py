@@ -83,3 +83,18 @@ class RunPersistenceWriter(Protocol):
     def close(self) -> None:
         """Release any underlying persistence resources."""
         ...
+
+    def update_audit_export_path(
+        self,
+        experiment_id: str,
+        run_id: str,
+        audit_export_path: str,
+    ) -> None:
+        """Persist the generated audit-export path for an existing run row.
+
+        Args:
+            experiment_id: Experiment name.
+            run_id: Run identifier.
+            audit_export_path: Absolute ZIP path stored in the operational run row.
+        """
+        ...

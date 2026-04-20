@@ -59,12 +59,25 @@ Serialise for database storage::
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 AdjustmentMode = Literal["split_adjusted", "total_return"]
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+class UnsafeManifestIdentifierError(ValueError):
+    """Raised when a manifest database/table identifier is unsafe for SQL."""
+
+
+def assert_safe_manifest_identifier(name: str, field: str) -> None:
+    """Reject manifest identifiers containing characters unsafe for SQL identifiers."""
+    if not _SAFE_IDENTIFIER_RE.match(name):
+        raise UnsafeManifestIdentifierError(f"Manifest field '{field}' contains invalid characters: {name!r}")
 
 
 class ClickHouseInputManifest(BaseModel):

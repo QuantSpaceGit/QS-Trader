@@ -101,6 +101,7 @@ class ClickhouseDataAdapter:
         self._username: str = ch_cfg.get("username", ch_cfg.get("user", "default"))
         self._password: str = ch_cfg.get("password", "")
         self._database: str = ch_cfg.get("database", "market")
+        self._bars_table: str = config.get("bars_table", "as_us_equity_ohlc_daily")
 
         # Display / metadata config (top-level keys from YAML)
         self.tz_name: str = config.get("timezone", "America/New_York")
@@ -282,7 +283,7 @@ class ClickhouseDataAdapter:
                     toFloat64(lowadj)   AS lowadj,
                     toFloat64(closeadj) AS closeadj,
                     toInt64(round(dailyvolumeadj)) AS volume
-                FROM {self._database}.as_us_equity_ohlc_daily
+                                FROM {self._database}.{self._bars_table}
                 WHERE ticker = '{symbol}'
                   AND tradedate >= toDate('{start_date}')
                   AND tradedate <= toDate('{end_date}')

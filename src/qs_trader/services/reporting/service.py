@@ -1304,6 +1304,7 @@ class ReportingService:
         # Write to database (if enabled in system config)
         if system_config is not None:
             self._write_to_database(system_config, metrics, equity_points, returns_points)
+            self._write_audit_export(system_config, metrics)
 
     def _resolve_run_identifiers(self) -> tuple[str | None, str | None]:
         """Resolve experiment_id/run_id for persistence.
@@ -1438,6 +1439,114 @@ class ReportingService:
                 error_type=type(e).__name__,
                 backend=db_config.backend,
                 exc_info=True,
+            )
+
+    def _write_audit_export(
+        self,
+        system_config: "SystemConfig",
+        metrics: "FullMetrics",
+    ) -> Path | None:
+        """Generate the Phase 2 audit ZIP when manifest and events are available."""
+        experiment_id, run_id = self._resolve_run_identifiers()
+        if not experiment_id or not run_id:
+            self.logger.warning(
+                "audit_export.skipped",
+                reason="Cannot resolve experiment_id/run_id for audit export",
+                output_dir=str(self.output_dir),
+            )
+            return None
+
+        if self._input_manifest is None:
+            self.logger.debug(
+                "audit_export.skipped",
+                experiment_id=experiment_id,
+                run_id=run_id,
+                reason="No ClickHouse input manifest available for this run",
+            )
+            return None
+
+        if self._event_store is None:
+            self.logger.warning(
+                "audit_export.skipped",
+                experiment_id=experiment_id,
+                run_id=run_id,
+                reason="EventStore not available for audit export generation",
+            )
+            return None
+
+        try:
+            from qs_trader.services.reporting.audit_export import AuditExportBuilder
+
+            audit_export_path = AuditExportBuilder(system_config).build(
+                experiment_id=experiment_id,
+                run_id=run_id,
+                metrics=metrics,
+                event_store=self._event_store,
+                manifest=self._input_manifest,
+                config_snapshot=self._build_config_snapshot(),
+                effective_execution_spec=self._effective_execution_spec,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "audit_export.failed",
+                experiment_id=experiment_id,
+                run_id=run_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return None
+
+        if system_config.output.database.enabled:
+            self._persist_audit_export_path(
+                system_config=system_config,
+                experiment_id=experiment_id,
+                run_id=run_id,
+                audit_export_path=audit_export_path,
+            )
+
+        return audit_export_path
+
+    def _persist_audit_export_path(
+        self,
+        *,
+        system_config: "SystemConfig",
+        experiment_id: str,
+        run_id: str,
+        audit_export_path: Path,
+    ) -> None:
+        """Persist the generated audit-export path when DB persistence succeeded."""
+        if self._database_write_status.state != "succeeded":
+            self.logger.warning(
+                "audit_export.path_persist_skipped",
+                experiment_id=experiment_id,
+                run_id=run_id,
+                reason="Run summary was not written successfully before audit export generation",
+                database_state=self._database_write_status.state,
+            )
+            return
+
+        try:
+            from qs_trader.services.reporting.writer_factory import create_persistence_writer
+
+            writer = create_persistence_writer(system_config)
+            try:
+                writer.update_audit_export_path(
+                    experiment_id=experiment_id,
+                    run_id=run_id,
+                    audit_export_path=str(audit_export_path),
+                )
+            finally:
+                close_writer = getattr(writer, "close", None)
+                if callable(close_writer):
+                    close_writer()
+        except Exception as exc:
+            self.logger.warning(
+                "audit_export.path_persist_failed",
+                experiment_id=experiment_id,
+                run_id=run_id,
+                path=str(audit_export_path),
+                error=str(exc),
+                error_type=type(exc).__name__,
             )
 
     def _build_run_manifest(self) -> dict | None:

@@ -4,11 +4,136 @@ Tests the full end-to-end flow of reporting service integration using fixtures.
 All tests are self-contained and don't depend on user-modifiable config files.
 """
 
+import csv
+import io
 import json
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import MagicMock, Mock, patch
+from zipfile import ZipFile
 
 from qs_trader.engine.engine import BacktestEngine
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import (
+    FeatureBarEvent,
+    FillEvent,
+    IndicatorEvent,
+    OrderEvent,
+    PriceBarEvent,
+    SignalEvent,
+    TradeEvent,
+)
+from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseBar
+from qs_trader.services.reporting.config import ReportingConfig
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+from qs_trader.services.reporting.service import ReportingService
+
+
+def _integration_audit_event_store() -> InMemoryEventStore:
+    store = InMemoryEventStore()
+    timestamp = "2024-01-02T21:00:00+00:00"
+    fill_id = "550e8400-e29b-41d4-a716-446655440099"
+
+    store.append(
+        PriceBarEvent(
+            symbol="AAPL",
+            timestamp=timestamp,
+            interval="1d",
+            open=Decimal("100.00"),
+            high=Decimal("101.00"),
+            low=Decimal("99.50"),
+            close=Decimal("100.75"),
+            volume=1000,
+            source="integration_test",
+        )
+    )
+    store.append(FeatureBarEvent(timestamp=timestamp, symbol="AAPL", features={"alpha": Decimal("1.25")}))
+    store.append(
+        IndicatorEvent(
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            timestamp=timestamp,
+            indicators={"SMA(10)": Decimal("101.50")},
+        )
+    )
+    store.append(
+        SignalEvent(
+            signal_id="signal-550e8400-e29b-41d4-a716-446655440001",
+            timestamp=timestamp,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.50"),
+            confidence=Decimal("0.85"),
+            reason="golden cross",
+        )
+    )
+    store.append(
+        OrderEvent(
+            intent_id="signal-550e8400-e29b-41d4-a716-446655440001",
+            idempotency_key="order-key-1",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("10"),
+            order_type="market",
+            source_strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        FillEvent(
+            fill_id=fill_id,
+            source_order_id="order-001",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            filled_quantity=Decimal("10"),
+            fill_price=Decimal("100.60"),
+            commission=Decimal("1.25"),
+            slippage_bps=4,
+            strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        TradeEvent(
+            trade_id="T00042",
+            timestamp=timestamp,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            status="closed",
+            side="long",
+            fills=[fill_id],
+            entry_price=Decimal("100.60"),
+            exit_price=Decimal("104.00"),
+            current_quantity=Decimal("0"),
+            realized_pnl=Decimal("34.00"),
+            commission_total=Decimal("1.25"),
+            entry_timestamp=timestamp,
+            exit_timestamp="2024-01-10T00:00:00Z",
+        )
+    )
+    return store
+
+
+def _integration_manifest(
+    *,
+    database: str = "market",
+    bars_table: str = "as_us_equity_ohlc_daily",
+) -> ClickHouseInputManifest:
+    return ClickHouseInputManifest(
+        source_name="qs-datamaster-equity-1d",
+        database=database,
+        bars_table=bars_table,
+        symbols=("AAPL",),
+        start_date=date(2024, 1, 2),
+        end_date=date(2024, 1, 2),
+        strategy_adjustment_mode="split_adjusted",
+        portfolio_adjustment_mode="split_adjusted",
+    )
 
 
 class TestReportingIntegration:
@@ -579,3 +704,133 @@ class TestReportingIntegration:
 
         # Cleanup
         engine.shutdown()
+
+    def test_reporting_teardown_generates_valid_audit_export_zip(self, tmp_path: Path, mock_system_config) -> None:
+        """Reporting teardown should generate a valid audit ZIP via the real _load_symbol_bars path."""
+        event_store = _integration_audit_event_store()
+        output_dir = tmp_path / "experiments" / "audit_exp" / "runs" / "run-001"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        service = ReportingService(
+            event_bus=EventBus(),
+            config=ReportingConfig(
+                write_parquet=False,
+                write_json=False,
+                write_html_report=False,
+                write_csv_timeline=False,
+                display_final_report=False,
+            ),
+            output_dir=output_dir,
+            event_store=event_store,
+        )
+
+        service.setup(
+            {
+                "backtest_id": "audit_exp",
+                "strategy_ids": ["sma_crossover"],
+                "input_manifest": _integration_manifest(
+                    database="audit_market",
+                    bars_table="audit_bars_daily",
+                ),
+                "backtest_config": SimpleNamespace(
+                    run_id="run-001",
+                    job_group_id=None,
+                    submission_source="integration_test",
+                    split_pct=None,
+                    split_role=None,
+                ),
+                "effective_execution_spec": {"risk_policy": {"name": "naive"}},
+            }
+        )
+        service._start_datetime = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        service._initial_equity = Decimal("100000")
+        service._equity_calc = MagicMock()
+        service._equity_calc.latest_timestamp.return_value = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        service._equity_calc.latest_equity.return_value = Decimal("100500")
+        service._equity_calc.get_curve.return_value = []
+        service._returns_calc = MagicMock()
+        service._returns_calc.returns = []
+        service._drawdown_calc = MagicMock()
+        service._drawdown_calc.max_drawdown_pct = Decimal("0")
+        service._drawdown_calc.current_drawdown_pct = Decimal("0")
+        service._drawdown_calc.drawdown_periods = []
+        service._trade_stats_calc = MagicMock()
+        service._trade_stats_calc.trades = []
+        service._trade_stats_calc.total_trades = 0
+        service._trade_stats_calc.winning_trades = 0
+        service._trade_stats_calc.losing_trades = 0
+        service._trade_stats_calc.max_consecutive_wins = 0
+        service._trade_stats_calc.max_consecutive_losses = 0
+        service._period_calc = MagicMock()
+        service._period_calc.calculate_periods.return_value = []
+        service._strategy_perf_calc = MagicMock()
+        service._strategy_perf_calc.calculate_performance.return_value = []
+        cast(Any, service)._last_portfolio_state = SimpleNamespace(
+            snapshot_datetime="2024-01-02T00:00:00Z",
+            total_commissions_paid=Decimal("1.25"),
+            total_realized_pl=Decimal("34.00"),
+            total_unrealized_pl=Decimal("0"),
+        )
+
+        mock_system_config.output.database = Mock(enabled=False, backend="postgres", postgres_url=None)
+        mock_system_config.output.artifact_policy.mode = "filesystem"
+        mock_system_config.output.experiments_root = str(tmp_path / "experiments")
+        mock_system_config.config_root = tmp_path / "QS-Trader"
+        mock_system_config.config_root.mkdir(parents=True, exist_ok=True)
+
+        raw_bars = [
+            ClickhouseBar(
+                symbol="AAPL",
+                trade_date=date(2024, 1, 2),
+                open=Decimal("100.00"),
+                high=Decimal("101.00"),
+                low=Decimal("99.50"),
+                close=Decimal("100.75"),
+                open_adj=Decimal("10.00"),
+                high_adj=Decimal("10.10"),
+                low_adj=Decimal("9.95"),
+                close_adj=Decimal("10.07"),
+                volume=1000,
+            )
+        ]
+
+        fake_resolver = MagicMock()
+        fake_resolver.get_source_config.return_value = {
+            "adapter": "clickhouse",
+            "clickhouse": {
+                "host": "localhost",
+                "port": 8123,
+                "username": "default",
+                "password": "secret",
+                "database": "ignored_source_db",
+            },
+            "bars_table": "ignored_source_table",
+            "timezone": "America/New_York",
+        }
+
+        def _fake_read_bars(self, start_date: str, end_date: str):
+            assert self._database == "audit_market"
+            assert self._bars_table == "audit_bars_daily"
+            assert start_date == "2024-01-02"
+            assert end_date == "2024-01-02"
+            return iter(raw_bars)
+
+        with (
+            patch("qs_trader.system.config.get_system_config", return_value=mock_system_config),
+            patch("qs_trader.services.reporting.audit_export.DataSourceResolver", return_value=fake_resolver),
+            patch("qs_trader.services.reporting.audit_export.ClickhouseDataAdapter.read_bars", new=_fake_read_bars),
+        ):
+            service.teardown({})
+
+        audit_zip = Path(mock_system_config.output.experiments_root) / "audit-exports" / "audit_exp" / "run-001.zip"
+        assert audit_zip.exists()
+
+        with ZipFile(audit_zip) as archive:
+            assert sorted(archive.namelist()) == [
+                "audit_exp_run-001_audit/AAPL.csv",
+                "audit_exp_run-001_audit/summary.csv",
+            ]
+            rows = list(csv.DictReader(io.StringIO(archive.read("audit_exp_run-001_audit/AAPL.csv").decode("utf-8"))))
+            assert len(rows) == 1
+            assert rows[0]["signal_intention"] == "OPEN_LONG"
+            assert rows[0]["feat_alpha"] == "1.25"
