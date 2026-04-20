@@ -7,11 +7,22 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from qs_trader.events.event_bus import EventBus
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import (
+    FeatureBarEvent,
+    FillEvent,
+    IndicatorEvent,
+    OrderEvent,
+    PriceBarEvent,
+    SignalEvent,
+    TradeEvent,
+)
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
@@ -87,6 +98,135 @@ def _minimal_metrics() -> FullMetrics:
     )
 
 
+def _build_run_event_store() -> InMemoryEventStore:
+    store = InMemoryEventStore()
+    timestamp = "2024-01-02T00:00:00Z"
+    fill_one_id = "550e8400-e29b-41d4-a716-446655440011"
+    fill_two_id = "550e8400-e29b-41d4-a716-446655440012"
+
+    store.append(
+        PriceBarEvent(
+            symbol="AAPL",
+            timestamp=timestamp,
+            interval="1d",
+            open=Decimal("100.00"),
+            high=Decimal("101.00"),
+            low=Decimal("99.50"),
+            close=Decimal("100.75"),
+            volume=1000,
+            source="unit_test",
+        )
+    )
+    store.append(
+        FeatureBarEvent(
+            timestamp=timestamp,
+            symbol="AAPL",
+            features={
+                "feat_alpha": Decimal("1.25"),
+                "regime": "bull",
+                "nan_feature": float("nan"),
+            },
+        )
+    )
+    store.append(
+        IndicatorEvent(
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            timestamp=timestamp,
+            indicators={
+                "SMA(10)": Decimal("101.50"),
+                "is_bullish": True,
+                "comment": "skip-me",
+            },
+        )
+    )
+    store.append(
+        SignalEvent(
+            signal_id="signal-550e8400-e29b-41d4-a716-446655440001",
+            timestamp=timestamp,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.50"),
+            confidence=Decimal("0.85"),
+            reason="golden cross",
+        )
+    )
+    store.append(
+        OrderEvent(
+            intent_id="signal-550e8400-e29b-41d4-a716-446655440001",
+            idempotency_key="order-key-1",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("10"),
+            order_type="market",
+            source_strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        OrderEvent(
+            intent_id="signal-550e8400-e29b-41d4-a716-446655440001",
+            idempotency_key="order-key-2",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("5"),
+            order_type="limit",
+            limit_price=Decimal("100.40"),
+            source_strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        FillEvent(
+            fill_id=fill_one_id,
+            source_order_id="order-001",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            filled_quantity=Decimal("10"),
+            fill_price=Decimal("100.60"),
+            commission=Decimal("1.25"),
+            slippage_bps=4,
+            strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        FillEvent(
+            fill_id=fill_two_id,
+            source_order_id="order-002",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            filled_quantity=Decimal("5"),
+            fill_price=Decimal("100.80"),
+            commission=Decimal("0.75"),
+            slippage_bps=2,
+            strategy_id="sma_crossover",
+        )
+    )
+    store.append(
+        TradeEvent(
+            trade_id="T00001",
+            timestamp=timestamp,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            status="closed",
+            side="long",
+            fills=[fill_one_id, fill_two_id],
+            entry_price=Decimal("100.67"),
+            exit_price=Decimal("104.00"),
+            current_quantity=Decimal("0"),
+            realized_pnl=Decimal("50.00"),
+            commission_total=Decimal("2.00"),
+            entry_timestamp=timestamp,
+            exit_timestamp="2024-01-10T00:00:00Z",
+        )
+    )
+
+    return store
+
+
 def _build_reporting_service(tmp_path: Path) -> ReportingService:
     config = ReportingConfig(
         write_parquet=False,
@@ -129,6 +269,7 @@ def test_database_enabled_uses_postgres_writer_with_database_only_metadata(tmp_p
     service._job_group_id = "g-001"
     service._submission_source = "research_api"
     service._effective_execution_spec = {"schema_version": 1, "captured_from": "qs_trader.reporting"}
+    service._event_store = _build_run_event_store()
     mock_writer = MagicMock()
 
     with (
@@ -157,6 +298,7 @@ def test_database_enabled_uses_postgres_writer_with_database_only_metadata(tmp_p
         "schema_version": 1,
         "captured_from": "qs_trader.reporting",
     }
+    assert kwargs["event_store"] is service._event_store
     assert service.get_database_write_status().state == "succeeded"
 
 
@@ -617,3 +759,100 @@ def test_insert_run_serializes_effective_execution_spec_json() -> None:
             }
         ],
     }
+
+
+def test_collect_run_events_aggregates_event_store_payloads() -> None:
+    """Run-event collection should merge per-bar signal, order, fill, trade, feature, and indicator data."""
+    writer = object.__new__(PostgreSQLWriter)
+
+    rows = writer._collect_run_events("exp", "run-001", _build_run_event_store())
+
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert row["experiment_id"] == "exp"
+    assert row["run_id"] == "run-001"
+    assert row["timestamp"] == datetime(2024, 1, 2, tzinfo=timezone.utc)
+    assert row["symbol"] == "AAPL"
+    assert row["strategy_id"] == "sma_crossover"
+    assert row["signal_intention"] == "OPEN_LONG"
+    assert row["signal_price"] == 100.5
+    assert row["signal_confidence"] == 0.85
+    assert row["signal_reason"] == "golden cross"
+    assert row["order_side"] == "BUY"
+    assert row["order_type"] == "MARKET,LIMIT"
+    assert row["order_qty"] == 15
+    assert row["fill_qty"] == 15
+    assert row["fill_price"] == pytest.approx((10 * 100.60 + 5 * 100.80) / 15)
+    assert row["fill_slippage_bps"] == pytest.approx((10 * 4 + 5 * 2) / 15)
+    assert row["commission"] == 2.0
+    assert row["trade_id"] == "T00001"
+    assert row["trade_status"] == "CLOSED"
+    assert row["trade_side"] == "LONG"
+    assert row["trade_entry_price"] == 100.67
+    assert row["trade_exit_price"] == 104.0
+    assert row["trade_realized_pnl"] == 50.0
+    assert json.loads(row["indicators_json"]) == {
+        "SMA(10)": 101.5,
+        "is_bullish": 1.0,
+    }
+    assert json.loads(row["features_json"]) == {"feat_alpha": 1.25}
+
+
+def test_insert_run_events_batches_parameterized_rows() -> None:
+    """run_events inserts should use one executemany-style call with collected row dicts."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_run_events(conn, "exp", "run-001", _build_run_event_store())
+
+    assert inserted == 1
+    conn.execute.assert_called_once()
+    statement, params = conn.execute.call_args.args
+    assert "INSERT INTO run_events" in str(statement)
+    assert isinstance(params, list)
+    assert len(params) == 1
+    assert params[0]["experiment_id"] == "exp"
+    assert params[0]["run_id"] == "run-001"
+    assert json.loads(params[0]["indicators_json"]) == {
+        "SMA(10)": 101.5,
+        "is_bullish": 1.0,
+    }
+    assert json.loads(params[0]["features_json"]) == {"feat_alpha": 1.25}
+
+
+def test_save_run_remains_backward_compatible_without_event_store() -> None:
+    """save_run should keep the existing write flow when callers omit event_store."""
+    writer = cast(Any, object.__new__(PostgreSQLWriter))
+    conn = MagicMock()
+    begin_context = MagicMock()
+    begin_context.__enter__.return_value = conn
+    begin_context.__exit__.return_value = False
+    writer._engine = MagicMock()
+    writer._engine.begin.return_value = begin_context
+
+    writer._delete_existing_run = MagicMock()
+    writer._insert_run = MagicMock()
+    writer._insert_equity_curve = MagicMock()
+    writer._insert_returns = MagicMock()
+    writer._insert_trades = MagicMock()
+    writer._insert_drawdowns = MagicMock()
+    writer._insert_run_events = MagicMock(return_value=0)
+
+    writer.save_run(
+        experiment_id="exp",
+        run_id="run-001",
+        metrics=_minimal_metrics(),
+        equity_curve=[],
+        returns=[],
+        trades=[],
+        drawdowns=[],
+    )
+
+    writer._delete_existing_run.assert_called_once_with(conn, "exp", "run-001")
+    writer._insert_run.assert_called_once()
+    writer._insert_equity_curve.assert_called_once_with(conn, "exp", "run-001", [])
+    writer._insert_returns.assert_called_once_with(conn, "exp", "run-001", [])
+    writer._insert_trades.assert_called_once_with(conn, "exp", "run-001", [])
+    writer._insert_drawdowns.assert_called_once_with(conn, "exp", "run-001", [])
+    writer._insert_run_events.assert_called_once_with(conn, "exp", "run-001", None)

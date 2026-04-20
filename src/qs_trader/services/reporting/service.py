@@ -1402,6 +1402,7 @@ class ReportingService:
                     run_manifest=run_manifest,
                     config_snapshot=config_snapshot,
                     effective_execution_spec=self._effective_execution_spec,
+                    event_store=self._event_store,
                     artifact_mode=artifact_mode,
                     job_group_id=self._job_group_id,
                     submission_source=self._submission_source,

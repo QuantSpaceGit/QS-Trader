@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from qs_trader.events.event_store import EventStore
     from qs_trader.libraries.performance.models import (
         DrawdownPeriod,
         EquityCurvePoint,
@@ -46,6 +47,7 @@ class RunPersistenceWriter(Protocol):
         run_manifest: dict | None = None,
         config_snapshot: dict | None = None,
         effective_execution_spec: dict | None = None,
+        event_store: EventStore | None = None,
         artifact_mode: str | None = None,
         job_group_id: str | None = None,
         submission_source: str | None = None,
@@ -68,6 +70,8 @@ class RunPersistenceWriter(Protocol):
                 on-disk config_snapshot.yaml for database-only runs)
             effective_execution_spec: Optional immutable runtime provenance
                 artifact capturing resolved strategy/risk execution truth
+            event_store: Optional in-memory event stream for per-bar audit
+                persistence when available
             artifact_mode: Artifact policy ('filesystem' or 'database_only')
             job_group_id: Optional job group identifier for parameter sweeps
             submission_source: Optional source system label

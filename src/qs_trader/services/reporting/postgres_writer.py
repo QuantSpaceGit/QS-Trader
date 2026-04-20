@@ -17,13 +17,27 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+from collections import defaultdict
+from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
+from qs_trader.events.events import (
+    FeatureBarEvent,
+    FillEvent,
+    IndicatorEvent,
+    OrderEvent,
+    PriceBarEvent,
+    SignalEvent,
+    TradeEvent,
+)
+
 if TYPE_CHECKING:
+    from qs_trader.events.event_store import EventStore
     from qs_trader.libraries.performance.models import (
         DrawdownPeriod,
         EquityCurvePoint,
@@ -79,6 +93,55 @@ def _deduplicate_timestamp_rows(
     return list(deduplicated_rows.values())
 
 
+def _normalize_event_timestamp(timestamp: str) -> str:
+    """Normalize event timestamps to a consistent ISO format for grouping."""
+    return timestamp.replace("Z", "+00:00")
+
+
+def _parse_event_timestamp(timestamp: str) -> datetime:
+    """Parse an event timestamp into a timezone-aware datetime."""
+    return datetime.fromisoformat(_normalize_event_timestamp(timestamp))
+
+
+def _coerce_numeric_json_value(value: Any) -> float | None:
+    """Convert supported numeric-like values into finite floats."""
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        return float(value)
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    return None
+
+
+def _filter_numeric_payload(payload: dict[str, Any]) -> dict[str, float] | None:
+    """Keep only finite numeric values from a flexible event payload."""
+    filtered: dict[str, float] = {}
+    for key, value in payload.items():
+        numeric_value = _coerce_numeric_json_value(value)
+        if numeric_value is not None:
+            filtered[str(key)] = numeric_value
+    return filtered or None
+
+
+def _join_unique_values(values: list[str]) -> str | None:
+    """Join ordered unique strings for deterministic text persistence."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+
+    return ",".join(ordered) if ordered else None
+
+
 class PostgreSQLWriter:
     """Writes backtest results to PostgreSQL operational store.
 
@@ -118,6 +181,7 @@ class PostgreSQLWriter:
         run_manifest: dict | None = None,
         config_snapshot: dict | None = None,
         effective_execution_spec: dict | None = None,
+        event_store: EventStore | None = None,
         artifact_mode: str | None = None,
         job_group_id: str | None = None,
         submission_source: str | None = None,
@@ -142,12 +206,15 @@ class PostgreSQLWriter:
             config_snapshot: Optional config snapshot dict (replaces on-disk YAML)
             effective_execution_spec: Optional immutable runtime provenance
                 artifact (resolved strategy and risk config)
+            event_store: Optional in-memory event stream for per-bar
+                audit persistence
             artifact_mode: Artifact policy ('filesystem' or 'database_only')
             job_group_id: Optional job group identifier
             submission_source: Optional source system label
             split_pct: Optional IS fraction for IS/OOS splits
             split_role: Optional role label for IS/OOS splits
         """
+        run_event_rows = 0
         with self._engine.begin() as conn:
             self._delete_existing_run(conn, experiment_id, run_id)
             self._insert_run(
@@ -169,6 +236,7 @@ class PostgreSQLWriter:
             self._insert_returns(conn, experiment_id, run_id, returns)
             self._insert_trades(conn, experiment_id, run_id, trades)
             self._insert_drawdowns(conn, experiment_id, run_id, drawdowns)
+            run_event_rows = self._insert_run_events(conn, experiment_id, run_id, event_store)
 
         logger.info(
             "postgresql_writer.run_saved",
@@ -179,6 +247,7 @@ class PostgreSQLWriter:
                 "return_points": len(returns),
                 "trades_count": len(trades),
                 "drawdown_periods": len(drawdowns),
+                "run_event_rows": run_event_rows,
             },
         )
 
@@ -187,12 +256,259 @@ class PostgreSQLWriter:
     # ------------------------------------------------------------------
 
     def _delete_existing_run(self, conn: Connection, experiment_id: str, run_id: str) -> None:
-        """Remove previous data for this run (upsert semantics)."""
+        """Remove previous data for this run (upsert semantics).
+
+        ``run_events`` rows are removed automatically via ``ON DELETE CASCADE``
+        when the parent ``runs`` row is deleted.
+        """
         for table in ("drawdowns", "trades", "returns", "equity_curve", "runs"):
             conn.execute(
                 text(f"DELETE FROM {table} WHERE experiment_id = :exp AND run_id = :rid"),
                 {"exp": experiment_id, "rid": run_id},
             )
+
+    @staticmethod
+    def _collect_run_events(
+        experiment_id: str,
+        run_id: str,
+        event_store: EventStore | None,
+    ) -> list[dict[str, Any]]:
+        """Collect per-bar decision-chain rows from the in-memory event store.
+
+        Signal aggregation is intentionally last-wins at the ``(timestamp,
+        symbol)`` grain: if multiple ``SignalEvent`` objects share the same bar
+        and symbol, the final event encountered in occurred-at order overwrites
+        earlier ones. Preserving multiple same-bar signals per strategy would
+        require widening the persistence grain (for example by including
+        ``strategy_id`` in the primary key), which is outside Phase 1.
+        """
+        if event_store is None:
+            return []
+
+        bar_events: list[PriceBarEvent] = [
+            event for event in event_store.get_by_type("bar") if isinstance(event, PriceBarEvent)
+        ]
+        feature_events: list[FeatureBarEvent] = [
+            event for event in event_store.get_by_type("feature_bar") if isinstance(event, FeatureBarEvent)
+        ]
+        indicator_events: list[IndicatorEvent] = [
+            event for event in event_store.get_by_type("indicator") if isinstance(event, IndicatorEvent)
+        ]
+        signal_events: list[SignalEvent] = [
+            event for event in event_store.get_by_type("signal") if isinstance(event, SignalEvent)
+        ]
+        order_events: list[OrderEvent] = [
+            event for event in event_store.get_by_type("order") if isinstance(event, OrderEvent)
+        ]
+        fill_events: list[FillEvent] = [
+            event for event in event_store.get_by_type("fill") if isinstance(event, FillEvent)
+        ]
+        trade_events: list[TradeEvent] = [
+            event for event in event_store.get_by_type("trade") if isinstance(event, TradeEvent)
+        ]
+
+        if not any(
+            (bar_events, feature_events, indicator_events, signal_events, order_events, fill_events, trade_events)
+        ):
+            return []
+
+        def event_key(timestamp: str, symbol: str) -> tuple[str, str]:
+            return (_normalize_event_timestamp(timestamp), symbol)
+
+        all_keys: set[tuple[str, str]] = set()
+        signals_by_key: dict[tuple[str, str], SignalEvent] = {}
+        orders_by_key: dict[tuple[str, str], list[OrderEvent]] = defaultdict(list)
+        fills_by_key: dict[tuple[str, str], list[FillEvent]] = defaultdict(list)
+        trade_by_key: dict[tuple[str, str], TradeEvent] = {}
+        indicators_by_key: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+        features_by_key: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+        strategy_ids_by_key: dict[tuple[str, str], list[str]] = defaultdict(list)
+        strategy_ids_by_symbol: dict[str, list[str]] = defaultdict(list)
+        run_strategy_ids: list[str] = []
+        fill_to_trade_id: dict[str, str] = {}
+
+        def record_strategy_id(strategy_id: str | None, key: tuple[str, str] | None = None) -> None:
+            if not strategy_id:
+                return
+            if strategy_id not in run_strategy_ids:
+                run_strategy_ids.append(strategy_id)
+            if key is not None:
+                if strategy_id not in strategy_ids_by_key[key]:
+                    strategy_ids_by_key[key].append(strategy_id)
+                if strategy_id not in strategy_ids_by_symbol[key[1]]:
+                    strategy_ids_by_symbol[key[1]].append(strategy_id)
+
+        for event in bar_events:
+            all_keys.add(event_key(event.timestamp, event.symbol))
+
+        for feature_event in feature_events:
+            key = event_key(feature_event.timestamp, feature_event.symbol)
+            all_keys.add(key)
+            numeric_features = _filter_numeric_payload(feature_event.features)
+            if numeric_features is not None:
+                features_by_key[key].update(numeric_features)
+
+        for indicator_event in indicator_events:
+            key = event_key(indicator_event.timestamp, indicator_event.symbol)
+            all_keys.add(key)
+            record_strategy_id(indicator_event.strategy_id, key)
+            numeric_indicators = _filter_numeric_payload(indicator_event.indicators)
+            if numeric_indicators is not None:
+                indicators_by_key[key].update(numeric_indicators)
+
+        for signal_event in signal_events:
+            key = event_key(signal_event.timestamp, signal_event.symbol)
+            all_keys.add(key)
+            record_strategy_id(signal_event.strategy_id, key)
+            # Deliberate last-wins behavior documented in the method docstring.
+            signals_by_key[key] = signal_event
+
+        for order_event in order_events:
+            key = event_key(order_event.timestamp, order_event.symbol)
+            all_keys.add(key)
+            record_strategy_id(order_event.source_strategy_id, key)
+            orders_by_key[key].append(order_event)
+
+        for fill_event in fill_events:
+            key = event_key(fill_event.timestamp, fill_event.symbol)
+            all_keys.add(key)
+            record_strategy_id(fill_event.strategy_id, key)
+            fills_by_key[key].append(fill_event)
+
+        for trade_event_item in trade_events:
+            key = event_key(trade_event_item.timestamp, trade_event_item.symbol)
+            all_keys.add(key)
+            record_strategy_id(trade_event_item.strategy_id, key)
+            trade_by_key[key] = trade_event_item
+            for fill_id in trade_event_item.fills:
+                fill_to_trade_id[fill_id] = trade_event_item.trade_id
+
+        rows: list[dict[str, Any]] = []
+        for timestamp_key, symbol in sorted(all_keys):
+            key = (timestamp_key, symbol)
+            signal = signals_by_key.get(key)
+            orders = orders_by_key.get(key, [])
+            fills = fills_by_key.get(key, [])
+            trade_event: TradeEvent | None = trade_by_key.get(key)
+
+            if trade_event is None:
+                for fill in fills:
+                    trade_id = fill_to_trade_id.get(fill.fill_id)
+                    if trade_id is None:
+                        continue
+                    for candidate_event in trade_events:
+                        if candidate_event.trade_id == trade_id:
+                            trade_event = candidate_event
+                            break
+                    if trade_event is not None:
+                        break
+
+            strategy_id = (
+                _join_unique_values(strategy_ids_by_key.get(key, []))
+                or _join_unique_values(strategy_ids_by_symbol.get(symbol, []))
+                or _join_unique_values(run_strategy_ids)
+                or "unknown"
+            )
+
+            order_qty: Decimal | None = None
+            if orders:
+                order_qty = sum((order.quantity for order in orders), start=Decimal("0"))
+
+            fill_qty: Decimal | None = None
+            fill_price: float | None = None
+            fill_slippage_bps: float | None = None
+            commission: float | None = None
+            if fills:
+                fill_qty = sum((fill.filled_quantity for fill in fills), start=Decimal("0"))
+                if fill_qty > 0:
+                    fill_value = sum(
+                        (fill.filled_quantity * fill.fill_price for fill in fills),
+                        start=Decimal("0"),
+                    )
+                    fill_price = float(fill_value / fill_qty)
+
+                total_commission = sum((fill.commission for fill in fills), start=Decimal("0"))
+                commission = float(total_commission)
+
+                weighted_slippage_total = Decimal("0")
+                weighted_slippage_qty = Decimal("0")
+                for fill in fills:
+                    if fill.slippage_bps is None:
+                        continue
+                    weighted_slippage_total += Decimal(fill.slippage_bps) * fill.filled_quantity
+                    weighted_slippage_qty += fill.filled_quantity
+
+                if weighted_slippage_qty > 0:
+                    fill_slippage_bps = float(weighted_slippage_total / weighted_slippage_qty)
+
+            rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "run_id": run_id,
+                    "timestamp": _parse_event_timestamp(timestamp_key),
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "signal_intention": signal.intention if signal is not None else None,
+                    "signal_price": _to_float(signal.price) if signal is not None else None,
+                    "signal_confidence": _to_float(signal.confidence) if signal is not None else None,
+                    "signal_reason": signal.reason if signal is not None else None,
+                    "order_side": _join_unique_values([order.side.upper() for order in orders]),
+                    "order_type": _join_unique_values([order.order_type.upper() for order in orders]),
+                    "order_qty": int(order_qty) if order_qty is not None else None,
+                    "fill_qty": int(fill_qty) if fill_qty is not None else None,
+                    "fill_price": fill_price,
+                    "fill_slippage_bps": fill_slippage_bps,
+                    "commission": commission,
+                    "trade_id": trade_event.trade_id if trade_event is not None else None,
+                    "trade_status": trade_event.status.upper() if trade_event is not None else None,
+                    "trade_side": trade_event.side.upper() if trade_event and trade_event.side else None,
+                    "trade_entry_price": _to_float(trade_event.entry_price) if trade_event is not None else None,
+                    "trade_exit_price": _to_float(trade_event.exit_price) if trade_event is not None else None,
+                    "trade_realized_pnl": _to_float(trade_event.realized_pnl) if trade_event is not None else None,
+                    "indicators_json": _to_json(indicators_by_key.get(key) or None),
+                    "features_json": _to_json(features_by_key.get(key) or None),
+                }
+            )
+
+        return rows
+
+    def _insert_run_events(
+        self,
+        conn: Connection,
+        experiment_id: str,
+        run_id: str,
+        event_store: EventStore | None,
+    ) -> int:
+        """Insert per-bar event rows when an in-memory event stream is available."""
+        rows = self._collect_run_events(experiment_id, run_id, event_store)
+        if not rows:
+            return 0
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO run_events (
+                    experiment_id, run_id, timestamp, symbol, strategy_id,
+                    signal_intention, signal_price, signal_confidence, signal_reason,
+                    order_side, order_type, order_qty,
+                    fill_qty, fill_price, fill_slippage_bps, commission,
+                    trade_id, trade_status, trade_side,
+                    trade_entry_price, trade_exit_price, trade_realized_pnl,
+                    indicators_json, features_json
+                ) VALUES (
+                    :experiment_id, :run_id, :timestamp, :symbol, :strategy_id,
+                    :signal_intention, :signal_price, :signal_confidence, :signal_reason,
+                    :order_side, :order_type, :order_qty,
+                    :fill_qty, :fill_price, :fill_slippage_bps, :commission,
+                    :trade_id, :trade_status, :trade_side,
+                    :trade_entry_price, :trade_exit_price, :trade_realized_pnl,
+                    CAST(:indicators_json AS jsonb), CAST(:features_json AS jsonb)
+                )
+                """
+            ),
+            rows,
+        )
+        return len(rows)
 
     def _insert_run(
         self,
