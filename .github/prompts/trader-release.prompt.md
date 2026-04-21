@@ -1,5 +1,5 @@
 ---
-description: 'Trader: prepare and publish a new GitHub release end-to-end (version bump, docs, QA, build, tag, GitHub release)'
+description: "Trader: prepare and publish a new GitHub release end-to-end (version bump, docs, QA, build, tag, GitHub release)"
 ---
 
 Perform the full `QS-Trader` release workflow end-to-end for a new version.
@@ -8,7 +8,7 @@ Perform the full `QS-Trader` release workflow end-to-end for a new version.
 
 Collect or confirm these before doing anything destructive:
 
-- **Target version** (required), e.g. `0.2.0-beta.7` or `0.2.0`
+- **Target version** (required), e.g. `0.2.0-beta.7` or `0.2.0` stop if missing or malformed, sugguest the next sensible version based on the current version and recent changes, and ask for confirmation before proceeding.
 - **Release scope**: what changed since the last release
 - **Release type**: prerelease vs stable
 - **Permission to publish** if the request is ambiguous or the user only asked for preparation
