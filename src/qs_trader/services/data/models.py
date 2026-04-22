@@ -210,21 +210,6 @@ class Bar(BaseModel):
         return self
 
 
-class AdjustmentMode(str, Enum):
-    """
-    CONTRACT: Price adjustment modes.
-
-    Defines how prices are adjusted for corporate actions:
-    - UNADJUSTED: Raw prices, no adjustments (execution, fills)
-    - ADJUSTED: Split-adjusted backward (indicators, signals)
-    - TOTAL_RETURN: Forward compounding with dividend reinvestment (performance)
-    """
-
-    UNADJUSTED = "unadjusted"
-    ADJUSTED = "adjusted"
-    TOTAL_RETURN = "total_return"
-
-
 class PriceSeries(BaseModel):
     """
     CONTRACT: Time series of bars for a specific adjustment mode.
@@ -488,7 +473,6 @@ __all__ = [
     # Data Contract
     "Bar",
     "PriceSeries",
-    "AdjustmentMode",
     "Instrument",
     "InstrumentType",
     "DataSource",

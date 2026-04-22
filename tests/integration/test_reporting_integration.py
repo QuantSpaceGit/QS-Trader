@@ -4,8 +4,6 @@ Tests the full end-to-end flow of reporting service integration using fixtures.
 All tests are self-contained and don't depend on user-modifiable config files.
 """
 
-import csv
-import io
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -13,7 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
-from zipfile import ZipFile
 
 from qs_trader.engine.engine import BacktestEngine
 from qs_trader.events.event_bus import EventBus
@@ -28,7 +25,6 @@ from qs_trader.events.events import (
     TradeEvent,
 )
 from qs_trader.events.price_basis import PriceBasis
-from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseBar
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.service import ReportingService
@@ -705,8 +701,10 @@ class TestReportingIntegration:
         # Cleanup
         engine.shutdown()
 
-    def test_reporting_teardown_generates_valid_audit_export_zip(self, tmp_path: Path, mock_system_config) -> None:
-        """Reporting teardown should generate a valid audit ZIP via the real _load_symbol_bars path."""
+    def test_reporting_teardown_skips_trader_audit_export_generation(
+        self, tmp_path: Path, mock_system_config
+    ) -> None:
+        """Phase 4 removes Trader-side audit export generation during teardown."""
         event_store = _integration_audit_event_store()
         output_dir = tmp_path / "experiments" / "audit_exp" / "runs" / "run-001"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -778,59 +776,8 @@ class TestReportingIntegration:
         mock_system_config.config_root = tmp_path / "QS-Trader"
         mock_system_config.config_root.mkdir(parents=True, exist_ok=True)
 
-        raw_bars = [
-            ClickhouseBar(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 2),
-                open=Decimal("100.00"),
-                high=Decimal("101.00"),
-                low=Decimal("99.50"),
-                close=Decimal("100.75"),
-                open_adj=Decimal("10.00"),
-                high_adj=Decimal("10.10"),
-                low_adj=Decimal("9.95"),
-                close_adj=Decimal("10.07"),
-                volume=1000,
-            )
-        ]
-
-        fake_resolver = MagicMock()
-        fake_resolver.get_source_config.return_value = {
-            "adapter": "clickhouse",
-            "clickhouse": {
-                "host": "localhost",
-                "port": 8123,
-                "username": "default",
-                "password": "secret",
-                "database": "ignored_source_db",
-            },
-            "bars_table": "ignored_source_table",
-            "timezone": "America/New_York",
-        }
-
-        def _fake_read_bars(self, start_date: str, end_date: str):
-            assert self._database == "audit_market"
-            assert self._bars_table == "audit_bars_daily"
-            assert start_date == "2024-01-02"
-            assert end_date == "2024-01-02"
-            return iter(raw_bars)
-
-        with (
-            patch("qs_trader.system.config.get_system_config", return_value=mock_system_config),
-            patch("qs_trader.services.reporting.audit_export.DataSourceResolver", return_value=fake_resolver),
-            patch("qs_trader.services.reporting.audit_export.ClickhouseDataAdapter.read_bars", new=_fake_read_bars),
-        ):
+        with patch("qs_trader.system.config.get_system_config", return_value=mock_system_config):
             service.teardown({})
 
         audit_zip = Path(mock_system_config.output.experiments_root) / "audit-exports" / "audit_exp" / "run-001.zip"
-        assert audit_zip.exists()
-
-        with ZipFile(audit_zip) as archive:
-            assert sorted(archive.namelist()) == [
-                "audit_exp_run-001_audit/AAPL.csv",
-                "audit_exp_run-001_audit/summary.csv",
-            ]
-            rows = list(csv.DictReader(io.StringIO(archive.read("audit_exp_run-001_audit/AAPL.csv").decode("utf-8"))))
-            assert len(rows) == 1
-            assert rows[0]["signal_intention"] == "OPEN_LONG"
-            assert rows[0]["feat_alpha"] == "1.25"
+        assert not audit_zip.exists()

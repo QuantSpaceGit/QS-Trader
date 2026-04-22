@@ -26,7 +26,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ============================================
 # Contract Version
@@ -75,6 +75,82 @@ class SignalIntention(str, Enum):
     CLOSE_SHORT = "CLOSE_SHORT"
 
 
+class LifecycleIntentType(str, Enum):
+    """Explicit lifecycle classification for strategy-emitted signals.
+
+    ``SignalIntention`` still carries *directional* semantics (open/close long/short).
+    ``LifecycleIntentType`` is the explicit opt-in the Manager uses to decide
+    whether a same-side action is a regular open/close or a scale-in/scale-out.
+    """
+
+    OPEN = "open"
+    CLOSE = "close"
+    SCALE_IN = "scale_in"
+    SCALE_OUT = "scale_out"
+
+
+def normalize_signal_intention(intention: SignalIntention | str) -> SignalIntention:
+    """Normalize a string or enum into ``SignalIntention``."""
+    if isinstance(intention, SignalIntention):
+        return intention
+    return SignalIntention(str(intention))
+
+
+def normalize_lifecycle_intent_type(
+    intention: SignalIntention | str,
+    intent_type: LifecycleIntentType | str | None = None,
+) -> LifecycleIntentType:
+    """Validate and normalize an explicit lifecycle intent type.
+
+    Open-direction signals may opt into ``scale_in``; close-direction signals
+    may opt into ``scale_out``. When omitted, the legacy default mapping remains
+    ``open`` for ``OPEN_*`` signals and ``close`` for ``CLOSE_*`` signals.
+    """
+
+    normalized_intention = normalize_signal_intention(intention)
+    is_open_signal = normalized_intention in {SignalIntention.OPEN_LONG, SignalIntention.OPEN_SHORT}
+
+    if intent_type is None:
+        return LifecycleIntentType.OPEN if is_open_signal else LifecycleIntentType.CLOSE
+
+    normalized_intent_type = (
+        intent_type
+        if isinstance(intent_type, LifecycleIntentType)
+        else LifecycleIntentType(str(intent_type).strip().lower())
+    )
+    allowed_intent_types = (
+        {LifecycleIntentType.OPEN, LifecycleIntentType.SCALE_IN}
+        if is_open_signal
+        else {LifecycleIntentType.CLOSE, LifecycleIntentType.SCALE_OUT}
+    )
+    if normalized_intent_type not in allowed_intent_types:
+        allowed_values = ", ".join(sorted(intent_type.value for intent_type in allowed_intent_types))
+        raise ValueError(f"{normalized_intention.value} signals only support lifecycle intent types: {allowed_values}")
+    return normalized_intent_type
+
+
+def decision_type_from_signal(
+    intention: SignalIntention | str,
+    intent_type: LifecycleIntentType | str | None = None,
+) -> str:
+    """Map the legacy signal contract onto the canonical strategy-decision type."""
+
+    normalized_intention = normalize_signal_intention(intention)
+    normalized_intent_type = normalize_lifecycle_intent_type(normalized_intention, intent_type)
+    if normalized_intent_type == LifecycleIntentType.SCALE_IN:
+        return "scale_in"
+    if normalized_intent_type == LifecycleIntentType.SCALE_OUT:
+        return "scale_out"
+
+    mapping = {
+        SignalIntention.OPEN_LONG: "open_long",
+        SignalIntention.CLOSE_LONG: "close_long",
+        SignalIntention.OPEN_SHORT: "open_short",
+        SignalIntention.CLOSE_SHORT: "close_short",
+    }
+    return mapping[normalized_intention]
+
+
 class PositionState(str, Enum):
     """Declarative strategy-side view of lifecycle-backed position state."""
 
@@ -102,7 +178,9 @@ class Signal(BaseModel):
         timestamp: Signal generation time (bar timestamp or now())
         strategy_id: Unique strategy identifier (from config.name)
         symbol: Instrument symbol to trade
-        intention: Trading intention (OPEN_LONG/CLOSE_LONG/OPEN_SHORT/CLOSE_SHORT)
+        intention: Directional trading intention (OPEN_LONG/CLOSE_LONG/OPEN_SHORT/CLOSE_SHORT)
+        intent_type: Optional explicit lifecycle classification. Use ``scale_in``
+            to add to an existing same-side position or ``scale_out`` to reduce one.
         confidence: Signal strength [0.0, 1.0] where:
             - 0.0 = weakest signal (rarely used)
             - 0.5 = moderate confidence
@@ -158,6 +236,10 @@ class Signal(BaseModel):
     strategy_id: str = Field(..., min_length=1, description="Strategy identifier")
     symbol: str = Field(..., min_length=1, description="Instrument symbol")
     intention: SignalIntention = Field(..., description="Trading intention")
+    intent_type: Optional[LifecycleIntentType] = Field(
+        default=None,
+        description="Optional explicit lifecycle intent type (open/close/scale_in/scale_out)",
+    )
     confidence: float = Field(..., ge=0.0, le=1.0, description="Signal confidence [0.0, 1.0]")
     reason: Optional[str] = Field(default=None, max_length=500, description="Human-readable explanation")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional signal context")
@@ -188,6 +270,12 @@ class Signal(BaseModel):
                 )
         return v
 
+    @model_validator(mode="after")
+    def validate_intention_and_intent_type(self) -> "Signal":
+        """Ensure explicit lifecycle overrides match the directional intention."""
+        normalize_lifecycle_intent_type(self.intention, self.intent_type)
+        return self
+
 
 # ============================================
 # Helper Functions
@@ -202,6 +290,7 @@ def create_signal(
     confidence: float,
     reason: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    intent_type: LifecycleIntentType | str | None = None,
 ) -> Signal:
     """
     Convenience factory for creating Signal instances.
@@ -211,6 +300,7 @@ def create_signal(
         strategy_id: Strategy identifier
         symbol: Instrument symbol
         intention: Trading intention (SignalIntention enum or "OPEN_LONG"/"CLOSE_LONG"/etc.)
+        intent_type: Optional explicit lifecycle intent type.
         confidence: Signal confidence [0.0, 1.0]
         reason: Optional explanation
         metadata: Optional additional context
@@ -230,12 +320,14 @@ def create_signal(
     """
     if isinstance(intention, str):
         intention = SignalIntention(intention)
+    normalized_intent_type = None if intent_type is None else normalize_lifecycle_intent_type(intention, intent_type)
 
     return Signal(
         timestamp=timestamp,
         strategy_id=strategy_id,
         symbol=symbol,
         intention=intention,
+        intent_type=normalized_intent_type,
         confidence=confidence,
         reason=reason,
         metadata=metadata,
@@ -250,6 +342,10 @@ __all__ = [
     "CONTRACT_VERSION",
     "Signal",
     "SignalIntention",
+    "LifecycleIntentType",
     "PositionState",
+    "decision_type_from_signal",
     "create_signal",
+    "normalize_lifecycle_intent_type",
+    "normalize_signal_intention",
 ]

@@ -24,6 +24,7 @@
     },
     "direction": { "type": "string", "enum": ["long", "short"] },
     "target_quantity": { "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }] },
+    "price_basis": { "type": ["string", "null"], "minLength": 1 },
     "suppression_reason": { "type": ["string", "null"] },
     "cancellation_reason": { "type": ["string", "null"] }
   },

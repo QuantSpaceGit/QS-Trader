@@ -1,89 +1,69 @@
 {
-    "$id": "contracts.schemas.signal.v1.json",
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "Trading Signal v1",
-    "type": "object",
-    "required": [
-        "signal_id",
-        "timestamp",
-        "strategy_id",
-        "symbol",
-        "intention",
-        "confidence",
-        "price"
-    ],
-    "properties": {
-        "signal_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Unique signal identifier (UUID or timestamp-based). Used for audit trail - links to OrderEvent.intent_id."
-        },
-        "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Signal generation timestamp (UTC RFC3339 with Z suffix)."
-        },
-        "strategy_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Unique identifier of the strategy that generated this signal (e.g., 'buy_and_hold', 'sma_crossover')."
-        },
-        "symbol": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Instrument identifier for which the signal applies (e.g., AAPL, BTC-USD)."
-        },
-        "intention": {
-            "type": "string",
-            "enum": [
-                "OPEN_LONG",
-                "CLOSE_LONG",
-                "OPEN_SHORT",
-                "CLOSE_SHORT"
-            ],
-            "description": "Trading intention - what action the strategy recommends."
-        },
-        "price": {
-            "type": "string",
-            "pattern": "^\\d+(\\.\\d+)?$",
-            "description": "Price at which the signal was generated / action should be taken as decimal string. Typically the current market price when signal generated."
-        },
-        "confidence": {
-            "type": "string",
-            "pattern": "^(0(\\.\\d+)?|1(\\.0+)?)$",
-            "description": "Signal confidence level as decimal string [0.0, 1.0]. Higher = stronger conviction."
-        },
-        "reason": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "description": "Human-readable explanation of why this signal was generated (e.g., 'SMA crossover detected', 'First bar - entering position')."
-        },
-        "metadata": {
-            "type": [
-                "object",
-                "null"
-            ],
-            "description": "Optional strategy-specific metadata (e.g., indicator values, scores, debug info). Schema-free JSON object.",
-            "additionalProperties": true
-        },
-        "stop_loss": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "pattern": "^\\d+(\\.\\d+)?$",
-            "description": "Optional stop loss price as decimal string. If provided, position should be closed if price reaches this level."
-        },
-        "take_profit": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "pattern": "^\\d+(\\.\\d+)?$",
-            "description": "Optional take profit price as decimal string. If provided, position should be closed if price reaches this level."
-        }
+  "$id": "contracts.schemas.signal.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trading Signal v1",
+  "type": "object",
+  "required": ["signal_id", "timestamp", "strategy_id", "symbol", "intention", "confidence", "price"],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique signal identifier (UUID or timestamp-based). Used for audit trail - links to OrderEvent.intent_id."
     },
-    "additionalProperties": false
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Signal generation timestamp (UTC RFC3339 with Z suffix)."
+    },
+    "strategy_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier of the strategy that generated this signal (e.g., 'buy_and_hold', 'sma_crossover')."
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Instrument identifier for which the signal applies (e.g., AAPL, BTC-USD)."
+    },
+    "intention": {
+      "type": "string",
+      "enum": ["OPEN_LONG", "CLOSE_LONG", "OPEN_SHORT", "CLOSE_SHORT"],
+      "description": "Trading intention - what action the strategy recommends."
+    },
+    "intent_type": {
+      "type": ["string", "null"],
+      "enum": ["open", "close", "scale_in", "scale_out", null],
+      "description": "Optional explicit lifecycle intent type. Use scale_in or scale_out to opt into same-side adds/reductions; when omitted, OPEN_* defaults to open and CLOSE_* defaults to close."
+    },
+    "price": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Price at which the signal was generated / action should be taken as decimal string. Typically the current market price when signal generated."
+    },
+    "confidence": {
+      "type": "string",
+      "pattern": "^(0(\\.\\d+)?|1(\\.0+)?)$",
+      "description": "Signal confidence level as decimal string [0.0, 1.0]. Higher = stronger conviction."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Human-readable explanation of why this signal was generated (e.g., 'SMA crossover detected', 'First bar - entering position')."
+    },
+    "metadata": {
+      "type": ["object", "null"],
+      "description": "Optional strategy-specific metadata (e.g., indicator values, scores, debug info). Schema-free JSON object.",
+      "additionalProperties": true
+    },
+    "stop_loss": {
+      "type": ["string", "null"],
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Optional stop loss price as decimal string. If provided, position should be closed if price reaches this level."
+    },
+    "take_profit": {
+      "type": ["string", "null"],
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Optional take profit price as decimal string. If provided, position should be closed if price reaches this level."
+    }
+  },
+  "additionalProperties": false
 }

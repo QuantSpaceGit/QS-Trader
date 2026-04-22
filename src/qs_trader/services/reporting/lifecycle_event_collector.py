@@ -21,6 +21,13 @@ def _to_json(data: dict[str, Any]) -> str:
     return json.dumps(data, separators=(",", ":"), sort_keys=True)
 
 
+def _build_payload_json(event: LifecycleBaseEvent, price_basis: str | None) -> str:
+    """Serialize canonical lifecycle payloads with an explicit ``price_basis`` key."""
+    payload = event.model_dump(mode="json")
+    payload.setdefault("price_basis", price_basis)
+    return _to_json(payload)
+
+
 def collect_run_lifecycle_events(
     experiment_id: str,
     run_id: str,
@@ -70,7 +77,7 @@ def collect_run_lifecycle_events(
                 "correlation_id": event.correlation_id,
                 "causation_id": event.causation_id,
                 "price_basis": price_basis,
-                "payload_json": _to_json(event.model_dump(mode="json")),
+                "payload_json": _build_payload_json(event, price_basis),
             }
         )
 

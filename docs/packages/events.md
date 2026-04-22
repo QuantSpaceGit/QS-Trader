@@ -28,6 +28,13 @@ The QS-Trader events module provides a production-ready event system with:
 - **Immutability**: Events are frozen after validation
 - **Rich error context**: Validation errors include path, schema_path, and failed value
 
+## Backtest Basis and Lifecycle Boundary (Phase 6)
+
+- `PriceBarEvent` remains an internal engine/event-bus payload. Strategy code consumes basis-resolved `BarView` objects through the strategy context instead of importing raw/adjusted OHLC event fields directly.
+- The run-level basis contract is the single `price_basis` field (`raw` or `adjusted`); legacy per-layer adjustment knobs are retired from manifests and public read models.
+- Lifecycle/read-side responses use explicit top-level `price_basis` metadata, while individual lifecycle trade/event rows may still carry more detailed basis provenance for debugging.
+- Duplicate same-side opens are governed by manager-side lifecycle intent projection. Suppressed intents still emit canonical lifecycle rows for auditability.
+
 ### Key Features
 
 ✅ Separate envelope/payload validation ✅ Integer version numbers for semantic versioning ✅ UTC timezone-aware timestamps with RFC3339 serialization ✅ Schema caching for performance (128 validators cached) ✅ Wire contract type alignment (Decimals ↔ strings, volumes ↔ int/string) ✅ Event type consistency checks ✅ Control events for system coordination ✅ Enhanced error context for debugging ✅ Local timestamp support for market session analysis

@@ -896,12 +896,16 @@ def test_collect_run_lifecycle_events_serializes_canonical_rows() -> None:
     assert strategy_row["lifecycle_family"] == "strategy_decision"
     assert strategy_row["lifecycle_type"] == "open_long"
     assert strategy_row["price_basis"] == "adjusted_ohlc_adj_columns"
-    assert json.loads(strategy_row["payload_json"])["decision_price"] == "100.50"
+    strategy_payload = json.loads(strategy_row["payload_json"])
+    assert strategy_payload["decision_price"] == "100.50"
+    assert strategy_payload["price_basis"] == "adjusted_ohlc_adj_columns"
 
     assert order_row["lifecycle_family"] == "order_lifecycle"
     assert order_row["lifecycle_type"] == "submitted"
     assert order_row["causation_id"] == strategy_row["event_id"]
-    assert json.loads(order_row["payload_json"])["time_in_force"] == "GTC"
+    order_payload = json.loads(order_row["payload_json"])
+    assert order_payload["time_in_force"] == "GTC"
+    assert order_payload["price_basis"] == "adjusted_ohlc_adj_columns"
 
 
 def test_insert_lifecycle_events_batches_parameterized_rows() -> None:
@@ -998,14 +1002,12 @@ def test_postgresql_writer_warns_when_audit_export_path_update_hits_no_rows(capl
     assert "postgresql_writer.audit_export_path_missing_run" in caplog.text
 
 
-def test_database_enabled_updates_audit_export_path_after_zip_generation(tmp_path: Path) -> None:
-    """Successful audit ZIP generation should persist the path after the run row is saved."""
+def test_database_enabled_stops_after_run_persistence_in_phase4(tmp_path: Path) -> None:
+    """Phase 4 leaves audit export generation to Research, so Trader should stop after save_run."""
     service = _build_reporting_service(tmp_path)
     service._event_store = _build_run_event_store()
     service._input_manifest = _minimal_manifest()
     save_writer = MagicMock()
-    path_writer = MagicMock()
-    audit_zip_path = tmp_path / "audit-exports" / "test_exp" / "20260101_000000.zip"
 
     with (
         patch(
@@ -1018,51 +1020,13 @@ def test_database_enabled_updates_audit_export_path_after_zip_generation(tmp_pat
         ),
         patch(
             "qs_trader.services.reporting.writer_factory.create_persistence_writer",
-            side_effect=[save_writer, path_writer],
-        ) as mock_factory,
-        patch(
-            "qs_trader.services.reporting.audit_export.AuditExportBuilder.build",
-            return_value=audit_zip_path,
-        ) as mock_build,
-    ):
-        service._write_outputs(_minimal_metrics())
-
-    mock_build.assert_called_once()
-    assert mock_factory.call_count == 2
-    path_writer.update_audit_export_path.assert_called_once_with(
-        experiment_id="test_exp",
-        run_id="20260101_000000",
-        audit_export_path=str(audit_zip_path),
-    )
-    path_writer.close.assert_called_once()
-
-
-def test_audit_export_failure_is_non_fatal_after_database_write(tmp_path: Path) -> None:
-    """ClickHouse-side audit export failures must not fail the overall reporting flow."""
-    service = _build_reporting_service(tmp_path)
-    service._event_store = _build_run_event_store()
-    service._input_manifest = _minimal_manifest()
-    save_writer = MagicMock()
-
-    with (
-        patch(
-            "qs_trader.system.config.get_system_config",
-            return_value=_make_system_config_mock(
-                db_enabled=True,
-                postgres_url="postgresql+psycopg://research:secret@localhost:5432/research",
-            ),
-        ),
-        patch(
-            "qs_trader.services.reporting.writer_factory.create_persistence_writer",
             return_value=save_writer,
         ) as mock_factory,
-        patch(
-            "qs_trader.services.reporting.audit_export.AuditExportBuilder.build",
-            side_effect=RuntimeError("clickhouse unavailable"),
-        ),
     ):
         service._write_outputs(_minimal_metrics())
 
     assert mock_factory.call_count == 1
     save_writer.save_run.assert_called_once()
+    save_writer.update_audit_export_path.assert_not_called()
+    save_writer.close.assert_called_once()
     assert service.get_database_write_status().state == "succeeded"

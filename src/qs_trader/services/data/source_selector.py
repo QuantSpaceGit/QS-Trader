@@ -63,6 +63,8 @@ class DataSourceSelector:
     # Optional refinements
     exchange: Optional[str] = None
     region: Optional[str] = None
+    # Data-source discriminator only; unrelated to the current run-level
+    # `price_basis` contract or the retired `*_adjustment_mode` knobs.
     adjustment_mode: Optional[str] = None
 
     # Fallback providers (try in order)
@@ -84,6 +86,8 @@ class DataSourceSelector:
             return False
         if self.region and source_config.get("region") != self.region:
             return False
+        # Keep matching the configured source-entry key for now: this filters
+        # among data providers/feeds, not the run-level `price_basis` setting.
         if self.adjustment_mode and source_config.get("adjustment_mode") != self.adjustment_mode:
             return False
         return True

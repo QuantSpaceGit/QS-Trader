@@ -22,6 +22,51 @@ The strategy package provides a complete strategy execution framework for QS-Tra
 - **Self-managed warmup**: Strategies control their own initialization
 - **Event-driven**: Pure publish/subscribe architecture
 
+## Current Strategy Contract (Phase 6)
+
+The live strategy API is stricter than many historical snippets in this document. If a lower example shows direct `PriceBarEvent` OHLC access or `get_bars(n)` without an explicit basis, treat it as historical background rather than the current contract.
+
+- Backtests declare one run-level `price_basis: adjusted|raw`; legacy `adjustment_mode`, `strategy_adjustment_mode`, and `portfolio_adjustment_mode` inputs are rejected.
+- Strategy code asks the context for basis-resolved data via `get_bars(symbol, n, basis=...)`, `get_price_series(symbol, n, basis=..., offset=...)`, and `get_price(symbol, basis=...)`.
+- Those helpers return basis-resolved `BarView` values, so strategies no longer choose between raw and adjusted OHLC attributes manually.
+- Prior-window calculations use `offset` on `get_price_series(...)` instead of manual slice tricks such as `bars[:-2]`.
+- `context.get_position_state(symbol)` exposes `PositionState` (`FLAT`, `PENDING_OPEN_LONG`, `OPEN_LONG`, `PENDING_CLOSE_LONG`, `PENDING_OPEN_SHORT`, `OPEN_SHORT`, `PENDING_CLOSE_SHORT`).
+- Manager-side lifecycle gating is authoritative: same-side opens are suppressed whenever the lifecycle projection already shows a compatible pending/open intent. Strategies should still consult `get_position_state()` so duplicates are avoided by construction.
+
+```python
+from decimal import Decimal
+
+from qs_trader.events.price_basis import PriceBasis
+from qs_trader.libraries.strategies.base import BaseStrategy
+
+
+class ExampleStrategy(BaseStrategy):
+    def on_bar(self, bar) -> None:
+        prices = self.context.get_price_series(
+            bar.symbol,
+            n=50,
+            basis=PriceBasis.ADJUSTED,
+        )
+        if prices is None:
+            return
+
+        previous_prices = self.context.get_price_series(
+            bar.symbol,
+            n=50,
+            basis=PriceBasis.ADJUSTED,
+            offset=1,
+        )
+        position_state = self.context.get_position_state(bar.symbol)
+        if previous_prices is None or position_state.name != "FLAT":
+            return
+
+        self.emit_signal(
+            symbol=bar.symbol,
+            direction="buy",
+            target_pct_allocation=Decimal("0.10"),
+        )
+```
+
 ______________________________________________________________________
 
 ## Architecture Philosophy
@@ -903,6 +948,8 @@ ______________________________________________________________________
 
 ```yaml
 # experiments/my_strategy/my_strategy.yaml
+price_basis: adjusted
+
 strategies:
   - strategy_id: momentum_20 # Registry name
     universe: [AAPL, MSFT] # Symbols to trade

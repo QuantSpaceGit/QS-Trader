@@ -4,6 +4,12 @@
 
 QS-Trader implements automatic corporate action processing through an event-driven architecture. When corporate actions occur (splits, dividends, etc.), the DataService publishes `CorporateActionEvent` objects which are handled by the PortfolioService to adjust positions, cash, and maintain accurate accounting.
 
+## Interaction with the Run-Level Price Basis
+
+- `price_basis` controls which OHLC series a run uses for strategy evaluation, execution, portfolio valuation, and reporting.
+- Dividend handling is deliberately separate from that OHLC basis choice. Cash dividends are always recorded as explicit portfolio ledger/cash-flow events.
+- This means a run can choose `raw` or `adjusted` prices without reintroducing the retired per-layer `*_adjustment_mode` knobs.
+
 ## Architecture
 
 ### Event Flow

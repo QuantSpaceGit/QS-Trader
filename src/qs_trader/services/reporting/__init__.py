@@ -10,7 +10,6 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from qs_trader.services.reporting.audit_export import AuditExportBuilder
     from qs_trader.services.reporting.config import ReportingConfig
     from qs_trader.services.reporting.manifest import ClickHouseInputManifest
     from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
@@ -18,10 +17,6 @@ if TYPE_CHECKING:
 
 
 _EXPORT_MAP: dict[str, tuple[str, str]] = {
-    "AuditExportBuilder": (
-        "qs_trader.services.reporting.audit_export",
-        "AuditExportBuilder",
-    ),
     "ClickHouseInputManifest": (
         "qs_trader.services.reporting.manifest",
         "ClickHouseInputManifest",
@@ -75,7 +70,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "AuditExportBuilder",
     "ClickHouseInputManifest",
     "PostgreSQLWriter",
     "ReportingService",

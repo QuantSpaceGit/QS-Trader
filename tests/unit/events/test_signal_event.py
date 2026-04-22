@@ -21,7 +21,7 @@ from decimal import Decimal
 import pytest
 
 from qs_trader.events.events import SignalEvent
-from qs_trader.services.strategy.models import SignalIntention
+from qs_trader.services.strategy.models import LifecycleIntentType, SignalIntention
 
 
 class TestSignalEventCreation:
@@ -46,6 +46,7 @@ class TestSignalEventCreation:
         assert event.strategy_id == "test_strategy"
         assert event.symbol == "AAPL"
         assert event.intention == "OPEN_LONG"
+        assert event.intent_type is None
         assert event.price == Decimal("145.75")
         assert event.confidence == Decimal("0.85")
         assert event.reason is None
@@ -112,6 +113,22 @@ class TestSignalEventCreation:
         # Assert
         assert event.intention == "OPEN_SHORT"
 
+    def test_intent_type_accepts_enum(self) -> None:
+        """SignalEvent accepts explicit lifecycle intent types for scale-in/scale-out."""
+        event = SignalEvent(
+            signal_id="signal-test-123",
+            timestamp="2024-03-15T14:35:22Z",
+            strategy_id="test",
+            symbol="AAPL",
+            intention=SignalIntention.OPEN_LONG,
+            intent_type=LifecycleIntentType.SCALE_IN,
+            price=Decimal("150.00"),
+            confidence=Decimal("0.8"),
+            source_service="strategy_service",
+        )
+
+        assert event.intent_type == "scale_in"
+
 
 class TestSignalEventSerialization:
     """Test SignalEvent serialization for wire format."""
@@ -166,6 +183,24 @@ class TestSignalEventSerialization:
         assert data["intention"] == "OPEN_LONG"
         assert isinstance(data["intention"], str)
 
+    def test_serialize_intent_type_to_string(self) -> None:
+        """Explicit lifecycle intent types serialize to strings for the wire contract."""
+        event = SignalEvent(
+            signal_id="signal-test-123",
+            timestamp="2024-03-15T14:35:22Z",
+            strategy_id="test",
+            symbol="AAPL",
+            intention=SignalIntention.CLOSE_LONG,
+            intent_type=LifecycleIntentType.SCALE_OUT,
+            price=Decimal("150.00"),
+            confidence=Decimal("0.9"),
+            source_service="strategy_service",
+        )
+
+        data = event.model_dump()
+
+        assert data["intent_type"] == "scale_out"
+
 
 class TestSignalEventValidation:
     """Test SignalEvent validation against signal.v1.json schema."""
@@ -200,6 +235,21 @@ class TestSignalEventValidation:
                 intention="INVALID_ACTION",
                 price=Decimal("150.00"),
                 confidence=Decimal("0.9"),
+                source_service="strategy_service",
+            )
+
+    def test_incompatible_intent_type_fails(self) -> None:
+        """Scale-out cannot be paired with open-direction signals."""
+        with pytest.raises(ValueError, match="OPEN_LONG signals only support lifecycle intent types"):
+            SignalEvent(
+                signal_id="signal-test-123",
+                timestamp="2024-03-15T14:35:22Z",
+                strategy_id="test",
+                symbol="AAPL",
+                intention="OPEN_LONG",
+                intent_type="scale_out",
+                price=Decimal("145.75"),
+                confidence=Decimal("0.85"),
                 source_service="strategy_service",
             )
 

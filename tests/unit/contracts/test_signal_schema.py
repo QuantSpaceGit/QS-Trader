@@ -20,7 +20,7 @@ from decimal import Decimal
 import pytest
 
 from qs_trader.events.events import SignalEvent
-from qs_trader.services.strategy.models import SignalIntention
+from qs_trader.services.strategy.models import LifecycleIntentType, SignalIntention
 
 
 class TestSignalSchemaRequiredFields:
@@ -202,6 +202,22 @@ class TestSignalSchemaValidData:
         assert event.stop_loss == Decimal("140.50")
         assert event.take_profit == Decimal("152.00")
 
+    def test_signal_schema_accepts_explicit_scale_in_intent_type(self) -> None:
+        """Signal schema accepts explicit scale-in lifecycle intent opt-ins."""
+        event = SignalEvent(
+            signal_id="signal-test-002b",
+            timestamp="2024-03-15T14:35:22Z",
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intention=SignalIntention.OPEN_LONG,
+            intent_type=LifecycleIntentType.SCALE_IN,
+            price=Decimal("145.75"),
+            confidence=Decimal("0.85"),
+            source_service="strategy_service",
+        )
+
+        assert event.intent_type == "scale_in"
+
 
 class TestSignalSchemaIntentionEnum:
     """Test that schema validates intention enum correctly."""
@@ -242,6 +258,21 @@ class TestSignalSchemaIntentionEnum:
                 strategy_id="test_strategy",
                 symbol="AAPL",
                 intention="INVALID_ACTION",
+                price=Decimal("145.75"),
+                confidence=Decimal("0.85"),
+                source_service="strategy_service",
+            )
+
+    def test_signal_schema_rejects_incompatible_explicit_intent_type(self) -> None:
+        """Lifecycle opt-ins must align with the directional intention."""
+        with pytest.raises(ValueError, match="CLOSE_LONG signals only support lifecycle intent types"):
+            SignalEvent(
+                signal_id="signal-test-004b",
+                timestamp="2024-03-15T14:35:22Z",
+                strategy_id="test_strategy",
+                symbol="AAPL",
+                intention=SignalIntention.CLOSE_LONG,
+                intent_type=LifecycleIntentType.SCALE_IN,
                 price=Decimal("145.75"),
                 confidence=Decimal("0.85"),
                 source_service="strategy_service",

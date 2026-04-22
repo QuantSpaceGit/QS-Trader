@@ -16,6 +16,7 @@
     "intent_state": "accepted",
     "direction": "long",
     "target_quantity": "100",
+    "price_basis": "adjusted_ohlc_adj_columns",
     "suppression_reason": null,
     "cancellation_reason": null
   }

@@ -13,6 +13,7 @@ import structlog
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import FillEvent, PriceBarEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
 from qs_trader.services.strategy.context import Context
 
 if TYPE_CHECKING:
@@ -51,6 +52,7 @@ class StrategyService:
         strategies: dict[str, "Strategy"],
         feature_service: "FeatureService | None" = None,
         lifecycle_context: LifecycleRunContext | None = None,
+        lifecycle_projection: LifecycleIntentProjection | None = None,
     ) -> None:
         """
         Initialize strategy service.
@@ -79,6 +81,7 @@ class StrategyService:
                 config=config_dict,
                 feature_service=feature_service,
                 lifecycle_context=lifecycle_context,
+                lifecycle_projection=lifecycle_projection,
             )
             self._strategy_metrics[name] = {
                 "bars_processed": 0,

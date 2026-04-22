@@ -14,6 +14,18 @@ qs-trader backtest experiments/buy_hold
 qs-trader backtest experiments/buy_hold/buy_hold.yaml
 ```
 
+## Backtest Config Contract
+
+Backtest YAML now uses a single run-level `price_basis` field.
+
+```yaml
+price_basis: adjusted
+```
+
+- `adjusted` is the default contract used by the shipped experiment templates.
+- `raw` is available when a run must consume the base OHLC series end to end.
+- Legacy `adjustment_mode`, `strategy_adjustment_mode`, and `portfolio_adjustment_mode` fields are invalid and should not appear in experiment configs.
+
 ## Command Options
 
 ### Required Argument
@@ -99,14 +111,6 @@ qs-trader backtest experiments/my_strategy -i --break-on signal
 qs-trader backtest experiments/my_strategy -i --inspect full
 ```
 
-# Silent mode with custom date range
-
-qs-trader backtest experiments/my_strategy --silent \
---start-date 2020-01-01 \
---end-date 2020-01-31
-
-```
-
 ## Output
 
 The command displays:
@@ -179,7 +183,7 @@ CLI options override config file values:
 
 CLI --silent → overrides replay_speed to -1.0 CLI --replay-speed → overrides config replay_speed CLI --start-date → overrides config start_date CLI --end-date → overrides config end_date
 
-````
+```
 
 This allows quick experimentation without editing config files.
 
@@ -192,7 +196,7 @@ output:
   event_store:
     backend: "memory"      # Options: memory, sqlite, parquet
     filename: "events.{backend}"
-````
+```
 
 - **memory**: No files created (fastest, for development)
 - **sqlite**: SQLite database (queryable, moderate size)

@@ -15,9 +15,11 @@ Public API:
 """
 
 from qs_trader.services.manager.interface import IManagerService
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
 from qs_trader.services.manager.service import ManagerService
 
 __all__ = [
     "ManagerService",
     "IManagerService",
+    "LifecycleIntentProjection",
 ]

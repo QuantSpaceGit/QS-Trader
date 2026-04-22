@@ -329,8 +329,10 @@ class TestBacktestEngineFromConfig:
         # Assert
         manager_kwargs = mock_manager_service.from_config.call_args.kwargs
         lifecycle_context = manager_kwargs["lifecycle_context"]
+        lifecycle_projection = manager_kwargs["lifecycle_projection"]
         assert lifecycle_context.experiment_id == config.sanitized_backtest_id
         assert lifecycle_context.run_id == config.run_id
+        assert lifecycle_projection is not None
         assert config.run_id is not None
         portfolio_service.enable_lifecycle_tracking.assert_called_once_with(lifecycle_context)
         execution_service.enable_lifecycle_tracking.assert_called_once_with(lifecycle_context)

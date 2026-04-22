@@ -47,6 +47,8 @@ from qs_trader.libraries.risk import load_policy
 from qs_trader.libraries.risk.models import RiskConfig
 from qs_trader.libraries.risk.tools import limits as risk_limits
 from qs_trader.libraries.risk.tools import sizing as risk_sizing
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
+from qs_trader.services.strategy.models import LifecycleIntentType, normalize_lifecycle_intent_type
 from qs_trader.system import LoggerFactory
 
 
@@ -73,6 +75,7 @@ class ManagerService:
         risk_config: RiskConfig,
         event_bus: EventBus,
         lifecycle_context: LifecycleRunContext | None = None,
+        lifecycle_projection: LifecycleIntentProjection | None = None,
     ) -> None:
         """
         Initialize ManagerService.
@@ -89,6 +92,8 @@ class ManagerService:
         self._event_bus = event_bus
         self._logger = LoggerFactory.get_logger("manager.service")
         self._lifecycle_context = lifecycle_context
+        self._lifecycle_projection = lifecycle_projection or LifecycleIntentProjection()
+        self._lifecycle_projection.bind(event_bus)
 
         # Portfolio state cache (updated by PortfolioStateEvent)
         self._cached_equity: Decimal | None = None
@@ -125,6 +130,7 @@ class ManagerService:
         config_dict: dict[str, Any],
         event_bus: EventBus,
         lifecycle_context: LifecycleRunContext | None = None,
+        lifecycle_projection: LifecycleIntentProjection | None = None,
     ) -> "ManagerService":
         """
         Factory method to create ManagerService from configuration.
@@ -162,7 +168,12 @@ class ManagerService:
                 extra={"overrides": policy_overrides},
             )
 
-        return cls(risk_config=risk_config, event_bus=event_bus, lifecycle_context=lifecycle_context)
+        return cls(
+            risk_config=risk_config,
+            event_bus=event_bus,
+            lifecycle_context=lifecycle_context,
+            lifecycle_projection=lifecycle_projection,
+        )
 
     def get_effective_risk_config(self) -> dict[str, Any]:
         """Return a serializable snapshot of the resolved risk config."""
@@ -189,16 +200,25 @@ class ManagerService:
     @staticmethod
     def _resolve_intent_context(signal_event: SignalEvent) -> tuple[str, str, str]:
         """Map the legacy signal contract onto canonical intent semantics."""
+        normalized_intent_type = normalize_lifecycle_intent_type(signal_event.intention, signal_event.intent_type)
         mapping = {
-            "OPEN_LONG": ("open_long", "open", "long"),
-            "CLOSE_LONG": ("close_long", "close", "long"),
-            "OPEN_SHORT": ("open_short", "open", "short"),
-            "CLOSE_SHORT": ("close_short", "close", "short"),
+            "OPEN_LONG": ("open_long", LifecycleIntentType.OPEN.value, "long"),
+            "CLOSE_LONG": ("close_long", LifecycleIntentType.CLOSE.value, "long"),
+            "OPEN_SHORT": ("open_short", LifecycleIntentType.OPEN.value, "short"),
+            "CLOSE_SHORT": ("close_short", LifecycleIntentType.CLOSE.value, "short"),
         }
         try:
-            return mapping[signal_event.intention]
+            default_decision_type, _, direction = mapping[signal_event.intention]
         except KeyError as exc:
             raise ValueError(f"Unsupported signal intention: {signal_event.intention}") from exc
+
+        decision_type = default_decision_type
+        if normalized_intent_type == LifecycleIntentType.SCALE_IN:
+            decision_type = "scale_in"
+        elif normalized_intent_type == LifecycleIntentType.SCALE_OUT:
+            decision_type = "scale_out"
+
+        return decision_type, normalized_intent_type.value, direction
 
     def _emit_intent_event(
         self,
@@ -237,6 +257,7 @@ class ManagerService:
             intent_state=intent_state,
             direction=direction,
             target_quantity=target_quantity,
+            price_basis=self._lifecycle_context.decision_basis,
             suppression_reason=suppression_reason,
             cancellation_reason=cancellation_reason,
             source_service="manager_service",
@@ -367,6 +388,7 @@ class ManagerService:
                 "strategy_id": event.strategy_id,
                 "symbol": event.symbol,
                 "intention": event.intention,
+                "intent_type": event.intent_type,
                 "confidence": float(event.confidence),
             },
         )
@@ -431,7 +453,25 @@ class ManagerService:
         current_positions_list = self._cached_positions
 
         current_quantity = self._get_position_quantity(event.strategy_id, event.symbol)
-        if event.intention == "OPEN_LONG" and current_quantity > 0:
+        same_side_suppression_reason = self._lifecycle_projection.get_same_side_open_suppression_reason(
+            event.strategy_id,
+            event.symbol,
+            direction,
+            exclude_intent_id=lifecycle_intent_id,
+        )
+        if same_side_suppression_reason is None:
+            if event.intention == "OPEN_LONG" and current_quantity > 0:
+                same_side_suppression_reason = "duplicate_open_without_scale_in"
+            elif event.intention == "OPEN_SHORT" and current_quantity < 0:
+                same_side_suppression_reason = "duplicate_open_without_scale_in"
+
+        if (
+            intent_type == LifecycleIntentType.SCALE_IN.value
+            and same_side_suppression_reason == "duplicate_open_without_scale_in"
+        ):
+            same_side_suppression_reason = None
+
+        if same_side_suppression_reason is not None and event.intention == "OPEN_LONG":
             self._emit_intent_event(
                 occurred_at=event.timestamp,
                 intent_id=lifecycle_intent_id,
@@ -440,7 +480,7 @@ class ManagerService:
                 intent_type=intent_type,
                 intent_state="suppressed",
                 direction=direction,
-                suppression_reason="duplicate_open_without_scale_in",
+                suppression_reason=same_side_suppression_reason,
                 correlation_id=event.correlation_id,
                 causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
             )
@@ -450,12 +490,13 @@ class ManagerService:
                     "signal_id": event.signal_id,
                     "strategy_id": event.strategy_id,
                     "symbol": event.symbol,
+                    "intent_type": intent_type,
                     "current_quantity": current_quantity,
-                    "suppression_reason": "duplicate_open_without_scale_in",
+                    "suppression_reason": same_side_suppression_reason,
                 },
             )
             return
-        if event.intention == "OPEN_SHORT" and current_quantity < 0:
+        if same_side_suppression_reason is not None and event.intention == "OPEN_SHORT":
             self._emit_intent_event(
                 occurred_at=event.timestamp,
                 intent_id=lifecycle_intent_id,
@@ -464,7 +505,7 @@ class ManagerService:
                 intent_type=intent_type,
                 intent_state="suppressed",
                 direction=direction,
-                suppression_reason="duplicate_open_without_scale_in",
+                suppression_reason=same_side_suppression_reason,
                 correlation_id=event.correlation_id,
                 causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
             )
@@ -474,8 +515,9 @@ class ManagerService:
                     "signal_id": event.signal_id,
                     "strategy_id": event.strategy_id,
                     "symbol": event.symbol,
+                    "intent_type": intent_type,
                     "current_quantity": current_quantity,
-                    "suppression_reason": "duplicate_open_without_scale_in",
+                    "suppression_reason": same_side_suppression_reason,
                 },
             )
             return
@@ -1150,6 +1192,7 @@ class ManagerService:
 
         self._cached_positions = converted_positions
         self._cached_strategy_positions = strategy_positions_map
+        self._lifecycle_projection.sync_portfolio_state(event)
 
         self._logger.debug(
             "Portfolio state cached",

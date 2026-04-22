@@ -33,6 +33,7 @@ def _build_manager() -> tuple[ManagerService, EventBus, InMemoryEventStore, Life
 def _make_signal(
     *,
     intention: str = "OPEN_LONG",
+    intent_type: str | None = None,
     confidence: Decimal = Decimal("1.0"),
     correlation_id: str = "550e8400-e29b-41d4-a716-446655440062",
     causation_id: str | None = "550e8400-e29b-41d4-a716-446655440061",
@@ -44,6 +45,7 @@ def _make_signal(
         strategy_id="sma_crossover",
         symbol="AAPL",
         intention=intention,
+        intent_type=intent_type,
         price=Decimal("100.00"),
         confidence=confidence,
         source_service="strategy_service",
@@ -119,6 +121,77 @@ def test_on_signal_suppresses_duplicate_open_without_scale_in() -> None:
     assert [event.intent_state for event in intent_events] == ["pending", "suppressed"]
     assert intent_events[-1].suppression_reason == "duplicate_open_without_scale_in"
     assert event_store.get_by_type("order") == []
+
+
+def test_on_signal_accepts_explicit_scale_in_for_existing_same_side_position() -> None:
+    """Explicit scale-ins should bypass realized duplicate-open suppression and create an order."""
+    manager, event_bus, event_store, _ = _build_manager()
+    manager._cached_equity = Decimal("100000")
+    manager._cached_strategy_positions = {"sma_crossover": {"AAPL": 100}}
+
+    event_bus.publish(
+        _make_signal(
+            intent_type="scale_in",
+            correlation_id="550e8400-e29b-41d4-a716-446655440165",
+            causation_id="550e8400-e29b-41d4-a716-446655440166",
+        )
+    )
+
+    intent_events = _intent_events(event_store)
+
+    assert [event.intent_state for event in intent_events] == ["pending", "accepted"]
+    assert [event.intent_type for event in intent_events] == ["scale_in", "scale_in"]
+    assert len(event_store.get_by_type("order")) == 1
+
+
+def test_on_signal_suppresses_duplicate_same_side_open_while_prior_intent_is_pending() -> None:
+    """Pending same-side opens should be suppressed before fills arrive."""
+    manager, event_bus, event_store, _ = _build_manager()
+    manager._cached_equity = Decimal("100000")
+
+    event_bus.publish(
+        _make_signal(
+            correlation_id="550e8400-e29b-41d4-a716-446655440085",
+            causation_id="550e8400-e29b-41d4-a716-446655440086",
+        )
+    )
+    event_bus.publish(
+        _make_signal(
+            correlation_id="550e8400-e29b-41d4-a716-446655440087",
+            causation_id="550e8400-e29b-41d4-a716-446655440088",
+        )
+    )
+
+    intent_events = _intent_events(event_store)
+
+    assert [event.intent_state for event in intent_events] == ["pending", "accepted", "pending", "suppressed"]
+    assert intent_events[-1].suppression_reason == "duplicate_same_side_pending"
+    assert len(event_store.get_by_type("order")) == 1
+
+
+def test_on_signal_accepts_explicit_scale_out_for_partial_close() -> None:
+    """Explicit scale-outs should classify accepted reduction intents correctly."""
+    manager, event_bus, event_store, _ = _build_manager()
+    manager._cached_equity = Decimal("100000")
+    manager._cached_strategy_positions = {"sma_crossover": {"AAPL": 100}}
+
+    event_bus.publish(
+        _make_signal(
+            intention="CLOSE_LONG",
+            intent_type="scale_out",
+            confidence=Decimal("0.4"),
+            correlation_id="550e8400-e29b-41d4-a716-446655440167",
+            causation_id="550e8400-e29b-41d4-a716-446655440168",
+        )
+    )
+
+    intent_events = _intent_events(event_store)
+    order_lifecycle_events = _order_lifecycle_events(event_store)
+
+    assert [event.intent_state for event in intent_events] == ["pending", "accepted"]
+    assert [event.intent_type for event in intent_events] == ["scale_out", "scale_out"]
+    assert order_lifecycle_events[0].side == "sell"
+    assert order_lifecycle_events[0].quantity == Decimal("40")
 
 
 def test_on_signal_suppresses_risk_limit_violations(monkeypatch: pytest.MonkeyPatch) -> None:

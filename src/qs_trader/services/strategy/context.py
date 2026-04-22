@@ -28,7 +28,14 @@ from qs_trader.events.events import FillEvent, IndicatorEvent, PriceBarEvent, Si
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import StrategyDecisionEvent
 from qs_trader.events.price_basis import BarView, PriceBasis
-from qs_trader.services.strategy.models import PositionState, SignalIntention
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
+from qs_trader.services.strategy.models import (
+    LifecycleIntentType,
+    PositionState,
+    SignalIntention,
+    decision_type_from_signal,
+    normalize_lifecycle_intent_type,
+)
 
 if TYPE_CHECKING:
     from qs_trader.services.features.service import FeatureService
@@ -58,6 +65,7 @@ class Context:
         config: Optional[dict[str, Any]] = None,
         feature_service: Optional["FeatureService"] = None,
         lifecycle_context: Optional[LifecycleRunContext] = None,
+        lifecycle_projection: LifecycleIntentProjection | None = None,
     ):
         """
         Initialize context for a strategy.
@@ -81,6 +89,7 @@ class Context:
         # Optional FeatureService for consuming precomputed features from ClickHouse
         self._feature_service = feature_service
         self._lifecycle_context = lifecycle_context
+        self._lifecycle_projection = lifecycle_projection
 
         # Indicator tracking for automatic event emission: {indicator_name: value}
         # Reset at start of each bar, emitted at end if log_indicators: true
@@ -105,6 +114,7 @@ class Context:
         metadata: Optional[dict[str, Any]] = None,
         stop_loss: Optional[Decimal | float | str] = None,
         take_profit: Optional[Decimal | float | str] = None,
+        intent_type: LifecycleIntentType | str | None = None,
     ) -> SignalEvent:
         """
         Emit a trading signal to the event bus.
@@ -116,6 +126,9 @@ class Context:
             timestamp: Signal generation time (ISO8601 UTC string, usually bar.timestamp)
             symbol: Instrument symbol to trade
             intention: Trading intention (OPEN_LONG/CLOSE_LONG/OPEN_SHORT/CLOSE_SHORT)
+            intent_type: Optional explicit lifecycle classification.
+                Use ``scale_in`` to add to an existing same-side position and
+                ``scale_out`` to reduce one without changing direction.
             price: Price at which signal generated (typically current market price)
             confidence: Signal strength [0.0, 1.0]
             reason: Optional human-readable explanation
@@ -155,6 +168,7 @@ class Context:
             stop_loss = Decimal(str(stop_loss))
         if take_profit is not None and not isinstance(take_profit, Decimal):
             take_profit = Decimal(str(take_profit))
+        normalized_intent_type = normalize_lifecycle_intent_type(intention, intent_type)
 
         # Generate unique signal_id using UUID
         decision_event: StrategyDecisionEvent | None = None
@@ -176,7 +190,7 @@ class Context:
                 strategy_id=self._strategy_id,
                 symbol=symbol,
                 bar_timestamp=timestamp,
-                decision_type=self._map_intention_to_decision_type(intention),
+                decision_type=self._map_intention_to_decision_type(intention, normalized_intent_type),
                 decision_price=price,
                 decision_basis=self._lifecycle_context.decision_basis,
                 confidence=confidence,
@@ -203,6 +217,7 @@ class Context:
             strategy_id=self._strategy_id,
             symbol=symbol,
             intention=intention,
+            intent_type=normalized_intent_type.value,
             price=price,
             confidence=confidence,
             reason=reason,
@@ -234,19 +249,12 @@ class Context:
         return signal
 
     @staticmethod
-    def _map_intention_to_decision_type(intention: SignalIntention | str) -> str:
-        """Map the legacy signal intention enum onto the canonical decision type."""
-        raw_value = intention.value if isinstance(intention, SignalIntention) else str(intention)
-        mapping = {
-            "OPEN_LONG": "open_long",
-            "CLOSE_LONG": "close_long",
-            "OPEN_SHORT": "open_short",
-            "CLOSE_SHORT": "close_short",
-        }
-        try:
-            return mapping[raw_value]
-        except KeyError as exc:
-            raise ValueError(f"Unsupported signal intention for lifecycle emission: {raw_value}") from exc
+    def _map_intention_to_decision_type(
+        intention: SignalIntention | str,
+        intent_type: LifecycleIntentType | str | None = None,
+    ) -> str:
+        """Map the signal contract onto the canonical lifecycle decision type."""
+        return decision_type_from_signal(intention, intent_type)
 
     def track_indicators(
         self,
@@ -592,7 +600,10 @@ class Context:
         return prices
 
     def get_position_state(self, symbol: str) -> PositionState:
-        """Return the current position state for a symbol based on recorded fills."""
+        """Return the current position state for a symbol."""
+        if self._lifecycle_projection is not None:
+            return self._lifecycle_projection.get_position_state(self._strategy_id, symbol)
+
         quantity = self._position_quantities.get(symbol, Decimal("0"))
         if quantity > 0:
             return PositionState.OPEN_LONG

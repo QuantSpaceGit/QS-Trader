@@ -381,14 +381,16 @@ class SignalEvent(ValidatedEvent):
     for Python domain use.
 
     The intention field accepts either SignalIntention enum or string on input,
-    but serializes to string for wire format.
+    but serializes to string for wire format. ``intent_type`` is optional and
+    provides the explicit lifecycle opt-in for ``scale_in`` / ``scale_out``.
 
     Attributes:
         signal_id: Unique signal identifier (links to OrderEvent.intent_id for audit trail)
         timestamp: Signal generation timestamp (ISO8601 UTC)
         strategy_id: Strategy that generated this signal (source attribution)
         symbol: Instrument identifier
-        intention: Trading action (OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT)
+        intention: Directional trading action (OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT)
+        intent_type: Optional lifecycle classification (open, close, scale_in, scale_out)
         price: Price at signal generation
         confidence: Signal confidence [0.0, 1.0]
         reason: Human-readable explanation (optional)
@@ -418,6 +420,7 @@ class SignalEvent(ValidatedEvent):
     strategy_id: str  # Strategy source attribution
     symbol: str
     intention: str  # OPEN_LONG | CLOSE_LONG | OPEN_SHORT | CLOSE_SHORT (string on wire)
+    intent_type: str | None = None  # open | close | scale_in | scale_out (optional explicit opt-in)
     price: Decimal  # String on wire, Decimal in Python
     confidence: Decimal  # String on wire, Decimal in Python (0.0 - 1.0)
 
@@ -445,6 +448,33 @@ class SignalEvent(ValidatedEvent):
                 valid_values = [e.value for e in SignalIntention]
                 raise ValueError(f"Invalid intention value: {v}. Must be one of: {valid_values}")
         raise ValueError(f"intention must be SignalIntention or str, got {type(v)}")
+
+    @field_validator("intent_type", mode="before")
+    @classmethod
+    def _validate_intent_type(cls, v: Any) -> str | None:
+        """Convert LifecycleIntentType enum to string, or validate string value."""
+        if v is None:
+            return None
+
+        from qs_trader.services.strategy.models import LifecycleIntentType
+
+        if isinstance(v, LifecycleIntentType):
+            return v.value
+        if isinstance(v, str):
+            try:
+                return LifecycleIntentType(str(v).strip().lower()).value
+            except ValueError:
+                valid_values = [e.value for e in LifecycleIntentType]
+                raise ValueError(f"Invalid intent_type value: {v}. Must be one of: {valid_values}")
+        raise ValueError(f"intent_type must be LifecycleIntentType, str, or None, got {type(v)}")
+
+    @model_validator(mode="after")
+    def _validate_intention_and_intent_type(self) -> "SignalEvent":
+        """Ensure explicit lifecycle overrides are compatible with the signal intention."""
+        from qs_trader.services.strategy.models import normalize_lifecycle_intent_type
+
+        normalize_lifecycle_intent_type(self.intention, self.intent_type)
+        return self
 
     @field_serializer("price", "confidence", "stop_loss", "take_profit")
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:

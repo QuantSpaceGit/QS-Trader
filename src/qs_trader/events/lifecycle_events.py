@@ -151,6 +151,7 @@ class OrderIntentEvent(LifecycleValidatedEvent):
 
     SCHEMA_BASE: ClassVar[Optional[str]] = "lifecycle/order_intent"
     TYPE_FIELD: ClassVar[str] = "intent_state"
+    PRICE_BASIS_FIELD: ClassVar[str | None] = "price_basis"
 
     event_type: str = "order_intent"
 
@@ -161,6 +162,7 @@ class OrderIntentEvent(LifecycleValidatedEvent):
     intent_state: str
     direction: str
     target_quantity: Decimal | None = None
+    price_basis: str | None = None
     suppression_reason: str | None = None
     cancellation_reason: str | None = None
 

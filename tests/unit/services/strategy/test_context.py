@@ -11,9 +11,12 @@ import pytest
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import FillEvent, PriceBarEvent, SignalEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import OrderIntentEvent, OrderLifecycleEvent, StrategyDecisionEvent
 from qs_trader.events.price_basis import PriceBasis
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
 from qs_trader.services.strategy.context import Context
-from qs_trader.services.strategy.models import PositionState, SignalIntention
+from qs_trader.services.strategy.models import LifecycleIntentType, PositionState, SignalIntention
 
 
 @pytest.fixture
@@ -128,6 +131,34 @@ class TestEmitSignal:
         assert result.confidence == Decimal("0.85")
         assert result.stop_loss == Decimal("145.0")
         assert result.take_profit == Decimal("160.0")
+
+    def test_emit_signal_threads_explicit_scale_in_through_lifecycle_events(self, event_bus: MagicMock) -> None:
+        """Explicit scale-in opt-ins should surface on both decision and signal events."""
+        lifecycle_context = LifecycleRunContext(experiment_id="exp", run_id="run-001")
+        context = Context(
+            strategy_id="test_strategy",
+            event_bus=event_bus,
+            lifecycle_context=lifecycle_context,
+        )
+
+        result = context.emit_signal(
+            timestamp="2024-01-02T16:00:00Z",
+            symbol="AAPL",
+            intention=SignalIntention.OPEN_LONG,
+            intent_type=LifecycleIntentType.SCALE_IN,
+            price=Decimal("150.25"),
+            confidence=Decimal("0.85"),
+        )
+
+        published_events = [call.args[0] for call in event_bus.publish.call_args_list]
+
+        assert isinstance(result, SignalEvent)
+        assert result.intent_type == "scale_in"
+        assert len(published_events) == 2
+        assert isinstance(published_events[0], StrategyDecisionEvent)
+        assert published_events[0].decision_type == "scale_in"
+        assert isinstance(published_events[1], SignalEvent)
+        assert published_events[1].intent_type == "scale_in"
 
 
 class TestPriceAccess:
@@ -250,6 +281,58 @@ class TestPositionState:
 
         with pytest.raises(ValueError, match="Unsupported fill side"):
             context.record_fill(cast(FillEvent, invalid_fill))
+
+    def test_get_position_state_reads_shared_lifecycle_projection(self, event_bus: MagicMock) -> None:
+        """When configured, Context should read pending/open state from the shared projection."""
+        projection = LifecycleIntentProjection()
+        projected_context = Context(
+            strategy_id="test_strategy",
+            event_bus=event_bus,
+            lifecycle_projection=projection,
+        )
+
+        projection.apply_order_intent(
+            OrderIntentEvent(
+                experiment_id="exp",
+                run_id="run-001",
+                occurred_at=datetime(2024, 1, 10, 16, 0, tzinfo=timezone.utc),
+                intent_id="550e8400-e29b-41d4-a716-446655440210",
+                strategy_id="test_strategy",
+                symbol="AAPL",
+                intent_type="open",
+                intent_state="accepted",
+                direction="long",
+                target_quantity=Decimal("10"),
+                price_basis="adjusted_ohlc_adj_columns",
+                source_service="manager_service",
+            )
+        )
+
+        assert projected_context.get_position_state("AAPL") == PositionState.PENDING_OPEN_LONG
+
+        projection.apply_order_lifecycle(
+            OrderLifecycleEvent(
+                experiment_id="exp",
+                run_id="run-001",
+                occurred_at=datetime(2024, 1, 10, 16, 1, tzinfo=timezone.utc),
+                order_id="550e8400-e29b-41d4-a716-446655440211",
+                intent_id="550e8400-e29b-41d4-a716-446655440210",
+                strategy_id="test_strategy",
+                symbol="AAPL",
+                order_state="filled",
+                side="buy",
+                quantity=Decimal("10"),
+                filled_quantity=Decimal("10"),
+                order_type="market",
+                time_in_force="GTC",
+                price_basis="adjusted_ohlc_adj_columns",
+                idempotency_key="order-key-ctx-001",
+                source_service="execution_service",
+            )
+        )
+        projection.sync_position_quantity("test_strategy", "AAPL", Decimal("10"))
+
+        assert projected_context.get_position_state("AAPL") == PositionState.OPEN_LONG
 
 
 class TestCacheBehavior:

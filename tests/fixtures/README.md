@@ -48,6 +48,15 @@ config_dict = {"name": "test_naive", "config": {}}
 - **Used By**: Manager service tests, full lifecycle tests
 - **DO NOT MODIFY** - tests depend on these exact values
 
+## Data Fixtures
+
+### `data/sma_crossover_duplicate_window.json`
+
+- **Purpose**: Deterministic Phase 3 incident-window reconstruction for the documented `2021-10-22` / `2021-10-25` duplicate-open scenario
+- **Used By**: `tests/integration/test_duplicate_open_gate.py`
+- **Provenance**: Derived from the checked-in Research duplicate-window fixture because the exact `r-001-68fe9c2c` payload is not present in-repo
+- **DO NOT MODIFY** - the regression depends on these exact timestamps and closes
+
 ## Adding New Fixtures
 
 When creating a new test fixture:

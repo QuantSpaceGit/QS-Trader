@@ -28,6 +28,7 @@ from qs_trader.libraries.registry import StrategyRegistry
 from qs_trader.services.data.service import DataService
 from qs_trader.services.execution.config import ExecutionConfig
 from qs_trader.services.execution.service import ExecutionService
+from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
 from qs_trader.services.manager.service import ManagerService
 from qs_trader.services.portfolio.models import PortfolioConfig
 from qs_trader.services.portfolio.service import PortfolioService
@@ -380,6 +381,8 @@ class BacktestEngine:
             experiment_id=config.sanitized_backtest_id,
             run_id=str(resolved_run_id),
         )
+        lifecycle_projection = LifecycleIntentProjection()
+        lifecycle_projection.bind(event_bus)
 
         event_store: EventStore
         backend_type = output_cfg.event_store.backend
@@ -580,6 +583,7 @@ class BacktestEngine:
                     strategies=strategy_instances,
                     feature_service=feature_service,
                     lifecycle_context=lifecycle_context,
+                    lifecycle_projection=lifecycle_projection,
                 )
                 logger.debug(
                     "backtest.engine.strategy_service_created",
@@ -607,6 +611,7 @@ class BacktestEngine:
                     config_dict=risk_config_dict,
                     event_bus=event_bus,
                     lifecycle_context=lifecycle_context,
+                    lifecycle_projection=lifecycle_projection,
                 )
 
                 logger.debug(
