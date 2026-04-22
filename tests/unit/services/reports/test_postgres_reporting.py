@@ -64,8 +64,7 @@ def _minimal_manifest() -> ClickHouseInputManifest:
             "symbols": ("AAPL",),
             "start_date": date(2024, 1, 2),
             "end_date": date(2024, 1, 2),
-            "strategy_adjustment_mode": "split_adjusted",
-            "portfolio_adjustment_mode": "split_adjusted",
+            "price_basis": "adjusted",
         }
     )
 

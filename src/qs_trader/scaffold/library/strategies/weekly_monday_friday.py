@@ -23,7 +23,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from qs_trader.events.events import PriceBarEvent
-from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.libraries.strategies import Context, PositionState, PriceBasis, Strategy, StrategyConfig
 from qs_trader.services.strategy.models import SignalIntention
 
 
@@ -64,8 +64,6 @@ class WeeklyMondayFriday(Strategy[WeeklyMondayFridayConfig]):
             config: Strategy configuration
         """
         super().__init__(config)
-        # Track current position state for each symbol
-        self._positions: dict[str, bool] = {}  # symbol -> has_position (True/False)
         # Track if we've already traded on Monday this week
         self._traded_this_week: dict[str, str] = {}  # symbol -> week_key (e.g., "2024-W45")
 
@@ -86,22 +84,6 @@ class WeeklyMondayFriday(Strategy[WeeklyMondayFridayConfig]):
             context: Strategy execution context
         """
         pass  # No cleanup needed
-
-    def on_position_filled(self, event, context: Context) -> None:
-        """
-        Track actual position changes from fills.
-
-        Args:
-            event: FillEvent with symbol, side, filled_quantity
-            context: Strategy execution context
-        """
-        symbol = event.symbol
-        side = event.side  # "buy" or "sell"
-
-        if side == "buy":
-            self._positions[symbol] = True  # Now have position
-        elif side == "sell":
-            self._positions[symbol] = False  # Position closed
 
     def _get_week_key(self, timestamp: datetime) -> str:
         """
@@ -136,15 +118,15 @@ class WeeklyMondayFriday(Strategy[WeeklyMondayFridayConfig]):
         timestamp = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
         weekday = timestamp.weekday()  # 0=Monday, 1=Tuesday, ..., 4=Friday, 5=Saturday, 6=Sunday
 
-        # Get current position state
-        has_position = self._positions.get(symbol, False)
+        position_state = context.get_position_state(symbol)
+        has_position = position_state == PositionState.OPEN_LONG
 
         # Get week key to track if we've already traded this week
         week_key = self._get_week_key(timestamp)
         last_trade_week = self._traded_this_week.get(symbol, None)
 
         # Get current price for signal
-        current_price = context.get_price(symbol)
+        current_price = context.get_price(symbol, basis=PriceBasis.ADJUSTED)
         if current_price is None:
             return
 

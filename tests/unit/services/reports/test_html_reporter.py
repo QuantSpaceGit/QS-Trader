@@ -32,8 +32,7 @@ def test_build_run_info_supports_versioned_metadata_shape(tmp_path: Path) -> Non
                 "effective_execution_spec": {
                     "schema_version": 1,
                     "captured_from": "qs_trader.reporting",
-                    "strategy_adjustment_mode": "split_adjusted",
-                    "portfolio_adjustment_mode": "split_adjusted",
+                    "price_basis": "adjusted",
                     "risk_policy": {"name": "naive", "effective_config": {}},
                     "strategies": [],
                 },
@@ -47,7 +46,8 @@ def test_build_run_info_supports_versioned_metadata_shape(tmp_path: Path) -> Non
     assert "Requested Start" in html
     assert "Requested End" in html
     assert "qs-datamaster-equity-1d" in html
-    assert "split_adjusted" in html
+    assert "Price Basis" in html
+    assert "adjusted" in html
     assert "qs_trader.reporting" in html
     assert "v1" in html
     assert "naive" in html
@@ -109,8 +109,8 @@ def test_build_run_info_uses_effective_strategy_params_when_available(tmp_path: 
     assert ">False</span>" in html
 
 
-def test_build_run_info_preserves_legacy_metadata_shape(tmp_path: Path) -> None:
-    """Legacy metadata.json version 1.0 should still render configuration."""
+def test_build_run_info_preserves_legacy_metadata_shape_with_price_basis(tmp_path: Path) -> None:
+    """Legacy metadata.json version 1.0 should still render configuration when price_basis is present."""
     generator = HTMLReportGenerator(tmp_path)
 
     html = generator._build_run_info(
@@ -128,8 +128,7 @@ def test_build_run_info_preserves_legacy_metadata_shape(tmp_path: Path) -> None:
                 "backtest_id": "legacy-run",
                 "start_date": "2024-01-01T00:00:00",
                 "end_date": "2024-06-30T00:00:00",
-                "strategy_adjustment_mode": "raw",
-                "portfolio_adjustment_mode": "raw",
+                "price_basis": "raw",
                 "risk_policy": {"name": "naive"},
             },
         },
@@ -138,5 +137,6 @@ def test_build_run_info_preserves_legacy_metadata_shape(tmp_path: Path) -> None:
 
     assert "⚙️ Configuration" in html
     assert "legacy-run" in html
+    assert "Price Basis" in html
     assert "raw" in html
     assert "naive" in html

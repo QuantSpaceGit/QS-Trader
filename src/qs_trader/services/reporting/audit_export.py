@@ -12,11 +12,9 @@ The export path follows the requirement-doc contract with a safe fallback chain:
 3. ``{output.experiments_root}/audit-exports`` as a local/test fallback.
 
 OHLC basis rule:
-    The audit export always resolves the final CSV OHLC columns from the
-    manifest's *portfolio* adjustment mode. This keeps the export aligned with
-    the reporting / execution / portfolio layer that owns fills, realized P&L,
-    and the persisted run summary. The strategy adjustment mode remains visible
-    in ``summary.csv`` for mixed-basis runs.
+    The audit export resolves the final CSV OHLC columns from the manifest's
+    single run-level ``price_basis`` contract. Dividend cash-flow accounting is
+    intentionally handled outside of this OHLC selection.
 """
 
 from __future__ import annotations
@@ -35,16 +33,13 @@ import structlog
 
 from qs_trader.events.event_store import EventStore
 from qs_trader.events.events import PriceBarEvent
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseDataAdapter
 from qs_trader.services.data.adapters.resolver import DataSourceResolver
 from qs_trader.services.data.models import Instrument
 from qs_trader.services.reporting.event_collector import collect_run_events
-from qs_trader.services.reporting.manifest import (
-    AdjustmentMode,
-    ClickHouseInputManifest,
-    assert_safe_manifest_identifier,
-)
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest, assert_safe_manifest_identifier
 
 
 def _normalize_csv_value(value: Any) -> Any:
@@ -164,9 +159,7 @@ class AuditExportBuilder:
         "regime_table",
         "feature_set_version",
         "regime_version",
-        "strategy_adjustment_mode",
-        "portfolio_adjustment_mode",
-        "price_basis_mode",
+        "price_basis",
     ]
 
     def __init__(self, system_config: Any, *, export_root: Path | None = None) -> None:
@@ -181,10 +174,9 @@ class AuditExportBuilder:
         self._logger = structlog.get_logger(self.__class__.__name__)
 
     @classmethod
-    def resolve_price_basis_mode(cls, manifest: ClickHouseInputManifest) -> AdjustmentMode:
+    def resolve_price_basis(cls, manifest: ClickHouseInputManifest) -> PriceBasis:
         """Resolve the deterministic OHLC basis for the export."""
-        mode = manifest.portfolio_adjustment_mode or manifest.adjustment_mode or manifest.strategy_adjustment_mode
-        return "total_return" if mode == "total_return" else "split_adjusted"
+        return manifest.price_basis
 
     @classmethod
     def resolve_ohlcv_from_bar_event(
@@ -202,17 +194,17 @@ class AuditExportBuilder:
             Tuple of ``(open, high, low, close, volume)`` for CSV export.
 
         Raises:
-            ValueError: If total-return output is requested but adjusted prices are absent.
+            ValueError: If adjusted output is requested but adjusted prices are absent.
         """
-        price_basis_mode = cls.resolve_price_basis_mode(manifest)
-        if price_basis_mode == "total_return":
+        price_basis = cls.resolve_price_basis(manifest)
+        if price_basis == PriceBasis.ADJUSTED:
             adjusted_open = price_event.open_adj
             adjusted_high = price_event.high_adj
             adjusted_low = price_event.low_adj
             adjusted_close = price_event.close_adj
             if any(value is None for value in (adjusted_open, adjusted_high, adjusted_low, adjusted_close)):
                 raise ValueError(
-                    "Manifest requested total_return audit pricing but the resolved ClickHouse bar is missing adjusted OHLC values."
+                    "Manifest requested adjusted audit pricing but the resolved ClickHouse bar is missing adjusted OHLC values."
                 )
             bar_open, bar_high, bar_low, bar_close = (
                 cast(Decimal, adjusted_open),
@@ -439,9 +431,7 @@ class AuditExportBuilder:
             "regime_table": manifest.regime_table,
             "feature_set_version": manifest.feature_set_version,
             "regime_version": manifest.regime_version,
-            "strategy_adjustment_mode": manifest.strategy_adjustment_mode or manifest.adjustment_mode,
-            "portfolio_adjustment_mode": manifest.portfolio_adjustment_mode or manifest.adjustment_mode,
-            "price_basis_mode": self.resolve_price_basis_mode(manifest),
+            "price_basis": str(manifest.price_basis),
         }
 
         if manifest.feature_columns is not None:

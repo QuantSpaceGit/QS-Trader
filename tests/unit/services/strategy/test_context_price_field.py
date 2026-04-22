@@ -1,4 +1,4 @@
-"""Test Context price field configuration."""
+"""Targeted basis-resolution tests for strategy Context price accessors."""
 
 from decimal import Decimal
 
@@ -6,18 +6,19 @@ import pytest
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import PriceBarEvent
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.strategy.context import Context
 
 
 @pytest.fixture
-def event_bus():
-    """Create event bus for testing."""
+def event_bus() -> EventBus:
+    """Create a real event bus for lightweight context tests."""
     return EventBus()
 
 
 @pytest.fixture
-def sample_bar():
-    """Create sample bar with both base and adjusted close values."""
+def sample_bar() -> PriceBarEvent:
+    """Create a sample bar with both raw and adjusted OHLC data."""
     return PriceBarEvent(
         symbol="AAPL",
         timestamp="2024-01-02T16:00:00Z",
@@ -35,138 +36,82 @@ def sample_bar():
     )
 
 
-class TestContextSplitAdjusted:
-    """Test Context with default adjustment_mode='split_adjusted'."""
+def test_get_price_uses_raw_or_adjusted_basis_consistently(event_bus: EventBus, sample_bar: PriceBarEvent) -> None:
+    """Single-price lookups should align with the requested basis."""
+    context = Context(strategy_id="test", event_bus=event_bus)
+    context.cache_bar(sample_bar)
 
-    def test_default_adjustment_mode_is_split_adjusted(self, event_bus):
-        """Context defaults to 'split_adjusted' adjustment mode."""
-        context = Context(strategy_id="test", event_bus=event_bus)
-        assert context._adjustment_mode == "split_adjusted"
-
-    def test_get_price_returns_adjusted_close(self, event_bus, sample_bar):
-        """get_price returns close_adj when adjustment_mode='split_adjusted'."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="split_adjusted")
-        context.cache_bar(sample_bar)
-
-        price = context.get_price("AAPL")
-
-        assert price == Decimal("105.50")
-
-    def test_get_price_series_returns_adjusted_close_values(self, event_bus, sample_bar):
-        """get_price_series returns close_adj prices when adjustment_mode='split_adjusted'."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="split_adjusted")
-
-        # Cache multiple bars
-        for i in range(5):
-            bar = PriceBarEvent(
-                symbol="AAPL",
-                timestamp=f"2024-01-0{i + 1}T16:00:00Z",
-                open=Decimal("100.00"),
-                high=Decimal("101.00"),
-                low=Decimal("99.00"),
-                close=Decimal(f"{100 + i}.00"),
-                open_adj=Decimal("105.00"),
-                high_adj=Decimal("106.00"),
-                low_adj=Decimal("104.00"),
-                close_adj=Decimal(f"{105 + i}.00"),
-                volume=1000,
-                source="test",
-                interval="1d",
-            )
-            context.cache_bar(bar)
-
-        prices = context.get_price_series("AAPL", n=5)
-
-        assert len(prices) == 5
-        assert prices == [Decimal("105.00"), Decimal("106.00"), Decimal("107.00"), Decimal("108.00"), Decimal("109.00")]
+    assert context.get_price("AAPL", basis=PriceBasis.RAW) == Decimal("100.50")
+    assert context.get_price("AAPL", basis=PriceBasis.ADJUSTED) == Decimal("105.50")
 
 
-class TestContextTotalReturn:
-    """Test Context with adjustment_mode='total_return'."""
+def test_get_bars_returns_basis_specific_ohlc_views(event_bus: EventBus, sample_bar: PriceBarEvent) -> None:
+    """Bar views should expose basis-resolved OHLC values, not raw event fields."""
+    context = Context(strategy_id="test", event_bus=event_bus)
+    context.cache_bar(sample_bar)
 
-    def test_can_configure_total_return_adjustment_mode(self, event_bus):
-        """Context can be configured to use 'total_return'."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="total_return")
-        assert context._adjustment_mode == "total_return"
+    raw_bars = context.get_bars("AAPL", 1, basis=PriceBasis.RAW)
+    adjusted_bars = context.get_bars("AAPL", 1, basis=PriceBasis.ADJUSTED)
 
-    def test_get_price_returns_close_adj(self, event_bus, sample_bar):
-        """get_price returns close_adj when adjustment_mode='total_return'."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="total_return")
-        context.cache_bar(sample_bar)
-
-        price = context.get_price("AAPL")
-
-        assert price == Decimal("105.50")  # close_adj, not close
-
-    def test_get_price_series_returns_close_adj_values(self, event_bus, sample_bar):
-        """get_price_series returns close_adj prices when adjustment_mode='total_return'."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="total_return")
-
-        # Cache multiple bars
-        for i in range(5):
-            bar = PriceBarEvent(
-                symbol="AAPL",
-                timestamp=f"2024-01-0{i + 1}T16:00:00Z",
-                open=Decimal("100.00"),
-                high=Decimal("101.00"),
-                low=Decimal("99.00"),
-                close=Decimal(f"{100 + i}.00"),
-                open_adj=Decimal("105.00"),
-                high_adj=Decimal("106.00"),
-                low_adj=Decimal("104.00"),
-                close_adj=Decimal(f"{105 + i}.00"),
-                volume=1000,
-                source="test",
-                interval="1d",
-            )
-            context.cache_bar(bar)
-
-        prices = context.get_price_series("AAPL", n=5)
-
-        assert len(prices) == 5
-        assert prices == [Decimal("105.00"), Decimal("106.00"), Decimal("107.00"), Decimal("108.00"), Decimal("109.00")]
-
-    def test_get_bars_still_returns_full_price_bar_events(self, event_bus, sample_bar):
-        """get_bars returns full PriceBarEvent objects (not filtered by adjustment_mode)."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="total_return")
-        context.cache_bar(sample_bar)
-
-        bars = context.get_bars("AAPL", n=1)
-
-        assert len(bars) == 1
-        assert bars[0].close == Decimal("100.50")
-        assert bars[0].close_adj == Decimal("105.50")
+    assert raw_bars is not None and adjusted_bars is not None
+    assert raw_bars[0].open == Decimal("100.00")
+    assert raw_bars[0].close == Decimal("100.50")
+    assert adjusted_bars[0].open == Decimal("105.00")
+    assert adjusted_bars[0].close == Decimal("105.50")
 
 
-class TestContextAdjustmentModeConsistency:
-    """Test adjustment mode consistency across Context methods."""
-
-    def test_get_price_and_get_price_series_use_same_field(self, event_bus):
-        """get_price and get_price_series use the same configured adjustment mode."""
-        context = Context(strategy_id="test", event_bus=event_bus, adjustment_mode="total_return")
-
-        # Cache bar
-        bar = PriceBarEvent(
+def test_adjusted_series_raises_when_any_adjusted_field_is_missing(event_bus: EventBus) -> None:
+    """Adjusted series should fail loudly instead of silently mixing raw values."""
+    context = Context(strategy_id="test", event_bus=event_bus)
+    context.cache_bar(
+        PriceBarEvent(
             symbol="AAPL",
-            timestamp="2024-01-02T16:00:00Z",
+            timestamp="2024-01-01T16:00:00Z",
             open=Decimal("100.00"),
             high=Decimal("101.00"),
             low=Decimal("99.00"),
             close=Decimal("100.50"),
-            open_adj=Decimal("105.00"),
-            high_adj=Decimal("106.00"),
-            low_adj=Decimal("104.00"),
-            close_adj=Decimal("105.50"),
             volume=1000,
             source="test",
             interval="1d",
         )
-        context.cache_bar(bar)
+    )
+    context.cache_bar(
+        PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2024-01-02T16:00:00Z",
+            open=Decimal("101.00"),
+            high=Decimal("102.00"),
+            low=Decimal("100.00"),
+            close=Decimal("101.50"),
+            close_adj=Decimal("106.50"),
+            volume=1001,
+            source="test",
+            interval="1d",
+        )
+    )
 
-        # Both should return close_adj
-        single_price = context.get_price("AAPL")
-        series_prices = context.get_price_series("AAPL", n=1)
+    with pytest.raises(ValueError, match="Adjusted price requested"):
+        context.get_price_series("AAPL", 2, basis=PriceBasis.ADJUSTED)
 
-        assert single_price == Decimal("105.50")
-        assert series_prices == [Decimal("105.50")]
-        assert single_price == series_prices[0]
+
+def test_offset_windows_preserve_exact_length(event_bus: EventBus) -> None:
+    """Offset windows should return the exact previous slice strategies requested."""
+    context = Context(strategy_id="test", event_bus=event_bus)
+    for day in range(1, 6):
+        context.cache_bar(
+            PriceBarEvent(
+                symbol="AAPL",
+                timestamp=f"2024-01-{day:02d}T16:00:00Z",
+                open=Decimal("100.00"),
+                high=Decimal("101.00"),
+                low=Decimal("99.00"),
+                close=Decimal(str(100 + day)),
+                close_adj=Decimal(str(200 + day)),
+                volume=1000,
+                source="test",
+                interval="1d",
+            )
+        )
+
+    assert context.get_price_series("AAPL", 2, basis=PriceBasis.ADJUSTED, offset=2) == [Decimal("202"), Decimal("203")]

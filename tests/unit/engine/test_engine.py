@@ -24,6 +24,7 @@ from qs_trader.engine.config import (
 from qs_trader.engine.engine import BacktestEngine, BacktestResult, _build_clickhouse_manifest
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.price_basis import PriceBasis
 
 # ============================================================================
 # Fixtures
@@ -935,30 +936,13 @@ class TestManifestBuilderFunction:
         assert result is not None
         assert result.bars_table == "equity_ohlcv_v2"
 
-    def test_manifest_uses_strategy_adjustment_mode_from_backtest_config(self) -> None:
-        """Manifest must record the strategy-layer adjustment mode from BacktestConfig."""
-        # Arrange
-        data_service = _make_data_service(provider="qs-datamaster")  # adjusted=True
-        config = _make_backtest_config().model_copy(update={"strategy_adjustment_mode": "total_return"})
-
-        # Act
-        result = _build_clickhouse_manifest(
-            data_service=data_service,
-            config=config,
-            source_symbols=["AAPL"],
-            feature_service=None,
-            feature_config=None,
-        )
-
-        # Assert
-        assert result is not None
-        assert result.strategy_adjustment_mode == "total_return"
-
-    def test_manifest_uses_portfolio_adjustment_mode_from_backtest_config(self) -> None:
-        """Manifest must record the portfolio-layer adjustment mode from BacktestConfig."""
+    def test_manifest_carries_explicit_raw_price_basis_from_backtest_config(self) -> None:
+        """Manifest should carry the runnable raw price-basis contract unchanged."""
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
-        config = _make_backtest_config().model_copy(update={"portfolio_adjustment_mode": "total_return"})
+        raw_config = _make_backtest_config().model_dump(mode="json")
+        raw_config["price_basis"] = "raw"
+        config = BacktestConfig(**raw_config)
 
         # Act
         result = _build_clickhouse_manifest(
@@ -971,13 +955,15 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert result.portfolio_adjustment_mode == "total_return"
+        assert result.price_basis == PriceBasis.RAW
 
-    def test_manifest_legacy_adjustment_mode_is_unset_for_new_manifests(self) -> None:
-        """New manifests must not collapse strategy/portfolio provenance into the legacy field."""
+    def test_manifest_defaults_to_adjusted_price_basis(self) -> None:
+        """Manifest should default to the adjusted Phase 1 price basis."""
+        # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
         config = _make_backtest_config()
 
+        # Act
         result = _build_clickhouse_manifest(
             data_service=data_service,
             config=config,
@@ -986,8 +972,9 @@ class TestManifestBuilderFunction:
             feature_config=None,
         )
 
+        # Assert
         assert result is not None
-        assert result.adjustment_mode is None
+        assert result.price_basis == PriceBasis.ADJUSTED
 
     def test_manifest_symbols_match_source_symbols(self) -> None:
         """symbols list must exactly match the source_symbols argument."""

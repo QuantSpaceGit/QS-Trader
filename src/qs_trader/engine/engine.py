@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from rich.console import Console
@@ -105,14 +105,10 @@ def _build_clickhouse_manifest(
     # default when not explicitly declared in the source config.
     bars_table: str = source_cfg.get("bars_table", "as_us_equity_ohlc_daily")
 
-    # Record the actual run-level price bases rather than guessing from source
-    # metadata. The canonical ClickHouse source provides both split-adjusted
-    # and total-return-adjusted fields; the backtest configuration determines
-    # which series each service group consumed.
-    from qs_trader.services.reporting.manifest import AdjustmentMode, ClickHouseInputManifest
-
-    strategy_adjustment_mode = cast(AdjustmentMode, config.strategy_adjustment_mode)
-    portfolio_adjustment_mode = cast(AdjustmentMode, config.portfolio_adjustment_mode)
+    # Record the Phase 1 run-level price basis rather than inferring it from
+    # source metadata. Compatibility accessors for older reporting code live on
+    # the manifest itself until the later migration phases land.
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 
     # Feature/regime metadata — only populated when a FeatureService is active.
     features_database: str | None = None
@@ -152,8 +148,7 @@ def _build_clickhouse_manifest(
         symbols=tuple(source_symbols),
         start_date=start_date,
         end_date=end_date,
-        strategy_adjustment_mode=strategy_adjustment_mode,
-        portfolio_adjustment_mode=portfolio_adjustment_mode,
+        price_basis=config.price_basis,
         feature_set_version=feature_set_version,
         regime_version=regime_version,
         feature_columns=tuple(feature_columns) if feature_columns is not None else None,
@@ -544,8 +539,6 @@ class BacktestEngine:
 
             # Create StrategyService if we have any strategies
             if strategy_instances:
-                strategy_adjustment_mode = getattr(config, "strategy_adjustment_mode", "split_adjusted")
-
                 # Construct FeatureService if feature_config is present in backtest config
                 feature_service = None
                 feature_config = getattr(config, "feature_config", None)
@@ -585,14 +578,12 @@ class BacktestEngine:
                 strategy_service = StrategyService(
                     event_bus=event_bus,
                     strategies=strategy_instances,
-                    adjustment_mode=strategy_adjustment_mode,
                     feature_service=feature_service,
                     lifecycle_context=lifecycle_context,
                 )
                 logger.debug(
                     "backtest.engine.strategy_service_created",
                     strategy_count=len(strategy_instances),
-                    adjustment_mode=strategy_adjustment_mode,
                 )
             else:
                 logger.warning("backtest.engine.no_strategies_loaded")
@@ -636,10 +627,9 @@ class BacktestEngine:
         # Initialize PortfolioService (Phase 5)
         portfolio_service: PortfolioService | None = None
         try:
-            portfolio_adjustment_mode = getattr(config, "portfolio_adjustment_mode", "split_adjusted")
             portfolio_config = PortfolioConfig(
                 initial_cash=Decimal(str(config.initial_equity)),
-                adjustment_mode=portfolio_adjustment_mode,
+                price_basis=config.price_basis,
             )
             portfolio_service = PortfolioService(
                 config=portfolio_config,
@@ -649,7 +639,7 @@ class BacktestEngine:
             logger.debug(
                 "backtest.engine.portfolio_service_created",
                 initial_equity=config.initial_equity,
-                adjustment_mode=portfolio_adjustment_mode,
+                price_basis=str(config.price_basis),
             )
         except Exception as e:
             logger.error(
@@ -662,17 +652,16 @@ class BacktestEngine:
         # Initialize ExecutionService (Phase 5)
         execution_service: ExecutionService | None = None
         try:
-            portfolio_adjustment_mode = getattr(config, "portfolio_adjustment_mode", "split_adjusted")
             execution_config = ExecutionConfig()  # Uses system config defaults
             execution_service = ExecutionService(
                 config=execution_config,
                 event_bus=event_bus,
-                adjustment_mode=portfolio_adjustment_mode,
+                price_basis=config.price_basis,
             )
             execution_service.enable_lifecycle_tracking(lifecycle_context)
             logger.debug(
                 "backtest.engine.execution_service_created",
-                adjustment_mode=portfolio_adjustment_mode,
+                price_basis=str(config.price_basis),
             )
         except Exception as e:
             logger.error(

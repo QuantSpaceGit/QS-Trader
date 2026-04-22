@@ -10,6 +10,7 @@ from qs_trader.events.event_store import InMemoryEventStore
 from qs_trader.events.events import OrderEvent, PriceBarEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import FillLifecycleEvent, OrderLifecycleEvent
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.data.models import Bar
 from qs_trader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qs_trader.services.execution.models import Order, OrderSide, OrderState, OrderType
@@ -179,10 +180,10 @@ class TestExecutionServiceBasics:
 class TestExecutionServiceFills:
     """Test fill generation."""
 
-    def test_on_bar_event_uses_adjusted_open_for_split_adjusted_mode(self) -> None:
-        """split_adjusted fills should use the adjusted ClickHouse open when available."""
+    def test_on_bar_event_uses_adjusted_open_for_adjusted_basis(self) -> None:
+        """Adjusted-basis fills should use the adjusted ClickHouse open when available."""
         config = make_config(market_order_queue_bars=1, slippage_bps=Decimal("5"))
-        service = ExecutionService(config, adjustment_mode="split_adjusted")
+        service = ExecutionService(config, price_basis=PriceBasis.ADJUSTED)
 
         order = Order(
             symbol="AAPL",

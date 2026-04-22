@@ -49,7 +49,6 @@ class StrategyService:
         self,
         event_bus: EventBus,
         strategies: dict[str, "Strategy"],
-        adjustment_mode: str = "split_adjusted",
         feature_service: "FeatureService | None" = None,
         lifecycle_context: LifecycleRunContext | None = None,
     ) -> None:
@@ -59,14 +58,11 @@ class StrategyService:
         Args:
             event_bus: Event bus for publishing/subscribing to events
             strategies: Dict mapping strategy name to strategy instance
-            adjustment_mode: Adjustment mode for strategy indicators ('split_adjusted' or 'total_return').
-                Default: 'split_adjusted'
             feature_service: Optional FeatureService for accessing precomputed ClickHouse features.
                 If provided, strategies can call ctx.get_features(), ctx.get_indicators(), ctx.get_regime().
         """
         self._event_bus = event_bus
         self._strategies = strategies
-        self._adjustment_mode = adjustment_mode
         self._feature_service = feature_service
         self._contexts: dict[str, Context] = {}
         self._strategy_metrics: dict[str, dict] = {}
@@ -81,7 +77,6 @@ class StrategyService:
                 strategy_id=name,
                 event_bus=event_bus,
                 config=config_dict,
-                adjustment_mode=adjustment_mode,
                 feature_service=feature_service,
                 lifecycle_context=lifecycle_context,
             )
@@ -103,7 +98,6 @@ class StrategyService:
             "strategy.service.initialized",
             strategy_count=len(strategies),
             strategy_names=list(strategies.keys()),
-            adjustment_mode=adjustment_mode,
         )
 
     def setup(self) -> None:
@@ -280,6 +274,7 @@ class StrategyService:
             strategy = self._strategies[event.strategy_id]
             context = self._contexts[event.strategy_id]
             try:
+                context.record_fill(event)
                 strategy.on_position_filled(event, context)
             except Exception as e:
                 logger.error(
@@ -308,6 +303,7 @@ class StrategyService:
             # Route fill to strategy's on_position_filled handler
             context = self._contexts[name]
             try:
+                context.record_fill(event)
                 strategy.on_position_filled(event, context)
             except Exception as e:
                 logger.error(

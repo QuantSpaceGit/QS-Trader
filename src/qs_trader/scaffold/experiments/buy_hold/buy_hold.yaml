@@ -9,10 +9,8 @@ start_date: "2020-03-01"
 end_date: "2020-12-31"
 initial_equity: 100_000
 
-# Adjustment mode configuration (optional - defaults to split_adjusted)
-strategy_adjustment_mode: "split_adjusted" # Strategy uses open/high/low/close
-portfolio_adjustment_mode: "split_adjusted" # Portfolio processes dividends
-# Uncomment and set to "total_return" for smoothed prices and automatic dividend handling
+# Price basis configuration (Phase 1 public contract)
+price_basis: adjusted # Use adjusted prices throughout the backtest run
 
 # Replay speed for visualization
 # -1.0 = silent (no display), 0.0 = instant display, positive = delay per event

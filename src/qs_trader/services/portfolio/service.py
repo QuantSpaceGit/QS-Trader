@@ -30,6 +30,7 @@ from qs_trader.events.lifecycle_events import (
     PositionLifecycleEvent,
     TradeLifecycleEvent,
 )
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.portfolio.lot_tracker import LotTracker
 from qs_trader.services.portfolio.models import (
     Ledger,
@@ -94,7 +95,7 @@ class PortfolioService:
         self._start_datetime = config.start_datetime
         self._reporting_currency = config.reporting_currency
         self._initial_cash = config.initial_cash
-        self._adjustment_mode = config.adjustment_mode
+        self._price_basis = config.price_basis
 
         # Core state
         self._cash: Decimal = config.initial_cash
@@ -161,7 +162,7 @@ class PortfolioService:
             reporting_currency=self._reporting_currency,
             lot_method_long=config.lot_method_long,
             lot_method_short=config.lot_method_short,
-            adjustment_mode=self._adjustment_mode,
+            price_basis=str(self._price_basis),
             event_driven=self._event_bus is not None,
         )
 
@@ -1013,13 +1014,11 @@ class PortfolioService:
         """
         Process cash dividend.
 
-        Behavior depends on portfolio adjustment_mode configuration:
-                - If adjustment_mode='split_adjusted': Process dividend as a separate
-                    cash flow while valuation still uses the adjusted ClickHouse bar
-                    series.
-                - If adjustment_mode='total_return': Skip the separate cash flow for
-                    workflows that treat dividend effects as already accounted for in the
-                    reporting path.
+        Dividends are always tracked as explicit cash flows.
+
+        Price basis only controls which OHLC values are used for valuation.
+        Dividend accounting remains a ledger concern regardless of whether the
+        run uses raw or adjusted prices.
 
         For long positions: Cash increases (income)
         For short positions: Cash decreases (expense)
@@ -1042,56 +1041,6 @@ class PortfolioService:
             >>> portfolio.process_dividend("AAPL", datetime.now(), Decimal("0.82"))
             >>> # Skipped - dividend cash is intentionally suppressed
         """
-        # Skip dividend processing if using total-return adjusted prices
-        if self._adjustment_mode == "total_return":
-            # Log at DEBUG level - corporate action already displayed via CorporateActionEvent
-            logger.debug(
-                "portfolio_service.dividend_skipped",
-                symbol=symbol,
-                effective_date=effective_date.isoformat(),
-                amount_per_share=str(amount_per_share),
-                reason="Using total-return workflow - dividend cash is intentionally suppressed",
-                adjustment_mode=self._adjustment_mode,
-            )
-
-            # Emit rich-formatted impact event showing dividend is in price (no cash flow)
-            impact_logger = LoggerFactory.get_logger("qs_trader.events.corporate_action_impact")
-
-            # Check if we have any positions for this symbol
-            positions_for_symbol = [(key, pos) for key, pos in self._positions.items() if key[1] == symbol]
-
-            if positions_for_symbol:
-                # Show impact for each position - quantity but no cash flow
-                for key, position in positions_for_symbol:
-                    strategy_id, _ = key
-                    impact_logger.info(
-                        "event.display",
-                        event_type="corporate_action_impact",
-                        symbol=symbol,
-                        action_type="DIVIDEND",
-                        quantity=int(position.quantity),
-                        amount_per_share=float(amount_per_share),
-                        total_amount=0.0,  # No cash flow - dividend in price
-                        position_type="LONG" if position.quantity > 0 else "SHORT",
-                        strategy_id=strategy_id,
-                        note="No cash flow - total-return workflow suppresses separate dividend cash",
-                    )
-            else:
-                # No position - show zero impact
-                impact_logger.info(
-                    "event.display",
-                    event_type="corporate_action_impact",
-                    symbol=symbol,
-                    action_type="DIVIDEND",
-                    quantity=0,
-                    amount_per_share=float(amount_per_share),
-                    total_amount=0.0,
-                    position_type="NONE",
-                    strategy_id="none",
-                )
-
-            return
-
         # Validate amount
         if amount_per_share < 0:
             raise ValueError(f"Dividend amount cannot be negative, got {amount_per_share}")
@@ -1992,16 +1941,16 @@ class PortfolioService:
         Args:
             event: Price bar event with symbol and OHLCV data
         """
-        # Both supported workflows value positions from the adjusted ClickHouse
-        # close when it is available so portfolio marks stay aligned with
-        # strategy signals, fills, and Research-owned visualization.
-        price = event.close_adj if event.close_adj is not None else event.close
+        if self._price_basis == PriceBasis.ADJUSTED and event.close_adj is not None:
+            price = event.close_adj
+        else:
+            price = event.close
         self._latest_prices[event.symbol] = price
         logger.debug(
             "portfolio_service.price_updated",
             symbol=event.symbol,
             price=str(price),
-            adjustment_mode=self._adjustment_mode,
+            price_basis=str(self._price_basis),
         )
 
         # Mark to market and publish portfolio state (Phase 5)

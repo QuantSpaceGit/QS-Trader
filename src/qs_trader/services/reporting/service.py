@@ -21,6 +21,7 @@ import structlog
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, TradeEvent
+from qs_trader.events.price_basis import PriceBasis
 
 if TYPE_CHECKING:
     from qs_trader.libraries.strategies import Strategy
@@ -114,6 +115,15 @@ def _extract_strategy_effective_params(strategy: "Strategy") -> dict[str, Any]:
     }
 
 
+def _resolve_exported_price_basis(backtest_config: Any) -> str | None:
+    """Resolve the price-basis value exported in execution provenance."""
+    price_basis = getattr(backtest_config, "price_basis", None)
+    if price_basis is None:
+        return None
+
+    return str(PriceBasis.coerce(price_basis))
+
+
 def build_effective_execution_spec(
     *,
     backtest_config: Any,
@@ -161,7 +171,7 @@ def build_effective_execution_spec(
             getattr(getattr(backtest_config, "risk_policy", None), "config", {}) or {}
         )
 
-    return {
+    payload = {
         "schema_version": 1,
         "captured_from": "qs_trader.reporting",
         "strategies": strategies_payload,
@@ -169,9 +179,13 @@ def build_effective_execution_spec(
             "name": str(risk_policy_name) if risk_policy_name is not None else None,
             "effective_config": risk_policy_effective_config,
         },
-        "strategy_adjustment_mode": getattr(backtest_config, "strategy_adjustment_mode", None),
-        "portfolio_adjustment_mode": getattr(backtest_config, "portfolio_adjustment_mode", None),
     }
+
+    price_basis = _resolve_exported_price_basis(backtest_config)
+    if price_basis is not None:
+        payload["price_basis"] = price_basis
+
+    return payload
 
 
 @dataclass(frozen=True)

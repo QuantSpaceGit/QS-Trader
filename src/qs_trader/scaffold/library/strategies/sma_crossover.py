@@ -22,7 +22,7 @@ Key Features:
 from decimal import Decimal
 
 from qs_trader.events.events import PriceBarEvent
-from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.libraries.strategies import Context, PositionState, PriceBasis, Strategy, StrategyConfig
 from qs_trader.services.strategy.models import SignalIntention
 
 
@@ -63,8 +63,6 @@ class SMACrossover(Strategy[SMAConfig]):
             config: Strategy configuration with SMA periods
         """
         super().__init__(config)
-        # Track position direction: 'long', 'short', or None (flat)
-        self._positions: dict[str, str | None] = {}  # symbol -> position_direction
 
     def setup(self, context: Context) -> None:
         """
@@ -84,35 +82,6 @@ class SMACrossover(Strategy[SMAConfig]):
         """
         pass  # No cleanup needed
 
-    def on_position_filled(self, event, context: Context) -> None:
-        """
-        Track actual position changes from fills.
-
-        This ensures strategy state stays in sync with actual portfolio positions.
-        Called whenever a position is opened, closed, or modified.
-
-        Args:
-            event: FillEvent with symbol, side, filled_quantity, fill_price, timestamp
-            context: Strategy execution context
-        """
-        symbol = event.symbol
-        side = event.side  # "buy" or "sell"
-        current_position = self._positions.get(symbol, None)
-
-        # Deduce new position based on current state and fill side
-        if side == "buy":
-            # BUY can mean: close short OR open long
-            if current_position == "short":
-                self._positions[symbol] = None  # Closed short position
-            else:
-                self._positions[symbol] = "long"  # Opened long position
-        elif side == "sell":
-            # SELL can mean: close long OR open short
-            if current_position == "long":
-                self._positions[symbol] = None  # Closed long position
-            else:
-                self._positions[symbol] = "short"  # Opened short position
-
     def on_bar(self, event: PriceBarEvent, context: Context) -> None:
         """
         Process bar and generate signals based on SMA crossover.
@@ -127,7 +96,7 @@ class SMACrossover(Strategy[SMAConfig]):
         # Need slow_period + 1 bars to have enough history
         # Note: We calculate indicators at bar t using ONLY bars t-n through t-1 (excluding current bar t)
         # This prevents look-ahead bias and matches industry standard (Excel, TA-Lib, etc.)
-        bars = context.get_bars(symbol, n=self.config.slow_period + 1)
+        bars = context.get_bars(symbol, n=self.config.slow_period + 1, basis=PriceBasis.ADJUSTED)
 
         # Wait until we have enough data
         if bars is None or len(bars) < self.config.slow_period + 1:
@@ -182,17 +151,16 @@ class SMACrossover(Strategy[SMAConfig]):
         )
 
         # Get current price for signal
-        current_price = context.get_price(symbol)
+        current_price = context.get_price(symbol, basis=PriceBasis.ADJUSTED)
         if current_price is None:
             return
 
-        # Check current position state
-        current_position = self._positions.get(symbol, None)  # None = flat, 'long', 'short'
+        position_state = context.get_position_state(symbol)
 
         # Generate signals on crossovers - LONG ONLY STRATEGY
         if golden_cross:
             # Fast SMA crossed above slow SMA - go long (if not already long)
-            if current_position != "long":
+            if position_state != PositionState.OPEN_LONG:
                 # Open long position
                 context.emit_signal(
                     timestamp=event.timestamp,
@@ -213,7 +181,7 @@ class SMACrossover(Strategy[SMAConfig]):
 
         elif death_cross:
             # Fast SMA crossed below slow SMA - close long if open
-            if current_position == "long":
+            if position_state == PositionState.OPEN_LONG:
                 # Close long position
                 context.emit_signal(
                     timestamp=event.timestamp,

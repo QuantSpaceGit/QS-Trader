@@ -52,6 +52,7 @@ from qs_trader.events.lifecycle_events import (
     StrategyDecisionEvent,
     TradeLifecycleEvent,
 )
+from qs_trader.events.price_basis import BarView, PriceBasis
 
 __all__ = [
     # Base classes
@@ -60,6 +61,9 @@ __all__ = [
     "LifecycleBaseEvent",
     "LifecycleValidatedEvent",
     "ControlEvent",
+    # Price basis types
+    "PriceBasis",
+    "BarView",
     # Market Data
     "PriceBarEvent",
     "CorporateActionEvent",

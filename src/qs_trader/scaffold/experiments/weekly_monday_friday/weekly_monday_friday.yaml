@@ -11,13 +11,8 @@ end_date: "2020-12-31"
 # Starting capital in dollars
 initial_equity: 100000
 
-# Price adjustment mode for strategy calculations (what prices the strategy sees)
-# Options: "split_adjusted" (adjust for splits only) | "total_return" (adjust for splits + dividends)
-strategy_adjustment_mode: "split_adjusted"
-
-# Price adjustment mode for portfolio accounting (how portfolio processes corporate actions)
-# Options: "split_adjusted" (process dividends as cash) | "total_return" (skip dividends, use adjusted prices)
-portfolio_adjustment_mode: "split_adjusted"
+# Price basis configuration (Phase 1 public contract)
+price_basis: adjusted
 
 # Event display speed for visualization during backtest
 # -1.0 = silent (no display), 0.0 = instant display, positive value = delay in seconds per event

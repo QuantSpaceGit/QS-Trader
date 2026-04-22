@@ -6,8 +6,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import PriceBarEvent
+from qs_trader.events.events import FillEvent, PriceBarEvent
 from qs_trader.libraries.strategies import Context, Strategy, StrategyConfig
+from qs_trader.services.strategy.models import PositionState
 from qs_trader.services.strategy.service import StrategyService
 
 
@@ -1037,3 +1038,34 @@ def test_metrics_independent_across_strategies(event_bus):
     # Assert
     assert metrics["strat1"]["bars_processed"] == 2  # Receives all
     assert metrics["strat2"]["bars_processed"] == 1  # Only AAPL
+
+
+def test_on_fill_updates_context_position_state_before_strategy_callback(event_bus):
+    """Fill routing keeps Context position state synchronized with strategy callbacks."""
+
+    class PositionTrackingStrategy(MockStrategy):
+        def __init__(self, config: MockStrategyConfig):
+            super().__init__(config)
+            self.states_seen: list[PositionState] = []
+
+        def on_position_filled(self, event: FillEvent, context: Context) -> None:
+            self.states_seen.append(context.get_position_state(event.symbol))
+
+    strategy = PositionTrackingStrategy(MockStrategyConfig())
+    service = StrategyService(event_bus=event_bus, strategies={"mock": strategy})
+
+    fill = FillEvent(
+        fill_id="f1e2d3c4-b5a6-7890-1234-567890abcdef",
+        source_order_id="order-123",
+        timestamp="2024-01-01T10:00:00Z",
+        symbol="AAPL",
+        side="buy",
+        filled_quantity=Decimal("100"),
+        fill_price=Decimal("150.00"),
+        strategy_id="mock",
+    )
+
+    service.on_fill(fill)
+
+    assert strategy.states_seen == [PositionState.OPEN_LONG]
+    assert service._contexts["mock"].get_position_state("AAPL") == PositionState.OPEN_LONG

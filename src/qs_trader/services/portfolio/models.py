@@ -16,6 +16,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from qs_trader.events.price_basis import PriceBasis
+
 
 class LotSide(str, Enum):
     """Side of lot position."""
@@ -347,12 +349,12 @@ class PortfolioConfig(BaseModel):
         lot_method_short: Lot matching for shorts ("lifo" only in Phase 2)
         keep_position_history: Keep flat positions for reporting
         max_ledger_entries: Max ledger size (0 = unlimited)
-        adjustment_mode: Adjustment mode for valuation and mark-to-market.
-            Both supported workflows prefer the adjusted ClickHouse close when
-            it is available.
-            - 'split_adjusted' = process dividend cash-ins separately.
-            - 'total_return' = skip separate dividend cash-ins.
-            Default: 'split_adjusted'
+        price_basis: Price basis for valuation and mark-to-market.
+            - 'raw' = use base OHLC values from the bar event.
+            - 'adjusted' = prefer adjusted ClickHouse OHLC values when available.
+            Dividend cash flows remain a ledger concern and are tracked
+            independently of basis.
+            Default: 'adjusted'
 
     Example:
         >>> config = PortfolioConfig(
@@ -394,17 +396,14 @@ class PortfolioConfig(BaseModel):
     # Ledger settings
     max_ledger_entries: int = 0  # 0 = unlimited
 
-    # Adjustment mode selection (Group 2 configuration)
-    adjustment_mode: str = "split_adjusted"  # "split_adjusted" or "total_return"
+    # Price basis selection
+    price_basis: PriceBasis = PriceBasis.ADJUSTED
 
-    @field_validator("adjustment_mode")
+    @field_validator("price_basis", mode="before")
     @classmethod
-    def validate_adjustment_mode(cls, v: str) -> str:
-        """Validate adjustment mode is supported."""
-        allowed = {"split_adjusted", "total_return"}
-        if v not in allowed:
-            raise ValueError(f"adjustment_mode must be one of {allowed}, got: {v}")
-        return v
+    def validate_price_basis(cls, v: PriceBasis | str) -> PriceBasis:
+        """Validate price basis is supported."""
+        return PriceBasis.coerce(v)
 
     @field_validator("initial_cash")
     @classmethod

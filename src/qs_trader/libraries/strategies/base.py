@@ -148,7 +148,7 @@ class Strategy(ABC, Generic[TConfig]):
     Lifecycle:
     1. __init__(config) - Initialize with configuration
     2. setup() - Optional setup phase (connections, validation, etc.)
-    3. on_bar() - Process bars and generate signals (self-manages warmup via get_bars())
+    3. on_bar() - Process bars and generate signals (self-manages warmup via explicit-basis context accessors)
     4. on_position_filled() - Optional: track position changes
     5. teardown() - Optional cleanup phase (close connections, save state, etc.)
 
@@ -165,11 +165,13 @@ class Strategy(ABC, Generic[TConfig]):
         class SMACrossoverStrategy(Strategy[SMACrossoverConfig]):
             def __init__(self, config: SMACrossoverConfig):
                 super().__init__(config)
-                self.positions = {}  # Optional: track positions if needed
 
             def on_bar(self, event: PriceBarEvent, context: Context) -> None:
-                # Get bars for indicator calculation
-                bars = context.get_bars(event.symbol, n=self.config.slow_period)
+                bars = context.get_bars(
+                    event.symbol,
+                    self.config.slow_period,
+                    basis=PriceBasis.ADJUSTED,
+                )
 
                 # Self-managed warmup: skip if insufficient data
                 if bars is None or len(bars) < self.config.slow_period:
@@ -179,17 +181,17 @@ class Strategy(ABC, Generic[TConfig]):
                 fast_sma = sum(b.close for b in bars[-self.config.fast_period:]) / self.config.fast_period
                 slow_sma = sum(b.close for b in bars) / self.config.slow_period
 
+                position_state = context.get_position_state(event.symbol)
+
                 # Trading logic
-                if fast_sma > slow_sma:
+                if fast_sma > slow_sma and position_state != PositionState.OPEN_LONG:
                     context.emit_signal(
+                        timestamp=event.timestamp,
                         symbol=event.symbol,
                         intention="OPEN_LONG",
-                        confidence=0.8
+                        price=context.get_price(event.symbol, basis=PriceBasis.ADJUSTED),
+                        confidence=0.8,
                     )
-
-            def on_position_filled(self, event: PositionFilledEvent, context: Context) -> None:
-                # Optional: track position changes
-                self.positions[event.symbol] = event.quantity
         ```
 
     Key Design:
@@ -197,8 +199,8 @@ class Strategy(ABC, Generic[TConfig]):
         - Config class defines PARAMETERS: "fast=10, slow=20"
         - Generic typing provides type-safe config access
         - Same strategy, different configs = parameter optimization
-        - Warmup self-managed: check get_bars() returns enough data
-        - Position tracking optional: use on_position_filled() if needed
+        - Warmup self-managed: check explicit-basis accessors return enough data
+        - Position tracking optional: use context.get_position_state() or on_position_filled() if needed
     """
 
     # Required instance variable (must be set in __init__)
@@ -306,10 +308,11 @@ class Strategy(ABC, Generic[TConfig]):
         current positions.
 
         Args:
-            event: PositionFilledEvent containing:
-                  - event.symbol: Symbol ticker
-                  - event.quantity: New position quantity (positive=long, negative=short, 0=flat)
-                  - event.price: Fill price
+            event: FillEvent containing:
+                - event.symbol: Symbol ticker
+                - event.side: Fill direction ("buy" or "sell")
+                - event.filled_quantity: Executed quantity
+                - event.fill_price: Fill price
                   - event.timestamp: Fill timestamp
             context: Strategy context (same as on_bar)
 
@@ -318,22 +321,22 @@ class Strategy(ABC, Generic[TConfig]):
                 self.config = config
                 self.positions = {}  # Track positions
 
-            def on_position_filled(self, event: PositionFilledEvent, context: Context):
+            def on_position_filled(self, event: FillEvent, context: Context):
                 # Update position tracking
-                self.positions[event.symbol] = event.quantity
+                self.positions[event.symbol] = context.get_position_state(event.symbol)
 
                 # Log position change
-                if event.quantity == 0:
+                if self.positions[event.symbol] == PositionState.FLAT:
                     print(f"Closed position in {event.symbol}")
-                elif event.quantity > 0:
-                    print(f"Long {event.quantity} shares of {event.symbol}")
+                elif self.positions[event.symbol] == PositionState.OPEN_LONG:
+                    print(f"Long exposure in {event.symbol}")
                 else:
-                    print(f"Short {abs(event.quantity)} shares of {event.symbol}")
+                    print(f"Short exposure in {event.symbol}")
 
             def on_bar(self, event: PriceBarEvent, context: Context):
                 # Use position state in trading logic
-                current_position = self.positions.get(event.symbol, 0)
-                if current_position > 0:
+                current_position = self.positions.get(event.symbol, PositionState.FLAT)
+                if current_position == PositionState.OPEN_LONG:
                     # Already long, maybe scale out or hold
                     pass
 
@@ -359,9 +362,10 @@ class Strategy(ABC, Generic[TConfig]):
 
             context: Strategy context providing:
                   - context.emit_signal(symbol, direction, confidence)
-                  - context.get_position(symbol) - current position
-                  - context.get_bars(symbol, n) - historical bars
-                  - context.get_price(symbol) - latest price
+                - context.get_position_state(symbol) - current position state
+                - context.get_bars(symbol, n, basis) - historical bars
+                - context.get_price_series(symbol, n, basis, offset=0) - exact price windows
+                - context.get_price(symbol, basis) - latest price
 
         Flow:
             1. Update indicators with new bar

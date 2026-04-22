@@ -23,6 +23,7 @@ from qs_trader.engine.config import (
     StrategyConfigItem,
     load_backtest_config,
 )
+from qs_trader.events.price_basis import PriceBasis
 
 # ============================================================================
 # Fixtures
@@ -275,6 +276,28 @@ class TestBacktestConfig:
         assert len(config.data.sources) == 1
         assert len(config.strategies) == 1
         assert config.risk_policy.name == "naive"
+        assert config.price_basis == PriceBasis.ADJUSTED
+
+    def test_legacy_adjustment_mode_inputs_are_rejected(self, valid_backtest_config: dict[str, Any]) -> None:
+        """Legacy adjustment-mode inputs should fail fast at config construction time."""
+        config_dict = valid_backtest_config.copy()
+        config_dict["strategy_adjustment_mode"] = "total_return"
+        config_dict["portfolio_adjustment_mode"] = "total_return"
+
+        with pytest.raises(ValidationError) as exc_info:
+            BacktestConfig(**config_dict)
+
+        assert "Legacy adjustment-mode fields are no longer supported" in str(exc_info.value)
+        assert "price_basis" in str(exc_info.value)
+
+    def test_raw_price_basis_is_accepted(self, valid_backtest_config: dict[str, Any]) -> None:
+        """Raw is now a supported runnable backtest price-basis contract."""
+        config_dict = valid_backtest_config.copy()
+        config_dict["price_basis"] = "raw"
+
+        config = BacktestConfig(**config_dict)
+
+        assert config.price_basis == PriceBasis.RAW
 
     def test_all_symbols_property(self, valid_backtest_config: dict[str, Any]) -> None:
         """Test all_symbols property returns symbols from single source."""

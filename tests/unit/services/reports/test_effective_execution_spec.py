@@ -6,6 +6,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.reporting.service import build_effective_execution_spec
 
 
@@ -37,8 +38,7 @@ def test_build_effective_execution_spec_captures_resolved_strategy_and_risk_conf
             )
         ],
         risk_policy=SimpleNamespace(name="naive", config={}),
-        strategy_adjustment_mode="split_adjusted",
-        portfolio_adjustment_mode="split_adjusted",
+        price_basis=PriceBasis.ADJUSTED,
     )
     strategy_instances = {
         "sma_crossover": SimpleNamespace(
@@ -113,8 +113,7 @@ def test_build_effective_execution_spec_captures_resolved_strategy_and_risk_conf
                 "cash_buffer_pct": 0.02,
             },
         },
-        "strategy_adjustment_mode": "split_adjusted",
-        "portfolio_adjustment_mode": "split_adjusted",
+        "price_basis": "adjusted",
     }
 
 
@@ -130,8 +129,7 @@ def test_build_effective_execution_spec_preserves_resolved_defaults_when_submiss
             )
         ],
         risk_policy=SimpleNamespace(name="naive", config={}),
-        strategy_adjustment_mode="split_adjusted",
-        portfolio_adjustment_mode="split_adjusted",
+        price_basis="adjusted",
     )
     strategy_instances = {
         "buy_and_hold": SimpleNamespace(
@@ -163,3 +161,25 @@ def test_build_effective_execution_spec_preserves_resolved_defaults_when_submiss
             "data_sources": ["qs-datamaster-equity-1d"],
         }
     ]
+    assert payload["price_basis"] == "adjusted"
+    assert "strategy_adjustment_mode" not in payload
+    assert "portfolio_adjustment_mode" not in payload
+
+
+def test_build_effective_execution_spec_exports_explicit_raw_price_basis_without_legacy_keys() -> None:
+    """The provenance payload should export the explicit runnable price basis only."""
+    backtest_config = SimpleNamespace(
+        strategies=[],
+        risk_policy=SimpleNamespace(name="naive", config={}),
+        price_basis="raw",
+    )
+
+    payload = build_effective_execution_spec(
+        backtest_config=backtest_config,
+        strategy_instances={},
+        manager_service=None,
+    )
+
+    assert payload["price_basis"] == "raw"
+    assert "strategy_adjustment_mode" not in payload
+    assert "portfolio_adjustment_mode" not in payload

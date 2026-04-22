@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from qs_trader.events.price_basis import PriceBasis
 
 
 class DataSourceConfig(BaseModel):
@@ -193,39 +195,14 @@ class BacktestConfig(BaseModel):
     - Data sources with per-source universes
     - Strategy configurations (which strategies to run)
     - Risk policy (Portfolio Manager level)
-    - Price field selection (strategy vs portfolio groups)
+    - Run-level price basis
 
     Service configurations (execution, portfolio, logging) come from SystemConfig (system.yaml).
 
-    Price Adjustment Mode Architecture:
-    Two independent groups use consistent adjustment modes for ALL price fields (OHLC).
-
-    Group 1 - Strategy & Indicators:
-        - Uses strategy_adjustment_mode (default: 'split_adjusted')
-        - Strategies can use any OHLC field (open, high, low, close, vwap)
-        - All fields come from same adjustment mode for internal consistency
-                - 'split_adjusted': Uses the adjusted ClickHouse OHLC series
-                    (open_adj/high_adj/low_adj/close_adj) for the canonical backtest path.
-                - 'total_return': Uses the same adjusted OHLC series for price access;
-                    the distinction is reserved for downstream dividend-accounting policy.
-
-    Group 2 - Manager/Execution/Portfolio/Reporting:
-        - Uses portfolio_adjustment_mode (default: 'split_adjusted')
-        - Ensures consistent price basis for sizing, fills, valuation, metrics
-        - Manager: Uses signal prices (from strategy's adjustment mode)
-        - Execution: Can use any field (e.g., next open for realistic fills)
-        - Portfolio: Can use any field for valuation (typically close)
-                - If 'split_adjusted': Process dividend cash-ins as separate cash flows
-                    while still valuing from the adjusted ClickHouse series.
-                - If 'total_return': Skip separate dividend cash-ins for workflows that
-                    treat dividend effects as already accounted for downstream.
-
-    Quantitative Finance Rationale:
-    - Adjustment mode consistency within each group prevents mixed price bases
-    - Manager sizing must use same adjustment mode as portfolio (avoids over-leveraging)
-    - Execution fills must match portfolio accounting (realistic backtest integrity)
-    - Dividend accounting must match adjustment mode (prevents double-counting)
-    - Strategies can use open/high/low/close freely within their adjustment mode
+    Price basis contract:
+        - `price_basis` is the single run-level contract and defaults to `adjusted`.
+        - Both `raw` and `adjusted` are valid runtime values for strategies, execution,
+            portfolio accounting, and reporting.
 
     Example YAML:
         ```yaml
@@ -235,13 +212,7 @@ class BacktestConfig(BaseModel):
         initial_equity: 100000
         replay_speed: 0.0  # Full speed (default). Use 1.0 for 1 sec/bar
 
-        # Adjustment mode selection (optional, defaults shown)
-        strategy_adjustment_mode: split_adjusted      # Strategy uses adjusted ClickHouse OHLC
-        portfolio_adjustment_mode: split_adjusted     # Portfolio/Manager/Execution use adjusted ClickHouse OHLC
-
-        # Alternative: suppress separate dividend cash-ins downstream
-        # strategy_adjustment_mode: total_return   # Same adjusted OHLC basis for strategy evaluation
-        # portfolio_adjustment_mode: total_return  # Same adjusted OHLC basis, skip dividend cash-ins
+        price_basis: adjusted
 
         data:
           sources:
@@ -293,20 +264,10 @@ class BacktestConfig(BaseModel):
     strategies: list[StrategyConfigItem] = Field(..., description="Strategy configurations")
     risk_policy: RiskPolicyConfig = Field(..., description="Risk policy (Portfolio Manager level)")
 
-    # Adjustment mode configuration (2-group architecture)
-    strategy_adjustment_mode: str = Field(
-        default="split_adjusted",
-        description="Adjustment mode for Group 1 (Strategy & Indicators). "
-        "Strategies can use any OHLC field (open, high, low, close) from this mode. "
-        "Valid: 'split_adjusted' (canonical adjusted ClickHouse OHLC series) or "
-        "'total_return' (same adjusted OHLC basis, reserved for total-return workflows).",
-    )
-    portfolio_adjustment_mode: str = Field(
-        default="split_adjusted",
-        description="Adjustment mode for Group 2 (Manager/Execution/Portfolio/Reporting). "
-        "Services can use any OHLC field from this mode (e.g., execution uses next open). "
-        "Valid: 'split_adjusted' (use adjusted OHLC and process dividends separately) or "
-        "'total_return' (use adjusted OHLC and skip separate dividend cash-ins).",
+    price_basis: PriceBasis = Field(
+        default=PriceBasis.ADJUSTED,
+        description="Single run-level price basis contract for strategies, execution, portfolio, and reporting. "
+        "Supported values: 'raw' and 'adjusted'.",
     )
 
     # Reporting (optional)
@@ -358,6 +319,27 @@ class BacktestConfig(BaseModel):
         description="Role of this run within an IS/OOS split: 'in_sample' or 'out_of_sample'. "
         "NULL when no split is applied. Persisted to the operational runs table.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_adjustment_fields(cls, data: Any) -> Any:
+        """Fail fast on the removed adjustment-mode config contract."""
+        if not isinstance(data, dict):
+            return data
+
+        legacy_keys = [
+            key
+            for key in ("strategy_adjustment_mode", "portfolio_adjustment_mode", "adjustment_mode")
+            if data.get(key) is not None
+        ]
+        if legacy_keys:
+            joined = ", ".join(legacy_keys)
+            raise ValueError(
+                f"Legacy adjustment-mode fields are no longer supported ({joined}). "
+                "Use 'price_basis' with 'raw' or 'adjusted'."
+            )
+
+        return data
 
     @property
     def all_symbols(self) -> set[str]:
@@ -422,30 +404,11 @@ class BacktestConfig(BaseModel):
             )
         return v
 
-    @field_validator("strategy_adjustment_mode")
+    @field_validator("price_basis", mode="before")
     @classmethod
-    def validate_strategy_adjustment_mode(cls, v: str) -> str:
-        """Validate strategy_adjustment_mode is valid."""
-        valid_modes = {"split_adjusted", "total_return"}
-        if v not in valid_modes:
-            raise ValueError(
-                f"strategy_adjustment_mode must be one of {valid_modes}, got '{v}'. "
-                "Use 'split_adjusted' for the canonical adjusted ClickHouse OHLC series or "
-                "'total_return' for the same adjusted OHLC basis in total-return workflows."
-            )
-        return v
-
-    @field_validator("portfolio_adjustment_mode")
-    @classmethod
-    def validate_portfolio_adjustment_mode(cls, v: str) -> str:
-        """Validate portfolio_adjustment_mode is valid."""
-        valid_modes = {"split_adjusted", "total_return"}
-        if v not in valid_modes:
-            raise ValueError(
-                f"portfolio_adjustment_mode must be one of {valid_modes}, got '{v}'. "
-                "Use 'split_adjusted' (process dividends) or 'total_return' (skip dividends)."
-            )
-        return v
+    def validate_price_basis(cls, v: PriceBasis | str) -> PriceBasis:
+        """Validate the single run-level price-basis contract."""
+        return PriceBasis.coerce(v)
 
     @field_validator("strategies")
     @classmethod

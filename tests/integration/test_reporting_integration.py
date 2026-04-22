@@ -27,6 +27,7 @@ from qs_trader.events.events import (
     SignalEvent,
     TradeEvent,
 )
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.data.adapters.builtin.clickhouse import ClickhouseBar
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
@@ -131,8 +132,7 @@ def _integration_manifest(
         symbols=("AAPL",),
         start_date=date(2024, 1, 2),
         end_date=date(2024, 1, 2),
-        strategy_adjustment_mode="split_adjusted",
-        portfolio_adjustment_mode="split_adjusted",
+        price_basis=PriceBasis.ADJUSTED,
     )
 
 

@@ -75,6 +75,18 @@ class SignalIntention(str, Enum):
     CLOSE_SHORT = "CLOSE_SHORT"
 
 
+class PositionState(str, Enum):
+    """Declarative strategy-side view of lifecycle-backed position state."""
+
+    FLAT = "flat"
+    PENDING_OPEN_LONG = "pending_open_long"
+    OPEN_LONG = "open_long"
+    PENDING_CLOSE_LONG = "pending_close_long"
+    PENDING_OPEN_SHORT = "pending_open_short"
+    OPEN_SHORT = "open_short"
+    PENDING_CLOSE_SHORT = "pending_close_short"
+
+
 class Signal(BaseModel):
     """
     CONTRACT: Trading signal with confidence level.
@@ -238,5 +250,6 @@ __all__ = [
     "CONTRACT_VERSION",
     "Signal",
     "SignalIntention",
+    "PositionState",
     "create_signal",
 ]

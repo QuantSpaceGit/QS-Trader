@@ -10,6 +10,7 @@ from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import FillEvent, OrderEvent, PriceBarEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import FillLifecycleEvent, OrderLifecycleEvent
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.data.models import Bar
 from qs_trader.services.execution.commission import CommissionCalculator
 from qs_trader.services.execution.config import ExecutionConfig
@@ -60,7 +61,7 @@ class ExecutionService:
         self,
         config: ExecutionConfig,
         event_bus: Optional[EventBus] = None,
-        adjustment_mode: str = "split_adjusted",
+        price_basis: PriceBasis = PriceBasis.ADJUSTED,
         lifecycle_context: LifecycleRunContext | None = None,
     ) -> None:
         """Initialize execution service.
@@ -68,17 +69,15 @@ class ExecutionService:
         Args:
             config: Execution configuration
             event_bus: Optional event bus for Phase 5 event-driven mode
-            adjustment_mode: Adjustment mode to use for fills ('split_adjusted' or 'total_return').
-                Both supported workflows consume the adjusted ClickHouse OHLC
-                series when it is available so fills stay aligned with
-                portfolio accounting and Research-owned visualization.
-                Default: 'split_adjusted'
+            price_basis: Price basis to use for fills.
+                - 'raw' uses the base OHLC values from the bar event.
+                - 'adjusted' prefers adjusted ClickHouse OHLC values when available.
         """
         self.config = config
         self.fill_policy = FillPolicy(config)
         self.commission_calculator = CommissionCalculator(config.commission)
         self._event_bus = event_bus
-        self._adjustment_mode = adjustment_mode
+        self._price_basis = price_basis
         self._lifecycle_context: LifecycleRunContext | None = None
 
         # Order tracking
@@ -577,13 +576,16 @@ class ExecutionService:
 
         trade_datetime = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
 
-        # Both supported workflows fill orders from the adjusted ClickHouse bar
-        # series when available. Fall back to base OHLC only for adapters that
-        # do not populate the adjusted fields.
-        open_price = float(event.open_adj if event.open_adj is not None else event.open)
-        high_price = float(event.high_adj if event.high_adj is not None else event.high)
-        low_price = float(event.low_adj if event.low_adj is not None else event.low)
-        close_price = float(event.close_adj if event.close_adj is not None else event.close)
+        if self._price_basis == PriceBasis.ADJUSTED:
+            open_price = float(event.open_adj if event.open_adj is not None else event.open)
+            high_price = float(event.high_adj if event.high_adj is not None else event.high)
+            low_price = float(event.low_adj if event.low_adj is not None else event.low)
+            close_price = float(event.close_adj if event.close_adj is not None else event.close)
+        else:
+            open_price = float(event.open)
+            high_price = float(event.high)
+            low_price = float(event.low)
+            close_price = float(event.close)
 
         bar = Bar(
             trade_datetime=trade_datetime,

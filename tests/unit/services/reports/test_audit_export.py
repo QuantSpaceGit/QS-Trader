@@ -21,9 +21,10 @@ from qs_trader.events.events import (
     SignalEvent,
     TradeEvent,
 )
+from qs_trader.events.price_basis import PriceBasis
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.audit_export import AuditExportBuilder, ResolvedAuditBar
-from qs_trader.services.reporting.manifest import AdjustmentMode, ClickHouseInputManifest, UnsafeManifestIdentifierError
+from qs_trader.services.reporting.manifest import ClickHouseInputManifest, UnsafeManifestIdentifierError
 
 
 def _minimal_metrics() -> FullMetrics:
@@ -79,8 +80,7 @@ def _minimal_metrics() -> FullMetrics:
 
 def _minimal_manifest(
     *,
-    strategy_mode: AdjustmentMode = "split_adjusted",
-    portfolio_mode: AdjustmentMode = "split_adjusted",
+    price_basis: PriceBasis = PriceBasis.ADJUSTED,
 ) -> ClickHouseInputManifest:
     return ClickHouseInputManifest(
         source_name="qs-datamaster-equity-1d",
@@ -89,8 +89,7 @@ def _minimal_manifest(
         symbols=("AAPL",),
         start_date=date(2024, 1, 2),
         end_date=date(2024, 1, 3),
-        strategy_adjustment_mode=strategy_mode,
-        portfolio_adjustment_mode=portfolio_mode,
+        price_basis=price_basis,
     )
 
 
@@ -228,8 +227,8 @@ def _build_event_store() -> InMemoryEventStore:
     return store
 
 
-def test_resolve_ohlcv_uses_portfolio_adjustment_mode_contract() -> None:
-    """OHLC export should follow the manifest's portfolio basis, not the strategy basis."""
+def test_resolve_ohlcv_uses_manifest_price_basis_contract() -> None:
+    """OHLC export should follow the manifest's single run-level price basis."""
     price_event = PriceBarEvent(
         symbol="AAPL",
         timestamp="2024-01-02T00:00:00Z",
@@ -246,17 +245,17 @@ def test_resolve_ohlcv_uses_portfolio_adjustment_mode_contract() -> None:
         source="unit_test",
     )
 
-    split_manifest = _minimal_manifest(strategy_mode="total_return", portfolio_mode="split_adjusted")
-    total_return_manifest = _minimal_manifest(strategy_mode="split_adjusted", portfolio_mode="total_return")
+    raw_manifest = _minimal_manifest(price_basis=PriceBasis.RAW)
+    adjusted_manifest = _minimal_manifest(price_basis=PriceBasis.ADJUSTED)
 
-    assert AuditExportBuilder.resolve_ohlcv_from_bar_event(price_event, split_manifest) == (
+    assert AuditExportBuilder.resolve_ohlcv_from_bar_event(price_event, raw_manifest) == (
         100.0,
         101.0,
         99.0,
         100.5,
         1234,
     )
-    assert AuditExportBuilder.resolve_ohlcv_from_bar_event(price_event, total_return_manifest) == (
+    assert AuditExportBuilder.resolve_ohlcv_from_bar_event(price_event, adjusted_manifest) == (
         10.0,
         10.1,
         9.9,
@@ -337,7 +336,8 @@ def test_build_writes_symbol_and_summary_csvs(tmp_path: Path) -> None:
         assert "created_at" not in summary
         assert summary["universe"] == "AAPL"
         assert summary["bars_table"] == "as_us_equity_ohlc_daily"
-        assert summary["price_basis_mode"] == "split_adjusted"
+        assert summary["price_basis"] == "adjusted"
+        assert "price_basis_mode" not in summary
         assert summary["config__strategies__0__config__fast_period"] == "10"
         assert summary["exec_spec__risk_policy__name"] == "naive"
 

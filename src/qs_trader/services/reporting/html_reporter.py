@@ -621,8 +621,7 @@ class HTMLReportGenerator:
                             f'<div class="info-item"><span class="info-label">Risk-Free Rate</span><span class="info-value">{risk_free:.2%}</span></div>'
                         )
 
-            strategy_adjustment_mode = None
-            portfolio_adjustment_mode = None
+            price_basis = None
             risk_policy: dict[str, Any] | str | None = None
 
             if effective_execution_spec:
@@ -636,27 +635,18 @@ class HTMLReportGenerator:
                         f'<div class="info-item"><span class="info-label">Runtime Capture</span><span class="info-value">{captured_from}</span></div>'
                     )
 
-                strategy_adjustment_mode = effective_execution_spec.get("strategy_adjustment_mode")
-                portfolio_adjustment_mode = effective_execution_spec.get("portfolio_adjustment_mode")
+                price_basis = effective_execution_spec.get("price_basis")
                 risk_policy = effective_execution_spec.get("risk_policy")
 
-            if strategy_adjustment_mode is None and backtest_config:
-                strategy_adjustment_mode = backtest_config.get("strategy_adjustment_mode")
-
-            if portfolio_adjustment_mode is None and backtest_config:
-                portfolio_adjustment_mode = backtest_config.get("portfolio_adjustment_mode")
+            if price_basis is None and backtest_config:
+                price_basis = backtest_config.get("price_basis")
 
             if risk_policy is None and backtest_config:
                 risk_policy = backtest_config.get("risk_policy")
 
-            if strategy_adjustment_mode:
+            if price_basis:
                 info_items_config.append(
-                    f'<div class="info-item"><span class="info-label">Strategy Adjustment</span><span class="info-value">{strategy_adjustment_mode}</span></div>'
-                )
-
-            if portfolio_adjustment_mode:
-                info_items_config.append(
-                    f'<div class="info-item"><span class="info-label">Portfolio Adjustment</span><span class="info-value">{portfolio_adjustment_mode}</span></div>'
+                    f'<div class="info-item"><span class="info-label">Price Basis</span><span class="info-value">{price_basis}</span></div>'
                 )
 
             if risk_policy:

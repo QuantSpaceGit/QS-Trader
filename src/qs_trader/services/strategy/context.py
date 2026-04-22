@@ -24,10 +24,11 @@ from typing import TYPE_CHECKING, Any, Optional
 import structlog
 
 from qs_trader.events.event_bus import IEventBus
-from qs_trader.events.events import IndicatorEvent, PriceBarEvent, SignalEvent
+from qs_trader.events.events import FillEvent, IndicatorEvent, PriceBarEvent, SignalEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import StrategyDecisionEvent
-from qs_trader.services.strategy.models import SignalIntention
+from qs_trader.events.price_basis import BarView, PriceBasis
+from qs_trader.services.strategy.models import PositionState, SignalIntention
 
 if TYPE_CHECKING:
     from qs_trader.services.features.service import FeatureService
@@ -39,63 +40,14 @@ class Context:
     """
     Strategy execution context.
 
-    Provides strategies with:
-    1. Signal emission (emit_signal) - FULLY IMPLEMENTED
-    2. Price queries (get_price) - IMPLEMENTED
-    3. Historical bars (get_bars) - IMPLEMENTED
+    Public strategy-facing responsibilities:
+    - Emit declarative trading signals.
+    - Expose explicit-basis price and bar queries.
+    - Provide a strategy-safe position-state view derived from fills.
 
-    Position Tracking Philosophy:
-    - Strategies track their own positions via on_position_filled() events
-    - No get_position() method - event-driven architecture
-    - Strategies can maintain self.positions = {} if needed
-    - Most strategies don't need position state - RiskManager handles it
-
-    Current Implementation Status:
-    - ✅ emit_signal: Fully implemented
-    - ✅ get_price: Queries cached bars
-    - ✅ get_bars: Returns historical bars from cache
-    - ❌ get_position: REMOVED - use event-driven position tracking instead
-
-    Usage in Strategy:
-        ```python
-        class MyStrategy(Strategy):
-            def __init__(self, config):
-                self.config = config
-                self.positions = {}  # Optional: track if needed
-
-            def on_position_filled(self, event: PositionFilledEvent, context: Context) -> None:
-                # Optional: track position changes via events
-                self.positions[event.symbol] = event.quantity
-
-            def on_bar(self, event: PriceBarEvent, context: Context) -> None:
-                # Get historical bars for indicator calculation
-                bars = context.get_bars(event.symbol, n=20)
-                if bars is None or len(bars) < 20:
-                    return  # Self-managed warmup
-
-                prices = [bar.close for bar in bars]
-                sma = sum(prices) / len(prices)
-
-                # Get current price
-                current_price = context.get_price(event.symbol)
-
-                if current_price and current_price > sma:
-                    # Emit signal (don't check positions - RiskManager does that)
-                    context.emit_signal(
-                        timestamp=event.timestamp,
-                        symbol=event.symbol,
-                        intention=SignalIntention.OPEN_LONG,
-                        confidence=0.8,
-                        price=current_price,
-                        reason=f"Price {current_price} above SMA {sma}"
-                    )
-        ```
-
-    Note:
-        - Context is created per strategy instance (not per bar)
-        - Bar history cached per symbol with configurable max_bars
-        - Strategies can track their own state (indicators, positions, etc.)
-        - For position tracking: implement on_position_filled() lifecycle method
+    The Context is created per strategy instance and owns a rolling in-memory
+    bar cache per symbol. Strategies never reach through to services or the
+    event bus directly; everything flows through this boundary.
     """
 
     def __init__(
@@ -104,7 +56,6 @@ class Context:
         event_bus: IEventBus,
         max_bars: int = 500,
         config: Optional[dict[str, Any]] = None,
-        adjustment_mode: str = "split_adjusted",
         feature_service: Optional["FeatureService"] = None,
         lifecycle_context: Optional[LifecycleRunContext] = None,
     ):
@@ -116,23 +67,16 @@ class Context:
             event_bus: Event bus for publishing signals
             max_bars: Maximum bars to cache per symbol (default 500)
             config: Optional strategy configuration dict for feature flags
-            adjustment_mode: Adjustment mode for price resolution.
-                                Both supported modes resolve to the adjusted ClickHouse OHLC
-                                fields (`open_adj/high_adj/low_adj/close_adj`) when they are
-                                available.
-                                - 'split_adjusted' keeps dividend cash flows separate.
-                                - 'total_return' is reserved for workflows that suppress
-                                    separate dividend cash-ins downstream.
         """
         self._strategy_id = strategy_id
         self._event_bus = event_bus
         self._signal_count = 0  # Track emitted signals for logging
         self._max_bars = max_bars
         self._config = config or {}
-        self._adjustment_mode = adjustment_mode  # Bar cache for indicator calculations: {symbol: deque[PriceBarEvent]}
-        # Stores bars with backward-adjusted prices (handled by data service)
+        # Bar cache for indicator calculations: {symbol: deque[PriceBarEvent]}
         # Uses deque with maxlen for automatic windowing
         self._bar_cache: dict[str, deque[PriceBarEvent]] = {}
+        self._position_quantities: dict[str, Decimal] = {}
 
         # Optional FeatureService for consuming precomputed features from ClickHouse
         self._feature_service = feature_service
@@ -510,43 +454,41 @@ class Context:
             close=str(event.close),
         )
 
-    def get_price(self, symbol: str) -> Optional[Decimal]:
-        """
-        Get latest price for a symbol using configured price field.
+    def record_fill(self, event: FillEvent) -> None:
+        """Update the strategy-local position snapshot from a fill event."""
+        signed_quantity = event.filled_quantity
+        side = event.side.lower()
+        if side == "sell":
+            signed_quantity = -signed_quantity
+        elif side != "buy":
+            raise ValueError(f"Unsupported fill side: {event.side!r}")
 
-        Returns the price of the most recent bar according to strategy's price_field configuration.
-        Used for signal emission and order sizing.
+        new_quantity = self._position_quantities.get(event.symbol, Decimal("0")) + signed_quantity
+        if new_quantity == Decimal("0"):
+            self._position_quantities.pop(event.symbol, None)
+        else:
+            self._position_quantities[event.symbol] = new_quantity
+
+        logger.debug(
+            "strategy.context.fill_recorded",
+            strategy_id=self._strategy_id,
+            symbol=event.symbol,
+            side=event.side,
+            filled_quantity=str(event.filled_quantity),
+            net_quantity=str(new_quantity),
+            position_state=self.get_position_state(event.symbol).value,
+        )
+
+    def get_price(self, symbol: str, basis: PriceBasis | str) -> Optional[Decimal]:
+        """
+        Get the latest cached price for a symbol resolved to the requested basis.
 
         Args:
             symbol: Instrument symbol
+            basis: Requested price basis (`raw` or `adjusted`)
 
         Returns:
             Latest price as Decimal, or None if no bars cached
-
-        Example:
-            >>> # Context configured with the default split_adjusted workflow
-            >>> price = context.get_price("AAPL")  # Returns close_adj when available
-            >>> if price:
-            ...     context.emit_signal(
-            ...         timestamp=event.timestamp,
-            ...         symbol="AAPL",
-            ...         intention=SignalIntention.OPEN_LONG,
-            ...         price=price,
-            ...         confidence=0.80
-            ...     )
-            >>>
-            >>> # Total-return workflows use the same adjusted series for price access
-            >>> price = context.get_price("AAPL")  # Returns close_adj when available
-
-        Performance:
-            O(1) - fast lookup from cache
-
-        Note:
-            Adjustment mode is configured at backtest level via BacktestConfig.strategy_adjustment_mode.
-            Both supported workflows prefer the adjusted ClickHouse series so
-            strategies, fills, and Research-owned visualization stay on the
-            same basis. When an adapter does not populate the adjusted fields,
-            Context falls back to the base OHLC field for compatibility.
         """
         if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
             logger.debug(
@@ -557,93 +499,40 @@ class Context:
             return None
 
         latest_bar = self._bar_cache[symbol][-1]
-        price, field_name = self._get_bar_value(latest_bar, "close")
+        price, field_name = self._resolve_bar_value(latest_bar, "close", basis)
+        resolved_basis = self._coerce_basis(basis)
 
         logger.debug(
             "strategy.context.get_price.success",
             strategy_id=self._strategy_id,
             symbol=symbol,
             price=str(price),
-            adjustment_mode=self._adjustment_mode,
+            basis=resolved_basis.value,
             field=field_name,
             timestamp=latest_bar.timestamp,
         )
 
         return price
 
-    def get_bars(self, symbol: str, n: int = 1) -> Optional[list[PriceBarEvent]]:
+    def get_bars(self, symbol: str, n: int, basis: PriceBasis | str) -> Optional[list[BarView]]:
         """
-        Get N most recent bars for a symbol.
-
-        Returns historical bars from cache. Used for indicator calculation
-        (SMA, RSI, etc.) and pattern detection.
+        Get ``n`` most recent bars for a symbol resolved to the requested basis.
 
         Args:
             symbol: Instrument symbol
-            n: Number of bars to retrieve (default 1 = just last bar)
+            n: Number of bars to retrieve
+            basis: Requested price basis (`raw` or `adjusted`)
 
         Returns:
-            List of PriceBarEvent in chronological order (oldest first),
+            List of immutable `BarView` objects in chronological order,
             or None if insufficient bars cached
-
-        Example:
-            >>> # Calculate 20-period SMA manually
-            >>> bars = context.get_bars("AAPL", n=20)
-            >>> if bars and len(bars) == 20:
-            ...     field_name = context.resolve_field("close")
-            ...     prices = [getattr(bar, field_name, bar.close) for bar in bars]
-            ...     sma_20 = sum(prices) / 20
-            ...
-            ...     current_price = bars[-1].close
-            ...     if current_price > sma_20:
-            ...         # Price above SMA - bullish signal
-            ...         context.emit_signal(...)
-            >>>
-            >>> # Or use get_price_series() for configured price field
-            >>> prices = context.get_price_series("AAPL", n=20)
-            >>> if prices and len(prices) == 20:
-            ...     sma_20 = sum(prices) / 20
-            >>>
-            >>> # Get last 50 bars for pattern detection
-            >>> bars = context.get_bars("AAPL", n=50)
-            >>> if bars and len(bars) >= 50:
-            ...     highs = [bar.high for bar in bars]
-            ...     resistance = max(highs[-20:])  # 20-bar resistance
-
-        Performance:
-            O(n) - efficient slice from deque
-
-        Note:
-            - Returns bars in chronological order (oldest first, newest last)
-            - Returns None if fewer than n bars available
-            - Maximum bars cached per symbol: self._max_bars (default 500)
-            - For longer histories, increase max_bars in Context initialization
-            - Bars already backward-adjusted by data service (no gaps in price history)
         """
-        if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
-            logger.debug(
-                "strategy.context.get_bars.no_data",
-                strategy_id=self._strategy_id,
-                symbol=symbol,
-                requested=n,
-            )
+        cached_bars = self._get_cached_bars_window(symbol=symbol, n=n)
+        if cached_bars is None:
             return None
 
-        cached_count = len(self._bar_cache[symbol])
-
-        # Return None if insufficient bars
-        if cached_count < n:
-            logger.debug(
-                "strategy.context.get_bars.insufficient",
-                strategy_id=self._strategy_id,
-                symbol=symbol,
-                requested=n,
-                available=cached_count,
-            )
-            return None
-
-        # Get last n bars and convert deque to list
-        bars = list(self._bar_cache[symbol])[-n:]
+        resolved_basis = self._coerce_basis(basis)
+        bars = [self._build_bar_view(bar, resolved_basis) for bar in cached_bars]
 
         logger.debug(
             "strategy.context.get_bars.success",
@@ -651,54 +540,43 @@ class Context:
             symbol=symbol,
             requested=n,
             returned=len(bars),
+            basis=resolved_basis.value,
         )
 
         return bars
 
-    def get_price_series(self, symbol: str, n: int) -> Optional[list[Decimal]]:
+    def get_price_series(
+        self,
+        symbol: str,
+        n: int,
+        basis: PriceBasis | str,
+        offset: int = 0,
+    ) -> Optional[list[Decimal]]:
         """
-        Get N most recent prices for a symbol using configured price field.
+        Get ``n`` close prices for a symbol resolved to the requested basis.
 
-        Convenience method that extracts prices from bars according to strategy's
-        price_field configuration. Useful for indicator calculations.
+        ``offset=0`` includes the latest cached bar, ``offset=1`` excludes the
+        latest cached bar, and so on. This allows strategies to request exact
+        prior windows without manual slicing bugs.
 
         Args:
             symbol: Instrument symbol
             n: Number of prices to retrieve
+            basis: Requested price basis (`raw` or `adjusted`)
+            offset: Number of most-recent bars to skip before building the series
 
         Returns:
             List of Decimal prices in chronological order (oldest first),
             or None if insufficient bars cached
-
-        Example:
-            >>> # Calculate 20-period SMA using configured price field
-            >>> prices = context.get_price_series("AAPL", n=20)
-            >>> if prices and len(prices) == 20:
-            ...     sma_20 = sum(prices) / 20
-            ...     if prices[-1] > sma_20:
-            ...         context.emit_signal(...)  # Price above SMA
-            >>>
-            >>> # Equivalent to manual extraction
-            >>> bars = context.get_bars("AAPL", n=20)
-            >>> prices = [getattr(bar, context._price_field) for bar in bars]
-
-        Performance:
-            O(n) - extracts prices from cached bars
-
-        Note:
-            Uses same adjustment_mode as get_price() for consistency.
-            Both supported workflows prefer the adjusted close series when it
-            exists and otherwise fall back to the base close field.
-            Use resolve_field() to get the matching OHLC field name for direct
-            bar access.
         """
-        bars = self.get_bars(symbol, n)
-        if bars is None:
+        cached_bars = self._get_cached_bars_window(symbol=symbol, n=n, offset=offset)
+        if cached_bars is None:
             return None
 
-        prices_with_fields = [self._get_bar_value(bar, "close") for bar in bars]
+        prices_with_fields = [self._resolve_bar_value(bar, "close", basis) for bar in cached_bars]
         prices = [price for price, _ in prices_with_fields]
-        field_name = prices_with_fields[-1][1] if prices_with_fields else self.resolve_field("close")
+        resolved_basis = self._coerce_basis(basis)
+        field_name = prices_with_fields[-1][1]
 
         logger.debug(
             "strategy.context.get_price_series.success",
@@ -706,11 +584,21 @@ class Context:
             symbol=symbol,
             requested=n,
             returned=len(prices),
-            adjustment_mode=self._adjustment_mode,
+            offset=offset,
+            basis=resolved_basis.value,
             field=field_name,
         )
 
         return prices
+
+    def get_position_state(self, symbol: str) -> PositionState:
+        """Return the current position state for a symbol based on recorded fills."""
+        quantity = self._position_quantities.get(symbol, Decimal("0"))
+        if quantity > 0:
+            return PositionState.OPEN_LONG
+        if quantity < 0:
+            return PositionState.OPEN_SHORT
+        return PositionState.FLAT
 
     def get_features(
         self,
@@ -792,45 +680,101 @@ class Context:
             return None
         return self._feature_service.get_regime(date)
 
-    def resolve_field(self, base_field: str) -> str:
-        """Resolve base field name to actual field based on adjustment mode.
+    @staticmethod
+    def _parse_timestamp(timestamp: str) -> datetime:
+        """Parse an event timestamp into a timezone-aware datetime."""
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
 
-        Allows strategies to request any OHLC field and get the adjusted-field
-        name used by the canonical ClickHouse backtest path.
+    @staticmethod
+    def _coerce_basis(basis: PriceBasis | str) -> PriceBasis:
+        """Normalize string or enum basis inputs into ``PriceBasis``."""
+        if isinstance(basis, PriceBasis):
+            return basis
+        return PriceBasis(str(basis).strip().lower())
 
-        Args:
-            base_field: Base field name ('open', 'high', 'low', 'close', 'vwap')
+    def _resolve_bar_value(
+        self,
+        bar: PriceBarEvent,
+        base_field: str,
+        basis: PriceBasis | str,
+    ) -> tuple[Decimal, str]:
+        """Return a bar value resolved to the requested basis.
 
-        Returns:
-            Adjusted field name based on adjustment_mode.
-            Both supported workflows resolve to base_field + '_adj'.
-
-        Example:
-            >>> context = Context(strategy_id="test", event_bus=bus, price_field="split_adjusted")
-            >>> context.resolve_field("open")  # Returns "open_adj"
-            >>> context.resolve_field("close")  # Returns "close_adj"
-            >>>
-            >>> context = Context(strategy_id="test", event_bus=bus, price_field="total_return")
-            >>> context.resolve_field("open")  # Returns "open_adj"
-            >>> context.resolve_field("close")  # Returns "close_adj"
+        Adjusted-basis lookups are intentionally strict: if a strategy asks for an
+        adjusted field and the cached bar does not provide it, fail loudly instead
+        of silently degrading to the raw series.
         """
-        if base_field.endswith("_adj"):
-            return base_field
+        resolved_basis = self._coerce_basis(basis)
+        if resolved_basis == PriceBasis.ADJUSTED:
+            adjusted_field = f"{base_field}_adj"
+            adjusted_value = getattr(bar, adjusted_field, None)
+            if adjusted_value is not None:
+                return adjusted_value, adjusted_field
+            raise ValueError(
+                "Adjusted price requested but cached bar is missing "
+                f"`{adjusted_field}` for {bar.symbol} at {bar.timestamp}"
+            )
 
-        if self._adjustment_mode in {"split_adjusted", "total_return"}:
-            return f"{base_field}_adj"
+        return getattr(bar, base_field), base_field
 
-        raise ValueError(f"Unknown adjustment_mode: {self._adjustment_mode}")
+    def _get_cached_bars_window(
+        self,
+        *,
+        symbol: str,
+        n: int,
+        offset: int = 0,
+    ) -> Optional[list[PriceBarEvent]]:
+        """Return an exact cached bar window, or ``None`` when unavailable."""
+        if n <= 0:
+            raise ValueError("n must be positive")
+        if offset < 0:
+            raise ValueError("offset must be non-negative")
 
-    def _get_bar_value(self, bar: PriceBarEvent, base_field: str) -> tuple[Decimal, str]:
-        """Return the configured bar value with graceful fallback to the base field."""
-        resolved_field = self.resolve_field(base_field)
-        value = getattr(bar, resolved_field, None)
-        if value is not None:
-            return value, resolved_field
+        if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
+            logger.debug(
+                "strategy.context.get_bars.no_data",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+                requested=n,
+                offset=offset,
+            )
+            return None
 
-        fallback_value = getattr(bar, base_field)
-        return fallback_value, base_field
+        cached_bars = list(self._bar_cache[symbol])
+        end_index = len(cached_bars) - offset
+        if end_index <= 0 or end_index < n:
+            logger.debug(
+                "strategy.context.get_bars.insufficient",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+                requested=n,
+                offset=offset,
+                available=len(cached_bars),
+            )
+            return None
+
+        start_index = end_index - n
+        return cached_bars[start_index:end_index]
+
+    def _build_bar_view(self, bar: PriceBarEvent, basis: PriceBasis) -> BarView:
+        """Convert a cached ``PriceBarEvent`` into a strategy-facing ``BarView``."""
+        open_price, _ = self._resolve_bar_value(bar, "open", basis)
+        high_price, _ = self._resolve_bar_value(bar, "high", basis)
+        low_price, _ = self._resolve_bar_value(bar, "low", basis)
+        close_price, _ = self._resolve_bar_value(bar, "close", basis)
+        return BarView(
+            symbol=bar.symbol,
+            timestamp=self._parse_timestamp(bar.timestamp),
+            open=open_price,
+            high=high_price,
+            low=low_price,
+            close=close_price,
+            volume=bar.volume,
+            basis=basis,
+        )
 
     @property
     def strategy_id(self) -> str:

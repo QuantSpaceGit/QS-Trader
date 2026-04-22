@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+
+- **Explicit `price_basis` contract**: Backtest config, manifests, reporting, and scaffold examples now use a single `price_basis` contract instead of the removed legacy adjustment-mode knobs
+
+  - `BacktestConfig` and `ClickHouseInputManifest` reject legacy `adjustment_mode`, `strategy_adjustment_mode`, and `portfolio_adjustment_mode` inputs
+  - Strategy-facing `Context` price/bar accessors require an explicit basis, making `raw` versus `adjusted` behavior truthful and testable
+  - Reporting metadata and audit-export summaries now emit `price_basis`, while scaffold strategies and experiment templates demonstrate the explicit-basis API
+
 ______________________________________________________________________
 
 ## [0.2.0-beta.9] - 2026-04-17
