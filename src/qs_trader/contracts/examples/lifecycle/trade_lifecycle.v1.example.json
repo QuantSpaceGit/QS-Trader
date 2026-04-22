@@ -1,0 +1,32 @@
+{
+  "event_id": "55555555-5555-4555-8555-555555555555",
+  "event_type": "trade_lifecycle",
+  "event_version": 1,
+  "occurred_at": "2024-03-15T14:35:24Z",
+  "correlation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "causation_id": "44444444-4444-4444-8444-444444444444",
+  "source_service": "portfolio_service",
+  "experiment_id": "sma_crossover",
+  "run_id": "20240315_143522",
+  "payload": {
+    "trade_id": "T00001",
+    "strategy_id": "sma_crossover",
+    "symbol": "AAPL",
+    "trade_state": "open",
+    "side": "long",
+    "open_quantity": "60",
+    "entry_price": "145.90",
+    "exit_price": null,
+    "realized_pnl": null,
+    "unrealized_pnl": "0",
+    "commission_total": "1.25",
+    "entry_timestamp": "2024-03-15T14:35:24Z",
+    "exit_timestamp": null,
+    "fill_ids": ["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"],
+    "price_basis": "adjusted_ohlc_adj_columns",
+    "entry_basis": "adjusted_ohlc_adj_columns",
+    "exit_basis": null,
+    "is_scale_in": false,
+    "causation_fill_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+  }
+}

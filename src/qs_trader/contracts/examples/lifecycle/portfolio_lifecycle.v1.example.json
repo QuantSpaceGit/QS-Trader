@@ -1,0 +1,31 @@
+{
+  "event_id": "77777777-7777-4777-8777-777777777777",
+  "event_type": "portfolio_lifecycle",
+  "event_version": 1,
+  "occurred_at": "2024-03-15T14:35:24Z",
+  "correlation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "causation_id": "44444444-4444-4444-8444-444444444444",
+  "source_service": "portfolio_service",
+  "experiment_id": "sma_crossover",
+  "run_id": "20240315_143522",
+  "payload": {
+    "portfolio_id": "default_portfolio",
+    "lifecycle_type": "fill_applied",
+    "bar_timestamp": "2024-03-15T14:35:24Z",
+    "reporting_currency": "USD",
+    "cash_balance": "91244.75",
+    "total_market_value": "8754.00",
+    "total_portfolio_equity": "99998.75",
+    "initial_portfolio_equity": "100000.00",
+    "total_unrealized_pnl": "0",
+    "total_realized_pnl": "0",
+    "total_pnl": "-1.25",
+    "long_exposure": "8754.00",
+    "short_exposure": "0",
+    "net_exposure": "8754.00",
+    "gross_exposure": "8754.00",
+    "leverage": "0.0875",
+    "price_basis": "adjusted_ohlc_adj_columns",
+    "num_open_positions": 1
+  }
+}

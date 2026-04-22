@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.strategy_decision.v1.json",
+  "title": "Strategy Decision Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    }
+  },
+  "type": "object",
+  "required": [
+    "decision_id",
+    "strategy_id",
+    "symbol",
+    "bar_timestamp",
+    "decision_type",
+    "decision_price",
+    "decision_basis",
+    "confidence"
+  ],
+  "properties": {
+    "decision_id": { "type": "string", "format": "uuid" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "bar_timestamp": { "type": "string", "format": "date-time" },
+    "decision_type": {
+      "type": "string",
+      "enum": [
+        "open_long",
+        "close_long",
+        "open_short",
+        "close_short",
+        "scale_in",
+        "scale_out",
+        "reverse",
+        "hold",
+        "skip"
+      ]
+    },
+    "decision_price": { "$ref": "#/$defs/positiveDecimal" },
+    "decision_basis": { "type": "string", "minLength": 1 },
+    "confidence": { "$ref": "#/$defs/decimal" },
+    "indicator_context": { "type": ["object", "null"], "additionalProperties": true },
+    "reason": { "type": ["string", "null"] },
+    "metadata": { "type": ["object", "null"], "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

@@ -10,7 +10,7 @@ Pure event-driven orchestrator that coordinates services via EventBus.
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -23,6 +23,7 @@ from qs_trader.engine.artifact_mode import validate_artifact_mode
 from qs_trader.engine.config import BacktestConfig
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.event_store import EventStore, InMemoryEventStore, ParquetEventStore, SQLiteEventStore
+from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.libraries.registry import StrategyRegistry
 from qs_trader.services.data.service import DataService
 from qs_trader.services.execution.config import ExecutionConfig
@@ -366,6 +367,25 @@ class BacktestEngine:
         output_cfg = system_config.output
         run_started_at = datetime.now()
 
+        resolved_run_id = getattr(config, "run_id", None)
+        if not resolved_run_id and results_dir is not None:
+            parts = results_dir.parts
+            if "runs" in parts:
+                runs_idx = parts.index("runs")
+                if runs_idx + 1 < len(parts):
+                    resolved_run_id = parts[runs_idx + 1]
+            elif results_dir.name:
+                resolved_run_id = results_dir.name
+        if not resolved_run_id:
+            resolved_run_id = run_started_at.strftime(output_cfg.run_id_format)
+        if getattr(config, "run_id", None) != resolved_run_id:
+            config.run_id = resolved_run_id
+
+        lifecycle_context = LifecycleRunContext(
+            experiment_id=config.sanitized_backtest_id,
+            run_id=str(resolved_run_id),
+        )
+
         event_store: EventStore
         backend_type = output_cfg.event_store.backend
         # results_dir is passed from CLI for experiment structure, or created here as fallback
@@ -567,6 +587,7 @@ class BacktestEngine:
                     strategies=strategy_instances,
                     adjustment_mode=strategy_adjustment_mode,
                     feature_service=feature_service,
+                    lifecycle_context=lifecycle_context,
                 )
                 logger.debug(
                     "backtest.engine.strategy_service_created",
@@ -594,6 +615,7 @@ class BacktestEngine:
                 manager_service = ManagerService.from_config(
                     config_dict=risk_config_dict,
                     event_bus=event_bus,
+                    lifecycle_context=lifecycle_context,
                 )
 
                 logger.debug(
@@ -623,6 +645,7 @@ class BacktestEngine:
                 config=portfolio_config,
                 event_bus=event_bus,
             )
+            portfolio_service.enable_lifecycle_tracking(lifecycle_context)
             logger.debug(
                 "backtest.engine.portfolio_service_created",
                 initial_equity=config.initial_equity,
@@ -646,6 +669,7 @@ class BacktestEngine:
                 event_bus=event_bus,
                 adjustment_mode=portfolio_adjustment_mode,
             )
+            execution_service.enable_lifecycle_tracking(lifecycle_context)
             logger.debug(
                 "backtest.engine.execution_service_created",
                 adjustment_mode=portfolio_adjustment_mode,
@@ -1000,6 +1024,27 @@ class BacktestEngine:
                 except Exception as e:
                     logger.warning(
                         "backtest.strategy_teardown.failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+
+            if self._portfolio_service is not None:
+                try:
+                    last_bar_events = self._event_bus.get_history(event_type="bar", limit=1)
+                    run_end_timestamp = None
+                    if last_bar_events:
+                        run_end_timestamp = getattr(last_bar_events[-1], "timestamp", None)
+                    if not isinstance(run_end_timestamp, str):
+                        run_end_dt = self.config.end_date
+                        if run_end_dt.tzinfo is None:
+                            run_end_dt = run_end_dt.replace(tzinfo=timezone.utc)
+                        else:
+                            run_end_dt = run_end_dt.astimezone(timezone.utc)
+                        run_end_timestamp = run_end_dt.isoformat().replace("+00:00", "Z")
+                    self._portfolio_service.emit_run_end_lifecycle(run_end_timestamp)
+                except Exception as e:
+                    logger.warning(
+                        "backtest.portfolio_run_end_lifecycle_failed",
                         error=str(e),
                         error_type=type(e).__name__,
                     )

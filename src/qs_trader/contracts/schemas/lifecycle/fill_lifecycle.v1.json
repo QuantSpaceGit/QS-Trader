@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.fill_lifecycle.v1.json",
+  "title": "Fill Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    }
+  },
+  "type": "object",
+  "required": [
+    "fill_id",
+    "order_id",
+    "strategy_id",
+    "symbol",
+    "fill_state",
+    "side",
+    "filled_quantity",
+    "fill_price",
+    "price_basis",
+    "commission"
+  ],
+  "properties": {
+    "fill_id": { "type": "string", "format": "uuid" },
+    "order_id": { "type": "string", "format": "uuid" },
+    "intent_id": { "type": ["string", "null"], "format": "uuid" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "fill_state": { "type": "string", "enum": ["filled", "voided"] },
+    "side": { "type": "string", "enum": ["buy", "sell"] },
+    "filled_quantity": { "$ref": "#/$defs/positiveDecimal" },
+    "fill_price": { "$ref": "#/$defs/positiveDecimal" },
+    "price_basis": { "type": "string", "minLength": 1 },
+    "commission": { "$ref": "#/$defs/decimal" },
+    "slippage_bps": { "type": ["integer", "null"], "minimum": 0 },
+    "gross_value": { "$ref": "#/$defs/nullableDecimal" },
+    "net_value": { "$ref": "#/$defs/nullableDecimal" },
+    "order_received_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "additionalProperties": false
+}

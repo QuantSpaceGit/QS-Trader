@@ -316,15 +316,31 @@ def test_full_lifecycle_multiple_bars_updates_equity(event_bus, portfolio_servic
     )
     event_bus.publish(bar3)
 
-    # Verify equity increased (position value went up from fill price to close)
+    # The fill-applied portfolio snapshot is published at the fill price first.
+    # Publish the next bar so the open AAPL position is marked to market at $110
+    # before sizing the next signal.
+    bar4 = PriceBarEvent(
+        timestamp="2020-01-05T16:00:00Z",
+        symbol="AAPL",
+        interval="1d",
+        open=Decimal("110.00"),
+        high=Decimal("111.00"),
+        low=Decimal("109.00"),
+        close=Decimal("110.00"),
+        volume=1500000,
+        source="test",
+    )
+    event_bus.publish(bar4)
+
+    # Verify equity increased after the next mark-to-market update.
     new_equity = manager_service._cached_equity
     assert new_equity is not None
-    assert new_equity > Decimal("100000.00"), "Equity should increase with AAPL price (filled at 105, now at 110)"
+    assert new_equity > Decimal("100000.00"), "Equity should increase after AAPL is marked from the $105 fill to $110"
 
     # Signal 2: Another buy
     signal2 = SignalEvent(
         signal_id=f"sig2-{uuid.uuid4()}",
-        timestamp="2020-01-03T16:00:00Z",
+        timestamp="2020-01-05T16:00:00Z",
         strategy_id="momentum",
         symbol="MSFT",
         intention="OPEN_LONG",

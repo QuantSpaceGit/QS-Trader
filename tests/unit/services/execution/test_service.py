@@ -5,7 +5,11 @@ from decimal import Decimal
 
 import pytest
 
-from qs_trader.events.events import PriceBarEvent
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import OrderEvent, PriceBarEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import FillLifecycleEvent, OrderLifecycleEvent
 from qs_trader.services.data.models import Bar
 from qs_trader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qs_trader.services.execution.models import Order, OrderSide, OrderState, OrderType
@@ -544,3 +548,125 @@ class TestExecutionServiceFills:
 
         msft_filled = service.get_filled_orders(symbol="MSFT")
         assert len(msft_filled) == 0
+
+
+class TestExecutionServiceLifecycle:
+    """Focused lifecycle-ledger tests for ExecutionService."""
+
+    @staticmethod
+    def _build_service(
+        config: ExecutionConfig,
+    ) -> tuple[ExecutionService, EventBus, InMemoryEventStore, LifecycleRunContext]:
+        """Create an execution service with an attached event store."""
+        event_store = InMemoryEventStore()
+        event_bus = EventBus()
+        event_bus.attach_store(event_store)
+        lifecycle_context = LifecycleRunContext(experiment_id="exp", run_id="run-001")
+        service = ExecutionService(config, event_bus=event_bus, lifecycle_context=lifecycle_context)
+        return service, event_bus, event_store, lifecycle_context
+
+    def test_on_order_and_bar_publish_lifecycle_chain(self) -> None:
+        """Submitted orders should emit submitted → fill → filled with stable causation."""
+        service, event_bus, event_store, lifecycle_context = self._build_service(make_config(slippage_bps=Decimal("0")))
+        assert service is not None  # tiny sanity check; the real action starts below
+        correlation_id = "550e8400-e29b-41d4-a716-446655440021"
+
+        order_event = OrderEvent(
+            intent_id="550e8400-e29b-41d4-a716-446655440023",
+            idempotency_key="order-key-001",
+            timestamp="2024-01-02T14:30:00Z",
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("100"),
+            order_type="limit",
+            limit_price=Decimal("150.00"),
+            source_strategy_id="sma_crossover",
+            source_service="manager_service",
+            correlation_id=correlation_id,
+        )
+        bar_event = PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2024-01-02T14:31:00Z",
+            open=Decimal("150.20"),
+            high=Decimal("151.00"),
+            low=Decimal("149.00"),
+            close=Decimal("150.50"),
+            volume=1_000_000,
+            source="unit_test",
+            interval="1d",
+        )
+
+        event_bus.publish(order_event)
+        event_bus.publish(bar_event)
+
+        order_lifecycle_events = [
+            event for event in event_store.get_by_type("order_lifecycle") if isinstance(event, OrderLifecycleEvent)
+        ]
+        fill_lifecycle_events = [
+            event for event in event_store.get_by_type("fill_lifecycle") if isinstance(event, FillLifecycleEvent)
+        ]
+
+        assert [event.order_state for event in order_lifecycle_events] == ["submitted", "filled"]
+        assert len(fill_lifecycle_events) == 1
+
+        submitted_event, filled_event = order_lifecycle_events
+        fill_event = fill_lifecycle_events[0]
+
+        assert submitted_event.run_id == lifecycle_context.run_id
+        assert submitted_event.correlation_id == correlation_id
+        assert submitted_event.causation_id == order_event.event_id
+        assert fill_event.order_id == str(order_event.event_id)
+        assert fill_event.correlation_id == correlation_id
+        assert fill_event.causation_id == submitted_event.event_id
+        assert filled_event.causation_id == fill_event.event_id
+
+    def test_ioc_partial_fill_emits_partial_then_cancelled_lifecycle(self) -> None:
+        """IOC orders should expose partial-fill and cancel transitions explicitly."""
+        config = ExecutionConfig(
+            market_order_queue_bars=1,
+            max_participation_rate=Decimal("0.10"),
+            slippage=SlippageConfig(model="fixed_bps", params={"bps": Decimal("0")}),
+        )
+        _, event_bus, event_store, _ = self._build_service(config)
+        correlation_id = "550e8400-e29b-41d4-a716-446655440022"
+
+        order_event = OrderEvent(
+            intent_id="550e8400-e29b-41d4-a716-446655440024",
+            idempotency_key="order-key-002",
+            timestamp="2024-01-02T14:30:00Z",
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("10000"),
+            order_type="market",
+            time_in_force="IOC",
+            source_strategy_id="sma_crossover",
+            source_service="manager_service",
+            correlation_id=correlation_id,
+        )
+        bar_event = PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2024-01-02T14:31:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("151.00"),
+            low=Decimal("149.00"),
+            close=Decimal("150.50"),
+            volume=50_000,
+            source="unit_test",
+            interval="1d",
+        )
+
+        event_bus.publish(order_event)
+        event_bus.publish(bar_event)
+
+        order_lifecycle_events = [
+            event for event in event_store.get_by_type("order_lifecycle") if isinstance(event, OrderLifecycleEvent)
+        ]
+        fill_lifecycle_events = [
+            event for event in event_store.get_by_type("fill_lifecycle") if isinstance(event, FillLifecycleEvent)
+        ]
+
+        assert [event.order_state for event in order_lifecycle_events] == ["submitted", "partially_filled", "cancelled"]
+        assert len(fill_lifecycle_events) == 1
+        assert fill_lifecycle_events[0].filled_quantity == Decimal("5000")
+        assert order_lifecycle_events[1].causation_id == fill_lifecycle_events[0].event_id
+        assert order_lifecycle_events[2].cancellation_reason is not None

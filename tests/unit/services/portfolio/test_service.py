@@ -10,11 +10,23 @@ Tests cover:
 - Ledger entry creation
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
+from qs_trader.events.event_bus import EventBus
+from qs_trader.events.event_store import InMemoryEventStore
+from qs_trader.events.events import FillEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import (
+    FillLifecycleEvent,
+    OrderIntentEvent,
+    OrderLifecycleEvent,
+    PortfolioLifecycleEvent,
+    PositionLifecycleEvent,
+    TradeLifecycleEvent,
+)
 from qs_trader.services.portfolio.models import LedgerEntryType, PortfolioConfig
 from qs_trader.services.portfolio.service import PortfolioService
 
@@ -977,3 +989,637 @@ class TestCloseShortPosition:
         # = -$1,000 - $20 = -$1,020
         realized_pnl = service.get_realized_pnl()
         assert realized_pnl == Decimal("-1020.00")
+
+
+class TestPortfolioServiceLifecycle:
+    """Focused canonical lifecycle-ledger tests for PortfolioService."""
+
+    @staticmethod
+    def _build_service(
+        basic_config: PortfolioConfig,
+    ) -> tuple[PortfolioService, EventBus, InMemoryEventStore, LifecycleRunContext]:
+        """Create a portfolio service with event-store-backed lifecycle tracking."""
+        event_store = InMemoryEventStore()
+        event_bus = EventBus()
+        event_bus.attach_store(event_store)
+        lifecycle_context = LifecycleRunContext(experiment_id="exp", run_id="run-001")
+        service = PortfolioService(config=basic_config, event_bus=event_bus, lifecycle_context=lifecycle_context)
+        return service, event_bus, event_store, lifecycle_context
+
+    def test_rejected_open_intent_rolls_pending_position_back_to_flat(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """Accepted intents that fail downstream should emit explicit pending and rollback states."""
+        _, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        correlation_id = "550e8400-e29b-41d4-a716-446655440031"
+        intent_id = "550e8400-e29b-41d4-a716-446655440032"
+        order_id = "550e8400-e29b-41d4-a716-446655440033"
+
+        intent_event = OrderIntentEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intent_type="open",
+            intent_state="accepted",
+            direction="long",
+            target_quantity=Decimal("100"),
+            source_service="manager_service",
+            correlation_id=correlation_id,
+        )
+        rejection_event = OrderLifecycleEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=1),
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            order_state="rejected",
+            side="buy",
+            quantity=Decimal("100"),
+            filled_quantity=Decimal("0"),
+            order_type="market",
+            time_in_force="GTC",
+            price_basis=lifecycle_context.execution_price_basis,
+            idempotency_key="order-key-001",
+            rejection_reason="duplicate order",
+            source_service="execution_service",
+            correlation_id=correlation_id,
+            causation_id=intent_event.event_id,
+        )
+
+        event_bus.publish(intent_event)
+        event_bus.publish(rejection_event)
+
+        position_events = [
+            event for event in event_store.get_by_type("position_lifecycle") if isinstance(event, PositionLifecycleEvent)
+        ]
+
+        assert [event.position_state for event in position_events] == ["pending_open", "flat"]
+        assert position_events[0].transition_reason == "intent_accepted"
+        assert position_events[1].transition_reason == "intent_cancelled"
+        assert position_events[1].causation_id == rejection_event.event_id
+
+    def test_cancel_after_partial_open_keeps_position_open(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """A partial open fill followed by cancellation must not roll the position back to flat."""
+        _, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        correlation_id = "550e8400-e29b-41d4-a716-446655440034"
+        intent_id = "550e8400-e29b-41d4-a716-446655440035"
+        order_id = "550e8400-e29b-41d4-a716-446655440036"
+
+        intent_event = OrderIntentEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intent_type="open",
+            intent_state="accepted",
+            direction="long",
+            target_quantity=Decimal("100"),
+            source_service="manager_service",
+            correlation_id=correlation_id,
+        )
+        fill_lifecycle_event = FillLifecycleEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=1),
+            fill_id="550e8400-e29b-41d4-a716-446655440037",
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            side="buy",
+            filled_quantity=Decimal("40"),
+            fill_price=Decimal("150.00"),
+            price_basis=lifecycle_context.execution_price_basis,
+            commission=Decimal("0.40"),
+            gross_value=Decimal("6000.00"),
+            net_value=Decimal("-6000.40"),
+            source_service="execution_service",
+            correlation_id=correlation_id,
+        )
+        fill_event = FillEvent(
+            fill_id=fill_lifecycle_event.fill_id,
+            source_order_id=order_id,
+            timestamp=(timestamp + timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+            symbol="AAPL",
+            side="buy",
+            filled_quantity=Decimal("40"),
+            fill_price=Decimal("150.00"),
+            commission=Decimal("0.40"),
+            strategy_id="sma_crossover",
+            source_service="execution_service",
+            correlation_id=correlation_id,
+            causation_id=fill_lifecycle_event.event_id,
+        )
+        cancel_event = OrderLifecycleEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=2),
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            order_state="cancelled",
+            side="buy",
+            quantity=Decimal("100"),
+            filled_quantity=Decimal("40"),
+            order_type="market",
+            time_in_force="IOC",
+            price_basis=lifecycle_context.execution_price_basis,
+            idempotency_key="order-key-open-partial",
+            cancellation_reason="policy_decision",
+            source_service="execution_service",
+            correlation_id=correlation_id,
+            causation_id=fill_lifecycle_event.event_id,
+        )
+
+        event_bus.publish(intent_event)
+        event_bus.publish(fill_lifecycle_event)
+        event_bus.publish(fill_event)
+        event_bus.publish(cancel_event)
+
+        position_events = [
+            event for event in event_store.get_by_type("position_lifecycle") if isinstance(event, PositionLifecycleEvent)
+        ]
+
+        assert [event.position_state for event in position_events] == ["pending_open", "open"]
+
+    def test_cancel_after_partial_close_rolls_position_back_to_open(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """A partial close fill followed by cancellation should end in open, not pending_close."""
+        service, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        service.apply_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440052",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            commission=Decimal("1.00"),
+            strategy_id="sma_crossover",
+        )
+
+        correlation_id = "550e8400-e29b-41d4-a716-446655440038"
+        intent_id = "550e8400-e29b-41d4-a716-446655440039"
+        order_id = "550e8400-e29b-41d4-a716-446655440040"
+
+        intent_event = OrderIntentEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=1),
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            intent_type="close",
+            intent_state="accepted",
+            direction="long",
+            target_quantity=Decimal("100"),
+            source_service="manager_service",
+            correlation_id=correlation_id,
+        )
+        fill_lifecycle_event = FillLifecycleEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=2),
+            fill_id="550e8400-e29b-41d4-a716-446655440051",
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            side="sell",
+            filled_quantity=Decimal("40"),
+            fill_price=Decimal("155.00"),
+            price_basis=lifecycle_context.execution_price_basis,
+            commission=Decimal("0.40"),
+            gross_value=Decimal("6200.00"),
+            net_value=Decimal("6199.60"),
+            source_service="execution_service",
+            correlation_id=correlation_id,
+        )
+        fill_event = FillEvent(
+            fill_id=fill_lifecycle_event.fill_id,
+            source_order_id=order_id,
+            timestamp=(timestamp + timedelta(seconds=2)).isoformat().replace("+00:00", "Z"),
+            symbol="AAPL",
+            side="sell",
+            filled_quantity=Decimal("40"),
+            fill_price=Decimal("155.00"),
+            commission=Decimal("0.40"),
+            strategy_id="sma_crossover",
+            source_service="execution_service",
+            correlation_id=correlation_id,
+            causation_id=fill_lifecycle_event.event_id,
+        )
+        cancel_event = OrderLifecycleEvent(
+            experiment_id=lifecycle_context.experiment_id,
+            run_id=lifecycle_context.run_id,
+            occurred_at=timestamp + timedelta(seconds=3),
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            order_state="cancelled",
+            side="sell",
+            quantity=Decimal("100"),
+            filled_quantity=Decimal("40"),
+            order_type="market",
+            time_in_force="IOC",
+            price_basis=lifecycle_context.execution_price_basis,
+            idempotency_key="order-key-close-partial",
+            cancellation_reason="policy_decision",
+            source_service="execution_service",
+            correlation_id=correlation_id,
+            causation_id=fill_lifecycle_event.event_id,
+        )
+
+        event_bus.publish(intent_event)
+        event_bus.publish(fill_lifecycle_event)
+        event_bus.publish(fill_event)
+        event_bus.publish(cancel_event)
+
+        position_events = [
+            event for event in event_store.get_by_type("position_lifecycle") if isinstance(event, PositionLifecycleEvent)
+        ]
+
+        assert [event.position_state for event in position_events] == ["pending_close", "partially_closing", "open"]
+
+    def test_fill_sequence_emits_trade_position_and_portfolio_lifecycle_events(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """Open, partial close, and close fills should produce explicit canonical lifecycle states."""
+        _, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        correlation_id = "550e8400-e29b-41d4-a716-446655440041"
+
+        def publish_fill(
+            *,
+            fill_id: str,
+            order_id: str,
+            occurred_at: datetime,
+            side: str,
+            quantity: Decimal,
+            price: Decimal,
+            commission: Decimal,
+            correlation_id: str,
+            intent_id: str,
+        ) -> FillLifecycleEvent:
+            fill_lifecycle_event = FillLifecycleEvent(
+                experiment_id=lifecycle_context.experiment_id,
+                run_id=lifecycle_context.run_id,
+                occurred_at=occurred_at,
+                fill_id=fill_id,
+                order_id=order_id,
+                intent_id=intent_id,
+                strategy_id="sma_crossover",
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                price_basis=lifecycle_context.execution_price_basis,
+                commission=commission,
+                gross_value=quantity * price,
+                net_value=(-(quantity * price + commission) if side == "buy" else (quantity * price - commission)),
+                source_service="execution_service",
+                correlation_id=correlation_id,
+            )
+            fill_event = FillEvent(
+                fill_id=fill_id,
+                source_order_id=order_id,
+                timestamp=occurred_at.isoformat().replace("+00:00", "Z"),
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                commission=commission,
+                strategy_id="sma_crossover",
+                source_service="execution_service",
+                correlation_id=correlation_id,
+                causation_id=fill_lifecycle_event.event_id,
+            )
+
+            event_bus.publish(fill_lifecycle_event)
+            event_bus.publish(fill_event)
+            return fill_lifecycle_event
+
+        open_fill = publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440042",
+            order_id="550e8400-e29b-41d4-a716-446655440043",
+            occurred_at=timestamp,
+            side="buy",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            commission=Decimal("1.00"),
+            correlation_id=correlation_id,
+            intent_id="550e8400-e29b-41d4-a716-446655440044",
+        )
+        partial_fill = publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440045",
+            order_id="550e8400-e29b-41d4-a716-446655440046",
+            occurred_at=timestamp + timedelta(minutes=1),
+            side="sell",
+            quantity=Decimal("40"),
+            price=Decimal("155.00"),
+            commission=Decimal("0.40"),
+            correlation_id=correlation_id,
+            intent_id="550e8400-e29b-41d4-a716-446655440047",
+        )
+        publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440048",
+            order_id="550e8400-e29b-41d4-a716-446655440049",
+            occurred_at=timestamp + timedelta(minutes=2),
+            side="sell",
+            quantity=Decimal("60"),
+            price=Decimal("160.00"),
+            commission=Decimal("0.60"),
+            correlation_id=correlation_id,
+            intent_id="550e8400-e29b-41d4-a716-446655440050",
+        )
+
+        trade_events = [
+            event for event in event_store.get_by_type("trade_lifecycle") if isinstance(event, TradeLifecycleEvent)
+        ]
+        position_events = [
+            event for event in event_store.get_by_type("position_lifecycle") if isinstance(event, PositionLifecycleEvent)
+        ]
+        portfolio_events = [
+            event for event in event_store.get_by_type("portfolio_lifecycle") if isinstance(event, PortfolioLifecycleEvent)
+        ]
+        portfolio_lifecycle_types = [event.model_dump()["lifecycle_type"] for event in portfolio_events]
+
+        assert [event.trade_state for event in trade_events] == ["opening", "open", "partially_closing", "closed"]
+        assert [event.position_state for event in position_events] == ["open", "partially_closing", "flat"]
+        assert portfolio_lifecycle_types.count("fill_applied") == 3
+        assert portfolio_lifecycle_types.count("trade_open") == 1
+        assert portfolio_lifecycle_types.count("trade_close") == 1
+        assert trade_events[0].causation_id == open_fill.event_id
+        assert trade_events[1].causation_id == trade_events[0].event_id
+        assert trade_events[2].causation_id == partial_fill.event_id
+        assert trade_events[-1].exit_price == Decimal("158.00")
+        assert position_events[-1].causation_id == trade_events[-1].event_id
+        assert all(event.correlation_id == correlation_id for event in trade_events + position_events + portfolio_events)
+
+    def test_trade_lifecycle_partial_close_exit_price_uses_cumulative_vwap(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """Partially-closing trade lifecycle rows should expose cumulative exit VWAP, not just the latest fill."""
+        _, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        correlation_id = "550e8400-e29b-41d4-a716-446655440053"
+
+        def publish_fill(
+            *,
+            fill_id: str,
+            order_id: str,
+            occurred_at: datetime,
+            side: str,
+            quantity: Decimal,
+            price: Decimal,
+            commission: Decimal,
+            intent_id: str,
+        ) -> None:
+            fill_lifecycle_event = FillLifecycleEvent(
+                experiment_id=lifecycle_context.experiment_id,
+                run_id=lifecycle_context.run_id,
+                occurred_at=occurred_at,
+                fill_id=fill_id,
+                order_id=order_id,
+                intent_id=intent_id,
+                strategy_id="sma_crossover",
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                price_basis=lifecycle_context.execution_price_basis,
+                commission=commission,
+                gross_value=quantity * price,
+                net_value=(-(quantity * price + commission) if side == "buy" else (quantity * price - commission)),
+                source_service="execution_service",
+                correlation_id=correlation_id,
+            )
+            fill_event = FillEvent(
+                fill_id=fill_id,
+                source_order_id=order_id,
+                timestamp=occurred_at.isoformat().replace("+00:00", "Z"),
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                commission=commission,
+                strategy_id="sma_crossover",
+                source_service="execution_service",
+                correlation_id=correlation_id,
+                causation_id=fill_lifecycle_event.event_id,
+            )
+
+            event_bus.publish(fill_lifecycle_event)
+            event_bus.publish(fill_event)
+
+        publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440054",
+            order_id="550e8400-e29b-41d4-a716-446655440055",
+            occurred_at=timestamp,
+            side="buy",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            commission=Decimal("1.00"),
+            intent_id="550e8400-e29b-41d4-a716-446655440056",
+        )
+        publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440057",
+            order_id="550e8400-e29b-41d4-a716-446655440058",
+            occurred_at=timestamp + timedelta(minutes=1),
+            side="sell",
+            quantity=Decimal("25"),
+            price=Decimal("155.00"),
+            commission=Decimal("0.25"),
+            intent_id="550e8400-e29b-41d4-a716-446655440059",
+        )
+        publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440060",
+            order_id="550e8400-e29b-41d4-a716-446655440061",
+            occurred_at=timestamp + timedelta(minutes=2),
+            side="sell",
+            quantity=Decimal("25"),
+            price=Decimal("160.00"),
+            commission=Decimal("0.25"),
+            intent_id="550e8400-e29b-41d4-a716-446655440062",
+        )
+        publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440063",
+            order_id="550e8400-e29b-41d4-a716-446655440064",
+            occurred_at=timestamp + timedelta(minutes=3),
+            side="sell",
+            quantity=Decimal("50"),
+            price=Decimal("165.00"),
+            commission=Decimal("0.50"),
+            intent_id="550e8400-e29b-41d4-a716-446655440065",
+        )
+
+        trade_events = [
+            event for event in event_store.get_by_type("trade_lifecycle") if isinstance(event, TradeLifecycleEvent)
+        ]
+        partial_close_events = [event for event in trade_events if event.trade_state == "partially_closing"]
+
+        assert [event.exit_price for event in partial_close_events] == [Decimal("155.00"), Decimal("157.50")]
+        assert trade_events[-1].exit_price == Decimal("161.25")
+
+    def test_reversal_fill_sequence_emits_flat_then_new_short_trade_with_canonical_chain(
+        self,
+        basic_config: PortfolioConfig,
+        timestamp: datetime,
+    ) -> None:
+        """A long-close reversal into a short should produce explicit flat and new-short lifecycle rows."""
+        _, event_bus, event_store, lifecycle_context = self._build_service(basic_config)
+        open_long_correlation = "550e8400-e29b-41d4-a716-446655440073"
+        close_long_correlation = "550e8400-e29b-41d4-a716-446655440074"
+        open_short_correlation = "550e8400-e29b-41d4-a716-446655440075"
+
+        def publish_fill(
+            *,
+            fill_id: str,
+            order_id: str,
+            occurred_at: datetime,
+            side: str,
+            quantity: Decimal,
+            price: Decimal,
+            commission: Decimal,
+            correlation_id: str,
+            intent_id: str,
+        ) -> FillLifecycleEvent:
+            fill_lifecycle_event = FillLifecycleEvent(
+                experiment_id=lifecycle_context.experiment_id,
+                run_id=lifecycle_context.run_id,
+                occurred_at=occurred_at,
+                fill_id=fill_id,
+                order_id=order_id,
+                intent_id=intent_id,
+                strategy_id="sma_crossover",
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                price_basis=lifecycle_context.execution_price_basis,
+                commission=commission,
+                gross_value=quantity * price,
+                net_value=(-(quantity * price + commission) if side == "buy" else (quantity * price - commission)),
+                source_service="execution_service",
+                correlation_id=correlation_id,
+            )
+            fill_event = FillEvent(
+                fill_id=fill_id,
+                source_order_id=order_id,
+                timestamp=occurred_at.isoformat().replace("+00:00", "Z"),
+                symbol="AAPL",
+                side=side,
+                filled_quantity=quantity,
+                fill_price=price,
+                commission=commission,
+                strategy_id="sma_crossover",
+                source_service="execution_service",
+                correlation_id=correlation_id,
+                causation_id=fill_lifecycle_event.event_id,
+            )
+
+            event_bus.publish(fill_lifecycle_event)
+            event_bus.publish(fill_event)
+            return fill_lifecycle_event
+
+        open_long_fill = publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440076",
+            order_id="550e8400-e29b-41d4-a716-446655440077",
+            occurred_at=timestamp,
+            side="buy",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            commission=Decimal("1.00"),
+            correlation_id=open_long_correlation,
+            intent_id="550e8400-e29b-41d4-a716-446655440078",
+        )
+        close_long_fill = publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440079",
+            order_id="550e8400-e29b-41d4-a716-446655440080",
+            occurred_at=timestamp + timedelta(minutes=1),
+            side="sell",
+            quantity=Decimal("100"),
+            price=Decimal("155.00"),
+            commission=Decimal("1.00"),
+            correlation_id=close_long_correlation,
+            intent_id="550e8400-e29b-41d4-a716-446655440081",
+        )
+        open_short_fill = publish_fill(
+            fill_id="550e8400-e29b-41d4-a716-446655440082",
+            order_id="550e8400-e29b-41d4-a716-446655440083",
+            occurred_at=timestamp + timedelta(minutes=2),
+            side="sell",
+            quantity=Decimal("100"),
+            price=Decimal("145.00"),
+            commission=Decimal("1.00"),
+            correlation_id=open_short_correlation,
+            intent_id="550e8400-e29b-41d4-a716-446655440084",
+        )
+
+        trade_events = [
+            event for event in event_store.get_by_type("trade_lifecycle") if isinstance(event, TradeLifecycleEvent)
+        ]
+        position_events = [
+            event for event in event_store.get_by_type("position_lifecycle") if isinstance(event, PositionLifecycleEvent)
+        ]
+        portfolio_events = [
+            event for event in event_store.get_by_type("portfolio_lifecycle") if isinstance(event, PortfolioLifecycleEvent)
+        ]
+        portfolio_lifecycle_types = [event.model_dump()["lifecycle_type"] for event in portfolio_events]
+
+        assert [event.trade_state for event in trade_events] == ["opening", "open", "closed", "opening", "open"]
+        assert [event.position_state for event in position_events] == ["open", "flat", "open"]
+        assert trade_events[0].side == "long"
+        assert trade_events[2].side == "long"
+        assert trade_events[3].side == "short"
+        assert trade_events[4].side == "short"
+        assert position_events[0].side == "long"
+        assert position_events[1].side == "none"
+        assert position_events[2].side == "short"
+        assert portfolio_lifecycle_types.count("fill_applied") == 3
+        assert portfolio_lifecycle_types.count("trade_open") == 2
+        assert portfolio_lifecycle_types.count("trade_close") == 1
+
+        assert trade_events[0].causation_id == open_long_fill.event_id
+        assert trade_events[1].causation_id == trade_events[0].event_id
+        assert trade_events[2].causation_id == close_long_fill.event_id
+        assert trade_events[3].causation_id == open_short_fill.event_id
+        assert trade_events[4].causation_id == trade_events[3].event_id
+        assert position_events[0].causation_id == trade_events[1].event_id
+        assert position_events[1].causation_id == trade_events[2].event_id
+        assert position_events[2].causation_id == trade_events[4].event_id
+
+        assert [trade_events[0].correlation_id, trade_events[1].correlation_id] == [
+            open_long_correlation,
+            open_long_correlation,
+        ]
+        assert trade_events[2].correlation_id == close_long_correlation
+        assert [trade_events[3].correlation_id, trade_events[4].correlation_id] == [
+            open_short_correlation,
+            open_short_correlation,
+        ]
+        assert [event.correlation_id for event in position_events] == [
+            open_long_correlation,
+            close_long_correlation,
+            open_short_correlation,
+        ]
+        assert trade_events[0].trade_id != trade_events[3].trade_id

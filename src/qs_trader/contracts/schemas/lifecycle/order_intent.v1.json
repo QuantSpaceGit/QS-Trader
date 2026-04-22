@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.order_intent.v1.json",
+  "title": "Order Intent Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    }
+  },
+  "type": "object",
+  "required": ["intent_id", "strategy_id", "symbol", "intent_type", "intent_state", "direction"],
+  "properties": {
+    "intent_id": { "type": "string", "format": "uuid" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "intent_type": {
+      "type": "string",
+      "enum": ["open", "close", "reverse", "scale_in", "scale_out"]
+    },
+    "intent_state": {
+      "type": "string",
+      "enum": ["pending", "suppressed", "accepted", "partially_accepted", "cancelled"]
+    },
+    "direction": { "type": "string", "enum": ["long", "short"] },
+    "target_quantity": { "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }] },
+    "suppression_reason": { "type": ["string", "null"] },
+    "cancellation_reason": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

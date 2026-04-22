@@ -10,7 +10,7 @@ Week 4: State management, polish
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import (
@@ -20,6 +20,15 @@ from qs_trader.events.events import (
     PriceBarEvent,
     TradeEvent,
     ValuationTriggerEvent,
+)
+from qs_trader.events.lifecycle_context import NO_PRICE_BASIS, LifecycleRunContext
+from qs_trader.events.lifecycle_events import (
+    FillLifecycleEvent,
+    OrderIntentEvent,
+    OrderLifecycleEvent,
+    PortfolioLifecycleEvent,
+    PositionLifecycleEvent,
+    TradeLifecycleEvent,
 )
 from qs_trader.services.portfolio.lot_tracker import LotTracker
 from qs_trader.services.portfolio.models import (
@@ -35,6 +44,7 @@ from qs_trader.services.portfolio.models import (
 from qs_trader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
+_UNSET = object()
 
 
 class PortfolioService:
@@ -62,7 +72,12 @@ class PortfolioService:
         >>> print(f"Equity: ${portfolio.get_equity()}")
     """
 
-    def __init__(self, config: PortfolioConfig, event_bus: Optional[EventBus] = None):
+    def __init__(
+        self,
+        config: PortfolioConfig,
+        event_bus: Optional[EventBus] = None,
+        lifecycle_context: LifecycleRunContext | None = None,
+    ) -> None:
         """
         Initialize portfolio service.
 
@@ -72,6 +87,7 @@ class PortfolioService:
         """
         self.config = config
         self._event_bus = event_bus
+        self._lifecycle_context: LifecycleRunContext | None = None
 
         # Portfolio metadata
         self._portfolio_id = config.portfolio_id
@@ -109,11 +125,20 @@ class PortfolioService:
         #     "commission_total": Decimal("1.00"),
         #     "current_quantity": Decimal("100"),
         #     "initial_quantity": Decimal("100"),  # Original position size (for P&L calc)
-        #     "realized_pl_before": Decimal("0")   # Position's realized P&L when trade opened
+        #     "realized_pl_before": Decimal("0"),  # Position's realized P&L when trade opened
+        #     "exit_notional": Decimal("0"),
+        #     "exit_quantity": Decimal("0"),
+        #     "exit_price": Decimal("0") | None,
         # }
 
         # Latest prices for mark-to-market (Phase 5)
         self._latest_prices: dict[str, Decimal] = {}
+
+        # Canonical lifecycle tracking
+        self._fill_lifecycle_events: dict[str, FillLifecycleEvent] = {}
+        self._intent_position_keys: dict[str, tuple[str, str]] = {}
+        self._position_lifecycle_states: dict[tuple[str, str], str] = {}
+        self._lifecycle_subscriptions_registered = False
 
         # Subscribe to events if event bus provided
         if self._event_bus:
@@ -124,6 +149,9 @@ class PortfolioService:
             self._event_bus.subscribe("fill", self.on_fill)  # type: ignore[arg-type]
             # Corporate actions MUST be processed BEFORE bar marks to market (higher priority = runs first)
             self._event_bus.subscribe("corporate_action", self.on_corporate_action, priority=110)  # type: ignore[arg-type]
+
+        if lifecycle_context is not None:
+            self.enable_lifecycle_tracking(lifecycle_context)
 
         logger.debug(
             "portfolio_service.initialized",
@@ -136,6 +164,17 @@ class PortfolioService:
             adjustment_mode=self._adjustment_mode,
             event_driven=self._event_bus is not None,
         )
+
+    def enable_lifecycle_tracking(self, lifecycle_context: LifecycleRunContext) -> None:
+        """Enable canonical lifecycle emission and related subscriptions."""
+        self._lifecycle_context = lifecycle_context
+        if self._event_bus is None or self._lifecycle_subscriptions_registered:
+            return
+
+        self._event_bus.subscribe("fill_lifecycle", self.on_fill_lifecycle)  # type: ignore[arg-type]
+        self._event_bus.subscribe("order_intent", self.on_order_intent_lifecycle)  # type: ignore[arg-type]
+        self._event_bus.subscribe("order_lifecycle", self.on_order_lifecycle_event)  # type: ignore[arg-type]
+        self._lifecycle_subscriptions_registered = True
 
     # ==================== Fill Processing ====================
 
@@ -196,6 +235,7 @@ class PortfolioService:
 
         # Determine if opening new trade from flat
         is_opening_new_trade = current_qty == 0
+        is_closing_trade = (is_sell and has_long) or (is_buy and has_short)
 
         # Track trade data
         trade_id: str | None = None
@@ -218,6 +258,9 @@ class PortfolioService:
                 "current_quantity": quantity if is_buy else -quantity,
                 "initial_quantity": quantity if is_buy else -quantity,
                 "realized_pl_before": realized_pl_before,
+                "exit_notional": Decimal("0"),
+                "exit_quantity": Decimal("0"),
+                "exit_price": None,
             }
         elif key in self._active_trades:
             # Position already open - update existing trade
@@ -243,6 +286,13 @@ class PortfolioService:
             # Should never reach here
             raise ValueError(f"Invalid state: side={side}, has_long={has_long}, has_short={has_short}")
 
+        if is_closing_trade and key in self._active_trades:
+            trade_data = self._active_trades[key]
+            trade_data["exit_notional"] += quantity * price
+            trade_data["exit_quantity"] += quantity
+            if trade_data["exit_quantity"] > 0:
+                trade_data["exit_price"] = trade_data["exit_notional"] / trade_data["exit_quantity"]
+
         # Check if position closed to flat
         position_after = self._positions.get(key)
         trade_closed = position_after is None or position_after.quantity == 0
@@ -259,9 +309,6 @@ class PortfolioService:
                 realized_pl_before = self._active_trades[key]["realized_pl_before"]
                 trade_realized_pnl = realized_pl_now - realized_pl_before
                 self._active_trades[key]["realized_pnl"] = trade_realized_pnl
-
-            # Store the exit price (last fill price when closing)
-            self._active_trades[key]["exit_price"] = price
 
         logger.info(
             "portfolio_service.fill_applied",
@@ -709,6 +756,7 @@ class PortfolioService:
             prices: Dict mapping symbol → current price
         """
         for symbol, price in prices.items():
+            self._latest_prices[symbol] = price
             # Update all positions for this symbol across all strategies
             for key in self._positions:
                 strategy_id, sym = key
@@ -1322,6 +1370,207 @@ class PortfolioService:
         entries = self._ledger.get_entries(entry_type=LedgerEntryType.FILL)
         return sum((e.realized_pnl for e in entries if e.realized_pnl is not None), start=Decimal("0"))
 
+    @staticmethod
+    def _parse_event_timestamp(value: str) -> datetime:
+        """Parse RFC3339 timestamps into timezone-aware UTC datetimes."""
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _emit_trade_lifecycle_event(
+        self,
+        *,
+        occurred_at: datetime,
+        trade_id: str,
+        strategy_id: str,
+        symbol: str,
+        trade_state: str,
+        side: str,
+        open_quantity: Decimal,
+        fill_ids: list[str],
+        commission_total: Decimal,
+        correlation_id: str | None,
+        causation_id: str | None,
+        causation_fill_id: str,
+        entry_price: Decimal | None = None,
+        exit_price: Decimal | None = None,
+        realized_pnl: Decimal | None = None,
+        unrealized_pnl: Decimal | None = None,
+        entry_timestamp: str | None = None,
+        exit_timestamp: str | None = None,
+        is_scale_in: bool = False,
+    ) -> TradeLifecycleEvent | None:
+        """Emit a canonical trade lifecycle event when lifecycle mode is enabled."""
+        if self._event_bus is None or self._lifecycle_context is None:
+            return None
+
+        lifecycle_event = TradeLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=occurred_at,
+            trade_id=trade_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            trade_state=trade_state,
+            side=side,
+            open_quantity=open_quantity,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            realized_pnl=realized_pnl,
+            unrealized_pnl=unrealized_pnl,
+            commission_total=commission_total,
+            entry_timestamp=entry_timestamp,
+            exit_timestamp=exit_timestamp,
+            fill_ids=fill_ids,
+            price_basis=self._lifecycle_context.reporting_price_basis,
+            entry_basis=self._lifecycle_context.execution_price_basis,
+            exit_basis=(self._lifecycle_context.execution_price_basis if exit_price is not None else None),
+            is_scale_in=is_scale_in,
+            causation_fill_id=causation_fill_id,
+            source_service="portfolio_service",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(lifecycle_event)
+        return lifecycle_event
+
+    def _emit_position_lifecycle_event(
+        self,
+        *,
+        key: tuple[str, str],
+        position_state: str,
+        occurred_at: datetime,
+        transition_reason: str,
+        correlation_id: str | None,
+        causation_id: str | None,
+        side_override: str | None = None,
+        as_of_price_override: Decimal | None | object = _UNSET,
+    ) -> PositionLifecycleEvent | None:
+        """Emit a canonical position lifecycle event when lifecycle mode is enabled."""
+        if self._event_bus is None or self._lifecycle_context is None:
+            return None
+
+        strategy_id, symbol = key
+        position = self._positions.get(key)
+        open_trade_ids = [self._active_trades[key]["trade_id"]] if key in self._active_trades else []
+
+        if position_state == "flat":
+            side = "none"
+            quantity = Decimal("0")
+            average_cost = None
+            market_value = None
+            unrealized_pnl = None
+            as_of_price = None
+            price_basis = NO_PRICE_BASIS
+            open_trade_ids = []
+        else:
+            side = side_override or (position.side if position is not None else "none")
+            quantity = abs(position.quantity) if position is not None else Decimal("0")
+            average_cost = abs(position.avg_price) if position is not None and quantity > 0 else None
+
+            if as_of_price_override is _UNSET:
+                if position is not None and position.current_price is not None:
+                    as_of_price = position.current_price
+                else:
+                    as_of_price = self._latest_prices.get(symbol)
+            else:
+                as_of_price = cast(Decimal | None, as_of_price_override)
+
+            if as_of_price is None:
+                market_value = None
+                unrealized_pnl = None
+                price_basis = NO_PRICE_BASIS
+            else:
+                market_value = quantity * as_of_price
+                if quantity == 0 or average_cost is None:
+                    unrealized_pnl = Decimal("0")
+                elif side == "long":
+                    unrealized_pnl = (as_of_price - average_cost) * quantity
+                elif side == "short":
+                    unrealized_pnl = (average_cost - as_of_price) * quantity
+                else:
+                    unrealized_pnl = Decimal("0")
+                price_basis = self._lifecycle_context.reporting_price_basis
+
+        lifecycle_event = PositionLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=occurred_at,
+            position_key=f"{strategy_id}:{symbol}",
+            strategy_id=strategy_id,
+            symbol=symbol,
+            position_state=position_state,
+            side=side,
+            quantity=quantity,
+            average_cost=average_cost,
+            market_value=market_value,
+            unrealized_pnl=unrealized_pnl,
+            as_of_price=as_of_price,
+            price_basis=price_basis,
+            open_trade_ids=open_trade_ids,
+            transition_reason=transition_reason,
+            source_service="portfolio_service",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(lifecycle_event)
+        self._position_lifecycle_states[key] = position_state
+        return lifecycle_event
+
+    def _emit_portfolio_lifecycle_event(
+        self,
+        *,
+        lifecycle_type: str,
+        timestamp: str,
+        cash_balance: Decimal,
+        total_market_value: Decimal,
+        total_portfolio_equity: Decimal,
+        total_unrealized_pnl: Decimal,
+        total_realized_pnl: Decimal,
+        total_pnl: Decimal,
+        long_exposure: Decimal,
+        short_exposure: Decimal,
+        net_exposure: Decimal,
+        gross_exposure: Decimal,
+        leverage: Decimal,
+        num_open_positions: int,
+        correlation_id: str | None,
+        causation_id: str | None,
+    ) -> PortfolioLifecycleEvent | None:
+        """Emit a canonical portfolio lifecycle event when lifecycle mode is enabled."""
+        if self._event_bus is None or self._lifecycle_context is None:
+            return None
+
+        lifecycle_event = PortfolioLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=self._parse_event_timestamp(timestamp),
+            portfolio_id=self._portfolio_id,
+            lifecycle_type=lifecycle_type,
+            bar_timestamp=timestamp,
+            reporting_currency=self._reporting_currency,
+            cash_balance=cash_balance,
+            total_market_value=total_market_value,
+            total_portfolio_equity=total_portfolio_equity,
+            initial_portfolio_equity=self._initial_cash,
+            total_unrealized_pnl=total_unrealized_pnl,
+            total_realized_pnl=total_realized_pnl,
+            total_pnl=total_pnl,
+            long_exposure=long_exposure,
+            short_exposure=short_exposure,
+            net_exposure=net_exposure,
+            gross_exposure=gross_exposure,
+            leverage=leverage,
+            price_basis=self._lifecycle_context.reporting_price_basis,
+            num_open_positions=num_open_positions,
+            source_service="portfolio_service",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(lifecycle_event)
+        return lifecycle_event
+
     # ==================== State Management (Week 4) ====================
 
     def get_snapshot(self, timestamp: datetime | None = None) -> dict:
@@ -1758,7 +2007,15 @@ class PortfolioService:
         # Mark to market and publish portfolio state (Phase 5)
         self._publish_portfolio_state(event.timestamp)
 
-    def _publish_portfolio_state(self, timestamp: str) -> None:
+    def _publish_portfolio_state(
+        self,
+        timestamp: str,
+        *,
+        lifecycle_type: str = "bar_close",
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+        extra_lifecycle_types: list[str] | None = None,
+    ) -> None:
         """
         Calculate portfolio metrics and publish PortfolioStateEvent.
 
@@ -1867,6 +2124,8 @@ class PortfolioService:
         # Calculate total P&L
         total_pl = self._cumulative_realized_pnl + total_unrealized_pl
 
+        num_open_positions = len([p for p in self._positions.values() if p.quantity != 0])
+
         # Publish portfolio state event
         if self._event_bus:
             # Convert start_datetime to ISO8601 string with Z suffix
@@ -1900,13 +2159,36 @@ class PortfolioService:
             )
             self._event_bus.publish(state_event)
 
+            lifecycle_types = [lifecycle_type]
+            if extra_lifecycle_types:
+                lifecycle_types.extend(extra_lifecycle_types)
+            for portfolio_lifecycle_type in lifecycle_types:
+                self._emit_portfolio_lifecycle_event(
+                    lifecycle_type=portfolio_lifecycle_type,
+                    timestamp=timestamp,
+                    cash_balance=self._cash,
+                    total_market_value=total_market_value,
+                    total_portfolio_equity=current_portfolio_equity,
+                    total_unrealized_pnl=total_unrealized_pl,
+                    total_realized_pnl=self._cumulative_realized_pnl,
+                    total_pnl=total_pl,
+                    long_exposure=long_exposure,
+                    short_exposure=short_exposure,
+                    net_exposure=net_exposure,
+                    gross_exposure=gross_exposure,
+                    leverage=leverage,
+                    num_open_positions=num_open_positions,
+                    correlation_id=correlation_id,
+                    causation_id=causation_id,
+                )
+
             logger.debug(
                 "portfolio_service.state_published",
                 timestamp=timestamp,
                 portfolio_id=self._portfolio_id,
                 current_portfolio_equity=str(current_portfolio_equity),
                 cash_balance=str(self._cash),
-                num_positions=len([p for p in self._positions.values() if p.quantity != 0]),
+                num_positions=num_open_positions,
                 num_strategies=len(strategies_groups),
             )
 
@@ -1924,9 +2206,105 @@ class PortfolioService:
         timestamp = event.occurred_at.isoformat().replace("+00:00", "Z")
         self._publish_portfolio_state(timestamp)
 
+    def on_fill_lifecycle(self, event: FillLifecycleEvent) -> None:
+        """Cache canonical fill lifecycle rows for causation chaining in portfolio events."""
+        if self._lifecycle_context is None:
+            return
+        self._fill_lifecycle_events[event.fill_id] = event
+
+    def on_order_intent_lifecycle(self, event: OrderIntentEvent) -> None:
+        """Emit pending position transitions when accepted intents enter the portfolio layer."""
+        if self._lifecycle_context is None or event.intent_state != "accepted":
+            return
+
+        key = (event.strategy_id, event.symbol)
+        position = self._positions.get(key)
+
+        if event.intent_type in {"open", "scale_in"}:
+            position_state = "pending_open"
+            side = event.direction
+        elif event.intent_type in {"close", "scale_out", "reverse"}:
+            position_state = "pending_close"
+            side = position.side if position is not None and position.quantity != 0 else event.direction
+        else:
+            return
+
+        self._emit_position_lifecycle_event(
+            key=key,
+            position_state=position_state,
+            occurred_at=event.occurred_at,
+            transition_reason="intent_accepted",
+            correlation_id=event.correlation_id,
+            causation_id=event.event_id,
+            side_override=side,
+            as_of_price_override=self._latest_prices.get(event.symbol),
+        )
+        self._intent_position_keys[event.intent_id] = key
+
+    def on_order_lifecycle_event(self, event: OrderLifecycleEvent) -> None:
+        """Emit position rollbacks when accepted intents terminate without completing."""
+        if self._lifecycle_context is None or event.intent_id is None:
+            return
+
+        if event.order_state == "filled":
+            self._intent_position_keys.pop(event.intent_id, None)
+            return
+
+        if event.order_state not in {"expired", "cancelled", "rejected"}:
+            return
+
+        key = self._intent_position_keys.pop(event.intent_id, (event.strategy_id, event.symbol))
+        last_state = self._position_lifecycle_states.get(key)
+        if last_state not in {"pending_open", "pending_close", "partially_closing"}:
+            return
+
+        position = self._positions.get(key)
+        rollback_state = "open" if position is not None and position.quantity != 0 else "flat"
+
+        self._emit_position_lifecycle_event(
+            key=key,
+            position_state=rollback_state,
+            occurred_at=event.occurred_at,
+            transition_reason="intent_cancelled",
+            correlation_id=event.correlation_id,
+            causation_id=event.event_id,
+            side_override=(position.side if position is not None and position.quantity != 0 else None),
+            as_of_price_override=(self._latest_prices.get(event.symbol) if rollback_state != "flat" else None),
+        )
+
+    def emit_run_end_lifecycle(self, timestamp: str) -> None:
+        """Emit final canonical position and portfolio lifecycle snapshots at run teardown."""
+        if self._lifecycle_context is None:
+            return
+
+        occurred_at = self._parse_event_timestamp(timestamp)
+        for key in sorted(self._positions):
+            position = self._positions[key]
+            if position.quantity == 0:
+                continue
+
+            last_state = self._position_lifecycle_states.get(key)
+            position_state = (
+                last_state if last_state in {"open", "pending_open", "pending_close", "partially_closing"} else "open"
+            )
+            self._emit_position_lifecycle_event(
+                key=key,
+                position_state=position_state,
+                occurred_at=occurred_at,
+                transition_reason="run_end",
+                correlation_id=None,
+                causation_id=None,
+                side_override=position.side,
+                as_of_price_override=(
+                    position.current_price if position.current_price is not None else self._latest_prices.get(key[1])
+                ),
+            )
+
+        self._publish_portfolio_state(timestamp, lifecycle_type="run_end")
+
     def on_fill(self, event: FillEvent) -> None:
         """
-        Handle fill event: apply to portfolio and emit TradeEvent.
+        Handle fill event: apply to portfolio and emit legacy plus canonical lifecycle events.
 
         This handler applies the fill to the portfolio, tracks which fills belong
         to the same trade, and emits TradeEvent when a trade opens or closes.
@@ -1945,6 +2323,14 @@ class PortfolioService:
 
         # Cast side to literal type expected by apply_fill
         side: Literal["buy", "sell"] = "buy" if event.side == "buy" else "sell"
+        strat_id = event.strategy_id if event.strategy_id is not None else "unattributed"
+        key = (strat_id, event.symbol)
+
+        position_before = self._positions.get(key)
+        previous_quantity = position_before.quantity if position_before is not None else Decimal("0")
+        previous_average_cost = (
+            abs(position_before.avg_price) if position_before is not None and position_before.quantity != 0 else None
+        )
 
         # Apply fill and get trade tracking info
         trade_id, trade_closed = self.apply_fill(
@@ -1958,6 +2344,11 @@ class PortfolioService:
             strategy_id=event.strategy_id,  # Pass strategy attribution
         )
 
+        # Use fill price as the current mark so lifecycle and legacy portfolio
+        # snapshots reflect the post-fill economic state immediately.
+        self.update_prices({event.symbol: event.fill_price})
+        position_after = self._positions.get(key)
+
         logger.debug(
             "portfolio_service.fill_applied",
             fill_id=event.fill_id,
@@ -1969,13 +2360,132 @@ class PortfolioService:
             trade_closed=trade_closed,
         )
 
+        fill_lifecycle_event = self._fill_lifecycle_events.pop(event.fill_id, None)
+        correlation_id = (
+            fill_lifecycle_event.correlation_id if fill_lifecycle_event is not None else event.correlation_id
+        )
+        trade_causation_id = fill_lifecycle_event.event_id if fill_lifecycle_event is not None else event.event_id
+        portfolio_lifecycle_types: list[str] = []
+        last_trade_lifecycle_event: TradeLifecycleEvent | None = None
+
         # Emit TradeEvent if we have an active trade
         if trade_id and self._event_bus is not None:
-            strat_id = event.strategy_id if event.strategy_id is not None else "unattributed"
-            key = (strat_id, event.symbol)
-
             if key in self._active_trades:
                 trade_data = self._active_trades[key]
+                current_quantity = position_after.quantity if position_after is not None else Decimal("0")
+                trade_realized_pnl = None
+                if position_after is not None and position_after.quantity != 0:
+                    trade_realized_pnl = position_after.realized_pl - trade_data["realized_pl_before"]
+                elif trade_closed:
+                    trade_realized_pnl = trade_data.get("realized_pnl")
+
+                if self._lifecycle_context is not None:
+                    if previous_quantity == 0 and current_quantity != 0:
+                        opening_trade_event = self._emit_trade_lifecycle_event(
+                            occurred_at=timestamp_dt,
+                            trade_id=trade_data["trade_id"],
+                            strategy_id=strat_id,
+                            symbol=event.symbol,
+                            trade_state="opening",
+                            side=trade_data["side"],
+                            open_quantity=abs(current_quantity),
+                            fill_ids=list(trade_data["fills"]),
+                            commission_total=trade_data["commission_total"],
+                            correlation_id=correlation_id,
+                            causation_id=trade_causation_id,
+                            causation_fill_id=event.fill_id,
+                            unrealized_pnl=(position_after.unrealized_pnl if position_after is not None else None),
+                            entry_timestamp=trade_data["entry_timestamp"],
+                        )
+                        last_trade_lifecycle_event = self._emit_trade_lifecycle_event(
+                            occurred_at=timestamp_dt,
+                            trade_id=trade_data["trade_id"],
+                            strategy_id=strat_id,
+                            symbol=event.symbol,
+                            trade_state="open",
+                            side=trade_data["side"],
+                            open_quantity=abs(current_quantity),
+                            fill_ids=list(trade_data["fills"]),
+                            commission_total=trade_data["commission_total"],
+                            correlation_id=correlation_id,
+                            causation_id=(
+                                opening_trade_event.event_id if opening_trade_event is not None else trade_causation_id
+                            ),
+                            causation_fill_id=event.fill_id,
+                            entry_price=(
+                                abs(position_after.avg_price)
+                                if position_after is not None
+                                else trade_data["entry_price"]
+                            ),
+                            unrealized_pnl=(position_after.unrealized_pnl if position_after is not None else None),
+                            entry_timestamp=trade_data["entry_timestamp"],
+                        )
+                        portfolio_lifecycle_types.append("trade_open")
+                    elif trade_closed:
+                        last_trade_lifecycle_event = self._emit_trade_lifecycle_event(
+                            occurred_at=timestamp_dt,
+                            trade_id=trade_data["trade_id"],
+                            strategy_id=strat_id,
+                            symbol=event.symbol,
+                            trade_state="closed",
+                            side=trade_data["side"],
+                            open_quantity=Decimal("0"),
+                            fill_ids=list(trade_data["fills"]),
+                            commission_total=trade_data["commission_total"],
+                            correlation_id=correlation_id,
+                            causation_id=trade_causation_id,
+                            causation_fill_id=event.fill_id,
+                            entry_price=previous_average_cost or trade_data["entry_price"],
+                            exit_price=trade_data.get("exit_price") or event.fill_price,
+                            realized_pnl=trade_realized_pnl,
+                            entry_timestamp=trade_data["entry_timestamp"],
+                            exit_timestamp=event.timestamp,
+                        )
+                        portfolio_lifecycle_types.append("trade_close")
+                    elif abs(current_quantity) < abs(previous_quantity):
+                        last_trade_lifecycle_event = self._emit_trade_lifecycle_event(
+                            occurred_at=timestamp_dt,
+                            trade_id=trade_data["trade_id"],
+                            strategy_id=strat_id,
+                            symbol=event.symbol,
+                            trade_state="partially_closing",
+                            side=trade_data["side"],
+                            open_quantity=abs(current_quantity),
+                            fill_ids=list(trade_data["fills"]),
+                            commission_total=trade_data["commission_total"],
+                            correlation_id=correlation_id,
+                            causation_id=trade_causation_id,
+                            causation_fill_id=event.fill_id,
+                            entry_price=previous_average_cost or trade_data["entry_price"],
+                            exit_price=trade_data.get("exit_price") or event.fill_price,
+                            realized_pnl=trade_realized_pnl,
+                            unrealized_pnl=(position_after.unrealized_pnl if position_after is not None else None),
+                            entry_timestamp=trade_data["entry_timestamp"],
+                            exit_timestamp=event.timestamp,
+                        )
+                    elif abs(current_quantity) > abs(previous_quantity) and previous_quantity != 0:
+                        last_trade_lifecycle_event = self._emit_trade_lifecycle_event(
+                            occurred_at=timestamp_dt,
+                            trade_id=trade_data["trade_id"],
+                            strategy_id=strat_id,
+                            symbol=event.symbol,
+                            trade_state="open",
+                            side=trade_data["side"],
+                            open_quantity=abs(current_quantity),
+                            fill_ids=list(trade_data["fills"]),
+                            commission_total=trade_data["commission_total"],
+                            correlation_id=correlation_id,
+                            causation_id=trade_causation_id,
+                            causation_fill_id=event.fill_id,
+                            entry_price=(
+                                abs(position_after.avg_price)
+                                if position_after is not None
+                                else trade_data["entry_price"]
+                            ),
+                            unrealized_pnl=(position_after.unrealized_pnl if position_after is not None else None),
+                            entry_timestamp=trade_data["entry_timestamp"],
+                            is_scale_in=True,
+                        )
 
                 # Determine status and exit timestamp
                 status = "closed" if trade_closed else "open"
@@ -2011,14 +2521,44 @@ class PortfolioService:
                 if trade_closed:
                     del self._active_trades[key]
 
+        current_quantity = position_after.quantity if position_after is not None else Decimal("0")
+        if current_quantity == 0:
+            position_state = "flat"
+        elif previous_quantity == 0 or abs(current_quantity) >= abs(previous_quantity):
+            position_state = "open"
+        else:
+            position_state = "partially_closing"
+
+        position_event = self._emit_position_lifecycle_event(
+            key=key,
+            position_state=position_state,
+            occurred_at=timestamp_dt,
+            transition_reason="fill_received",
+            correlation_id=correlation_id,
+            causation_id=(
+                last_trade_lifecycle_event.event_id if last_trade_lifecycle_event is not None else trade_causation_id
+            ),
+            side_override=(
+                position_after.side if position_after is not None and position_after.quantity != 0 else None
+            ),
+            as_of_price_override=(
+                event.fill_price if position_after is not None and position_after.quantity != 0 else None
+            ),
+        )
+
+        if fill_lifecycle_event is not None and fill_lifecycle_event.intent_id is not None:
+            self._intent_position_keys.pop(fill_lifecycle_event.intent_id, None)
+
         # In event-driven mode, republish portfolio state after fill
         # This ensures ManagerService has up-to-date equity/positions
         if self._event_bus is not None:
-            # Get the market price for mark-to-market from the current position
-            # For Phase 5 MVP, we use the fill price as the current market price
-            # In production, this would come from the most recent bar
-            self.update_prices({event.symbol: event.fill_price})
-            self._publish_portfolio_state(event.timestamp)
+            self._publish_portfolio_state(
+                event.timestamp,
+                lifecycle_type="fill_applied",
+                correlation_id=(position_event.correlation_id if position_event is not None else correlation_id),
+                causation_id=(position_event.event_id if position_event is not None else trade_causation_id),
+                extra_lifecycle_types=portfolio_lifecycle_types,
+            )
 
     def on_corporate_action(self, event: CorporateActionEvent) -> None:
         """

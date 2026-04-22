@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.portfolio_lifecycle.v1.json",
+  "title": "Portfolio Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    }
+  },
+  "type": "object",
+  "required": [
+    "portfolio_id",
+    "lifecycle_type",
+    "bar_timestamp",
+    "reporting_currency",
+    "cash_balance",
+    "total_market_value",
+    "total_portfolio_equity",
+    "initial_portfolio_equity",
+    "total_unrealized_pnl",
+    "total_realized_pnl",
+    "total_pnl",
+    "long_exposure",
+    "short_exposure",
+    "net_exposure",
+    "gross_exposure",
+    "leverage",
+    "price_basis",
+    "num_open_positions"
+  ],
+  "properties": {
+    "portfolio_id": { "type": "string", "minLength": 1 },
+    "lifecycle_type": {
+      "type": "string",
+      "enum": ["bar_close", "trade_open", "trade_close", "fill_applied", "run_end"]
+    },
+    "bar_timestamp": { "type": "string", "format": "date-time" },
+    "reporting_currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+    "cash_balance": { "$ref": "#/$defs/decimal" },
+    "total_market_value": { "$ref": "#/$defs/decimal" },
+    "total_portfolio_equity": { "$ref": "#/$defs/decimal" },
+    "initial_portfolio_equity": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "total_unrealized_pnl": { "$ref": "#/$defs/decimal" },
+    "total_realized_pnl": { "$ref": "#/$defs/decimal" },
+    "total_pnl": { "$ref": "#/$defs/decimal" },
+    "long_exposure": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "short_exposure": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "net_exposure": { "$ref": "#/$defs/decimal" },
+    "gross_exposure": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "leverage": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "price_basis": { "type": "string", "minLength": 1 },
+    "num_open_positions": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

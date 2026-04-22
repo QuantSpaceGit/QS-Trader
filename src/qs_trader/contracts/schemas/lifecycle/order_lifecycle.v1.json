@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.order_lifecycle.v1.json",
+  "title": "Order Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    }
+  },
+  "type": "object",
+  "required": [
+    "order_id",
+    "strategy_id",
+    "symbol",
+    "order_state",
+    "side",
+    "quantity",
+    "filled_quantity",
+    "order_type",
+    "time_in_force",
+    "idempotency_key"
+  ],
+  "properties": {
+    "order_id": { "type": "string", "format": "uuid" },
+    "intent_id": { "type": ["string", "null"], "format": "uuid" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "order_state": {
+      "type": "string",
+      "enum": ["created", "submitted", "partially_filled", "filled", "expired", "cancelled", "rejected"]
+    },
+    "side": { "type": "string", "enum": ["buy", "sell"] },
+    "quantity": { "$ref": "#/$defs/positiveDecimal" },
+    "filled_quantity": { "$ref": "#/$defs/decimal" },
+    "order_type": { "type": "string", "enum": ["market", "limit", "stop", "stop_limit"] },
+    "limit_price": { "$ref": "#/$defs/nullableDecimal" },
+    "stop_price": { "$ref": "#/$defs/nullableDecimal" },
+    "time_in_force": { "type": "string", "enum": ["GTC", "DAY", "IOC", "FOK"] },
+    "price_basis": { "type": ["string", "null"] },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "rejection_reason": { "type": ["string", "null"] },
+    "expiry_reason": { "type": ["string", "null"] },
+    "cancellation_reason": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

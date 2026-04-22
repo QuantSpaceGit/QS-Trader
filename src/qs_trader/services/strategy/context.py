@@ -17,6 +17,7 @@ Philosophy:
 
 import uuid
 from collections import deque
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -24,6 +25,8 @@ import structlog
 
 from qs_trader.events.event_bus import IEventBus
 from qs_trader.events.events import IndicatorEvent, PriceBarEvent, SignalEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import StrategyDecisionEvent
 from qs_trader.services.strategy.models import SignalIntention
 
 if TYPE_CHECKING:
@@ -103,6 +106,7 @@ class Context:
         config: Optional[dict[str, Any]] = None,
         adjustment_mode: str = "split_adjusted",
         feature_service: Optional["FeatureService"] = None,
+        lifecycle_context: Optional[LifecycleRunContext] = None,
     ):
         """
         Initialize context for a strategy.
@@ -132,6 +136,7 @@ class Context:
 
         # Optional FeatureService for consuming precomputed features from ClickHouse
         self._feature_service = feature_service
+        self._lifecycle_context = lifecycle_context
 
         # Indicator tracking for automatic event emission: {indicator_name: value}
         # Reset at start of each bar, emitted at end if log_indicators: true
@@ -208,13 +213,44 @@ class Context:
             take_profit = Decimal(str(take_profit))
 
         # Generate unique signal_id using UUID
-        # Format: {strategy_id}-{uuid} for traceability and uniqueness across runs
-        signal_id = f"{self._strategy_id}-{uuid.uuid4()}"
+        decision_event: StrategyDecisionEvent | None = None
+        if self._lifecycle_context is not None:
+            decision_id = str(uuid.uuid4())
+            signal_id = decision_id
+            correlation_id = decision_id
+            occurred_at_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if occurred_at_dt.tzinfo is None:
+                occurred_at_dt = occurred_at_dt.replace(tzinfo=timezone.utc)
+            else:
+                occurred_at_dt = occurred_at_dt.astimezone(timezone.utc)
 
-        # Generate correlation_id for this trading workflow
-        # This will be propagated through Order → Fill → Trade for full traceability
-        # Must be a plain UUID string (no prefix) to match envelope schema pattern
-        correlation_id = str(uuid.uuid4())
+            decision_event = StrategyDecisionEvent(
+                experiment_id=self._lifecycle_context.experiment_id,
+                run_id=self._lifecycle_context.run_id,
+                occurred_at=occurred_at_dt,
+                decision_id=decision_id,
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+                bar_timestamp=timestamp,
+                decision_type=self._map_intention_to_decision_type(intention),
+                decision_price=price,
+                decision_basis=self._lifecycle_context.decision_basis,
+                confidence=confidence,
+                indicator_context=self.get_tracked_indicators() or None,
+                reason=reason,
+                metadata=metadata,
+                source_service="strategy_service",
+                correlation_id=correlation_id,
+            )
+            self._event_bus.publish(decision_event)
+        else:
+            # Format: {strategy_id}-{uuid} for traceability and uniqueness across runs
+            signal_id = f"{self._strategy_id}-{uuid.uuid4()}"
+
+            # Generate correlation_id for this trading workflow
+            # This will be propagated through Order → Fill → Trade for full traceability
+            # Must be a plain UUID string (no prefix) to match envelope schema pattern
+            correlation_id = str(uuid.uuid4())
 
         # Create SignalEvent (validates against schema)
         signal = SignalEvent(
@@ -231,7 +267,7 @@ class Context:
             take_profit=take_profit,
             source_service="strategy_service",
             correlation_id=correlation_id,
-            # No causation_id - this is the root event in the chain
+            causation_id=decision_event.event_id if decision_event is not None else None,
         )
 
         # Publish to event bus
@@ -252,6 +288,21 @@ class Context:
         )
 
         return signal
+
+    @staticmethod
+    def _map_intention_to_decision_type(intention: SignalIntention | str) -> str:
+        """Map the legacy signal intention enum onto the canonical decision type."""
+        raw_value = intention.value if isinstance(intention, SignalIntention) else str(intention)
+        mapping = {
+            "OPEN_LONG": "open_long",
+            "CLOSE_LONG": "close_long",
+            "OPEN_SHORT": "open_short",
+            "CLOSE_SHORT": "close_short",
+        }
+        try:
+            return mapping[raw_value]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported signal intention for lifecycle emission: {raw_value}") from exc
 
     def track_indicators(
         self,

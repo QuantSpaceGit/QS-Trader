@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.trade_lifecycle.v1.json",
+  "title": "Trade Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    }
+  },
+  "type": "object",
+  "required": [
+    "trade_id",
+    "strategy_id",
+    "symbol",
+    "trade_state",
+    "side",
+    "open_quantity",
+    "commission_total",
+    "fill_ids",
+    "price_basis",
+    "entry_basis",
+    "is_scale_in"
+  ],
+  "properties": {
+    "trade_id": { "type": "string", "pattern": "^T\\d{5}$" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "trade_state": { "type": "string", "enum": ["opening", "open", "partially_closing", "closed"] },
+    "side": { "type": "string", "enum": ["long", "short"] },
+    "open_quantity": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "entry_price": { "$ref": "#/$defs/nullableDecimal" },
+    "exit_price": { "$ref": "#/$defs/nullableDecimal" },
+    "realized_pnl": { "$ref": "#/$defs/nullableDecimal" },
+    "unrealized_pnl": { "$ref": "#/$defs/nullableDecimal" },
+    "commission_total": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "entry_timestamp": { "type": ["string", "null"], "format": "date-time" },
+    "exit_timestamp": { "type": ["string", "null"], "format": "date-time" },
+    "fill_ids": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" }
+    },
+    "price_basis": { "type": "string", "minLength": 1 },
+    "entry_basis": { "type": "string", "minLength": 1 },
+    "exit_basis": { "type": ["string", "null"] },
+    "is_scale_in": { "type": "boolean" },
+    "causation_fill_id": { "type": ["string", "null"], "format": "uuid" }
+  },
+  "additionalProperties": false
+}

@@ -24,6 +24,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
 from qs_trader.services.reporting.event_collector import collect_run_events
+from qs_trader.services.reporting.lifecycle_event_collector import collect_run_lifecycle_events
 
 if TYPE_CHECKING:
     from qs_trader.events.event_store import EventStore
@@ -155,6 +156,7 @@ class PostgreSQLWriter:
             split_role: Optional role label for IS/OOS splits
         """
         run_event_rows = 0
+        lifecycle_event_rows = 0
         with self._engine.begin() as conn:
             self._delete_existing_run(conn, experiment_id, run_id)
             self._insert_run(
@@ -176,6 +178,7 @@ class PostgreSQLWriter:
             self._insert_returns(conn, experiment_id, run_id, returns)
             self._insert_trades(conn, experiment_id, run_id, trades)
             self._insert_drawdowns(conn, experiment_id, run_id, drawdowns)
+            lifecycle_event_rows = self._insert_lifecycle_events(conn, experiment_id, run_id, event_store)
             run_event_rows = self._insert_run_events(conn, experiment_id, run_id, event_store)
 
         logger.info(
@@ -187,6 +190,7 @@ class PostgreSQLWriter:
                 "return_points": len(returns),
                 "trades_count": len(trades),
                 "drawdown_periods": len(drawdowns),
+                "lifecycle_event_rows": lifecycle_event_rows,
                 "run_event_rows": run_event_rows,
             },
         )
@@ -201,11 +205,43 @@ class PostgreSQLWriter:
         ``run_events`` rows are removed automatically via ``ON DELETE CASCADE``
         when the parent ``runs`` row is deleted.
         """
-        for table in ("drawdowns", "trades", "returns", "equity_curve", "runs"):
+        for table in ("run_lifecycle_events", "drawdowns", "trades", "returns", "equity_curve", "runs"):
             conn.execute(
                 text(f"DELETE FROM {table} WHERE experiment_id = :exp AND run_id = :rid"),
                 {"exp": experiment_id, "rid": run_id},
             )
+
+    def _insert_lifecycle_events(
+        self,
+        conn: Connection,
+        experiment_id: str,
+        run_id: str,
+        event_store: EventStore | None,
+    ) -> int:
+        """Insert canonical lifecycle-ledger rows when lifecycle events are available."""
+        rows = collect_run_lifecycle_events(experiment_id, run_id, event_store)
+        if not rows:
+            return 0
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO run_lifecycle_events (
+                    event_id, schema_version, experiment_id, run_id,
+                    strategy_id, symbol, lifecycle_family, lifecycle_type,
+                    event_timestamp, correlation_id, causation_id,
+                    price_basis, payload_json
+                ) VALUES (
+                    :event_id, :schema_version, :experiment_id, :run_id,
+                    :strategy_id, :symbol, :lifecycle_family, :lifecycle_type,
+                    :event_timestamp, :correlation_id, :causation_id,
+                    :price_basis, CAST(:payload_json AS jsonb)
+                )
+                """
+            ),
+            rows,
+        )
+        return len(rows)
 
     def _insert_run_events(
         self,

@@ -286,6 +286,60 @@ class TestBacktestEngineFromConfig:
     @patch("qs_trader.engine.engine.DataService")
     @patch("qs_trader.engine.engine.EventBus")
     @patch("qs_trader.engine.engine.ParquetEventStore")
+    @patch("qs_trader.engine.engine.ExecutionService")
+    @patch("qs_trader.engine.engine.PortfolioService")
+    @patch("qs_trader.engine.engine.ManagerService")
+    def test_from_config_wires_shared_lifecycle_context(
+        self,
+        mock_manager_service,
+        mock_portfolio_service_class,
+        mock_execution_service_class,
+        mock_parquet_store,
+        mock_event_bus_class,
+        mock_data_service_class,
+        mock_logger_factory,
+        mock_get_system_config,
+        sample_backtest_config: BacktestConfig,
+        mock_system_config,
+        tmp_path: Path,
+    ) -> None:
+        """Portfolio, execution, and manager services should share the same lifecycle run context."""
+        # Arrange
+        config = sample_backtest_config.model_copy(update={"strategies": []})
+        mock_get_system_config.return_value = mock_system_config
+        mock_event_bus = Mock()
+        mock_event_bus_class.return_value = mock_event_bus
+        mock_data_service_class.from_config.return_value = Mock()
+        mock_parquet_store.return_value = Mock()
+        mock_manager_service.from_config.return_value = Mock()
+        portfolio_service = Mock()
+        execution_service = Mock()
+        mock_portfolio_service_class.return_value = portfolio_service
+        mock_execution_service_class.return_value = execution_service
+
+        experiments_root = tmp_path / "experiments"
+        mock_system_config.output.experiments_root = str(experiments_root)
+        mock_system_config.output.event_store.backend = "parquet"
+        mock_system_config.output.event_store.filename = "events.{backend}"
+
+        # Act
+        engine = BacktestEngine.from_config(config)
+
+        # Assert
+        manager_kwargs = mock_manager_service.from_config.call_args.kwargs
+        lifecycle_context = manager_kwargs["lifecycle_context"]
+        assert lifecycle_context.experiment_id == config.sanitized_backtest_id
+        assert lifecycle_context.run_id == config.run_id
+        assert config.run_id is not None
+        portfolio_service.enable_lifecycle_tracking.assert_called_once_with(lifecycle_context)
+        execution_service.enable_lifecycle_tracking.assert_called_once_with(lifecycle_context)
+        assert isinstance(engine, BacktestEngine)
+
+    @patch("qs_trader.engine.engine.get_system_config")
+    @patch("qs_trader.system.log_system.LoggerFactory")
+    @patch("qs_trader.engine.engine.DataService")
+    @patch("qs_trader.engine.engine.EventBus")
+    @patch("qs_trader.engine.engine.ParquetEventStore")
     def test_from_config_creates_results_directory(
         self,
         mock_parquet_store,
@@ -1128,7 +1182,7 @@ class TestManifestBuilderFunction:
             source_name="qs-datamaster-equity-1d",
             database="market",
             bars_table="as_us_equity_ohlc_daily",
-            symbols=["AAPL"],
+            symbols=("AAPL",),
             start_date=date(2023, 1, 1),
             end_date=date(2023, 12, 31),
         )

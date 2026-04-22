@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts.schemas.lifecycle.position_lifecycle.v1.json",
+  "title": "Position Lifecycle v1",
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$"
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    }
+  },
+  "type": "object",
+  "required": [
+    "position_key",
+    "strategy_id",
+    "symbol",
+    "position_state",
+    "side",
+    "quantity",
+    "price_basis",
+    "open_trade_ids"
+  ],
+  "properties": {
+    "position_key": { "type": "string", "pattern": "^[^:]+:[^:]+$" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "position_state": {
+      "type": "string",
+      "enum": ["flat", "pending_open", "open", "pending_close", "partially_closing"]
+    },
+    "side": { "type": "string", "enum": ["long", "short", "none"] },
+    "quantity": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "average_cost": { "$ref": "#/$defs/nullableDecimal" },
+    "market_value": { "$ref": "#/$defs/nullableDecimal" },
+    "unrealized_pnl": { "$ref": "#/$defs/nullableDecimal" },
+    "as_of_price": { "$ref": "#/$defs/nullableDecimal" },
+    "price_basis": { "type": "string", "minLength": 1 },
+    "open_trade_ids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^T\\d{5}$" }
+    },
+    "transition_reason": {
+      "type": ["string", "null"],
+      "enum": ["fill_received", "intent_accepted", "intent_cancelled", "run_end", null]
+    }
+  },
+  "additionalProperties": false
+}

@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Type
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+import qs_trader.events.lifecycle_events  # noqa: F401
 from qs_trader.events.events import BaseEvent
 from qs_trader.system import LoggerFactory
 

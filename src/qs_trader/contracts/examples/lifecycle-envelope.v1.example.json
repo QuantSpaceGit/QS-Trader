@@ -1,0 +1,11 @@
+{
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "event_type": "strategy_decision",
+  "event_version": 1,
+  "occurred_at": "2024-03-15T14:35:22Z",
+  "correlation_id": "550e8400-e29b-41d4-a716-446655440001",
+  "causation_id": "550e8400-e29b-41d4-a716-446655440002",
+  "source_service": "strategy_service",
+  "experiment_id": "sma_crossover",
+  "run_id": "20240315_143522"
+}

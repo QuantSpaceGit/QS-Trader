@@ -23,9 +23,11 @@ from qs_trader.events.events import (
     SignalEvent,
     TradeEvent,
 )
+from qs_trader.events.lifecycle_events import OrderLifecycleEvent, StrategyDecisionEvent
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.event_collector import collect_run_events
+from qs_trader.services.reporting.lifecycle_event_collector import collect_run_lifecycle_events
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
 from qs_trader.services.reporting.service import ReportingService
@@ -242,6 +244,52 @@ def _build_run_event_store() -> InMemoryEventStore:
         )
     )
 
+    return store
+
+
+def _build_lifecycle_event_store() -> InMemoryEventStore:
+    store = InMemoryEventStore()
+    occurred_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    decision_id = "550e8400-e29b-41d4-a716-446655440099"
+
+    strategy_decision = StrategyDecisionEvent(
+        experiment_id="exp",
+        run_id="run-001",
+        occurred_at=occurred_at,
+        decision_id=decision_id,
+        strategy_id="sma_crossover",
+        symbol="AAPL",
+        bar_timestamp="2024-01-02T00:00:00Z",
+        decision_type="open_long",
+        decision_price=Decimal("100.50"),
+        decision_basis="adjusted_ohlc_adj_columns",
+        confidence=Decimal("0.85"),
+        source_service="strategy_service",
+        correlation_id=decision_id,
+    )
+    order_lifecycle = OrderLifecycleEvent(
+        experiment_id="exp",
+        run_id="run-001",
+        occurred_at=occurred_at,
+        order_id="550e8400-e29b-41d4-a716-446655440013",
+        intent_id="550e8400-e29b-41d4-a716-446655440014",
+        strategy_id="sma_crossover",
+        symbol="AAPL",
+        order_state="submitted",
+        side="buy",
+        quantity=Decimal("10"),
+        filled_quantity=Decimal("0"),
+        order_type="market",
+        time_in_force="GTC",
+        price_basis="adjusted_ohlc_adj_columns",
+        idempotency_key="order-key-001",
+        source_service="execution_service",
+        correlation_id=decision_id,
+        causation_id=strategy_decision.event_id,
+    )
+
+    store.append(strategy_decision)
+    store.append(order_lifecycle)
     return store
 
 
@@ -837,6 +885,42 @@ def test_insert_run_events_batches_parameterized_rows() -> None:
     assert json.loads(params[0]["features_json"]) == {"feat_alpha": 1.25}
 
 
+def test_collect_run_lifecycle_events_serializes_canonical_rows() -> None:
+    """Lifecycle row collection should preserve indexed columns and payload JSON."""
+    rows = collect_run_lifecycle_events("exp", "run-001", _build_lifecycle_event_store())
+
+    assert len(rows) == 2
+    strategy_row, order_row = rows
+
+    assert strategy_row["experiment_id"] == "exp"
+    assert strategy_row["run_id"] == "run-001"
+    assert strategy_row["lifecycle_family"] == "strategy_decision"
+    assert strategy_row["lifecycle_type"] == "open_long"
+    assert strategy_row["price_basis"] == "adjusted_ohlc_adj_columns"
+    assert json.loads(strategy_row["payload_json"])["decision_price"] == "100.50"
+
+    assert order_row["lifecycle_family"] == "order_lifecycle"
+    assert order_row["lifecycle_type"] == "submitted"
+    assert order_row["causation_id"] == strategy_row["event_id"]
+    assert json.loads(order_row["payload_json"])["time_in_force"] == "GTC"
+
+
+def test_insert_lifecycle_events_batches_parameterized_rows() -> None:
+    """run_lifecycle_events inserts should batch canonical lifecycle rows."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_lifecycle_events(conn, "exp", "run-001", _build_lifecycle_event_store())
+
+    assert inserted == 2
+    conn.execute.assert_called_once()
+    statement, params = conn.execute.call_args.args
+    assert "INSERT INTO run_lifecycle_events" in str(statement)
+    assert isinstance(params, list)
+    assert {row["lifecycle_family"] for row in params} == {"strategy_decision", "order_lifecycle"}
+    assert all(row["run_id"] == "run-001" for row in params)
+
+
 def test_save_run_remains_backward_compatible_without_event_store() -> None:
     """save_run should keep the existing write flow when callers omit event_store."""
     writer = cast(Any, object.__new__(PostgreSQLWriter))
@@ -854,6 +938,7 @@ def test_save_run_remains_backward_compatible_without_event_store() -> None:
     writer._insert_trades = MagicMock()
     writer._insert_drawdowns = MagicMock()
     writer._insert_run_events = MagicMock(return_value=0)
+    writer._insert_lifecycle_events = MagicMock(return_value=0)
 
     writer.save_run(
         experiment_id="exp",
@@ -872,6 +957,7 @@ def test_save_run_remains_backward_compatible_without_event_store() -> None:
     writer._insert_trades.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_drawdowns.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_run_events.assert_called_once_with(conn, "exp", "run-001", None)
+    writer._insert_lifecycle_events.assert_called_once_with(conn, "exp", "run-001", None)
 
 
 def test_postgresql_writer_updates_audit_export_path() -> None:

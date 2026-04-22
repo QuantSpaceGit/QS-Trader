@@ -1,0 +1,28 @@
+{
+  "event_id": "11111111-1111-4111-8111-111111111111",
+  "event_type": "strategy_decision",
+  "event_version": 1,
+  "occurred_at": "2024-03-15T14:35:22Z",
+  "correlation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "source_service": "strategy_service",
+  "experiment_id": "sma_crossover",
+  "run_id": "20240315_143522",
+  "payload": {
+    "decision_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "strategy_id": "sma_crossover",
+    "symbol": "AAPL",
+    "bar_timestamp": "2024-03-15T14:35:22Z",
+    "decision_type": "open_long",
+    "decision_price": "145.75",
+    "decision_basis": "adjusted_ohlc_adj_columns",
+    "confidence": "0.85",
+    "indicator_context": {
+      "SMA(10)": 145.2,
+      "SMA(50)": 143.9
+    },
+    "reason": "Fast SMA crossed above slow SMA",
+    "metadata": {
+      "regime": "bull"
+    }
+  }
+}

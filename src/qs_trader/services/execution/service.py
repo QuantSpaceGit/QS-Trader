@@ -3,11 +3,13 @@
 Simulates realistic order execution for backtesting.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import FillEvent, OrderEvent, PriceBarEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import FillLifecycleEvent, OrderLifecycleEvent
 from qs_trader.services.data.models import Bar
 from qs_trader.services.execution.commission import CommissionCalculator
 from qs_trader.services.execution.config import ExecutionConfig
@@ -55,7 +57,11 @@ class ExecutionService:
     """
 
     def __init__(
-        self, config: ExecutionConfig, event_bus: Optional[EventBus] = None, adjustment_mode: str = "split_adjusted"
+        self,
+        config: ExecutionConfig,
+        event_bus: Optional[EventBus] = None,
+        adjustment_mode: str = "split_adjusted",
+        lifecycle_context: LifecycleRunContext | None = None,
     ) -> None:
         """Initialize execution service.
 
@@ -73,6 +79,7 @@ class ExecutionService:
         self.commission_calculator = CommissionCalculator(config.commission)
         self._event_bus = event_bus
         self._adjustment_mode = adjustment_mode
+        self._lifecycle_context: LifecycleRunContext | None = None
 
         # Order tracking
         self._orders: dict[str, Order] = {}
@@ -80,11 +87,180 @@ class ExecutionService:
 
         # Event tracking for causation chain
         self._order_events: dict[str, "OrderEvent"] = {}  # order_id → OrderEvent
+        self._latest_order_lifecycle_event_ids: dict[str, str] = {}  # order_id → latest OrderLifecycleEvent.event_id
 
         # Subscribe to events if event bus provided
         if self._event_bus:
             self._event_bus.subscribe("bar", self.on_bar_event)  # type: ignore[arg-type]
             self._event_bus.subscribe("order", self.on_order)  # type: ignore[arg-type]
+
+        if lifecycle_context is not None:
+            self.enable_lifecycle_tracking(lifecycle_context)
+
+    def enable_lifecycle_tracking(self, lifecycle_context: LifecycleRunContext) -> None:
+        """Enable canonical lifecycle emission for this execution service."""
+        self._lifecycle_context = lifecycle_context
+
+    @staticmethod
+    def _isoformat_utc(value: datetime) -> str:
+        """Serialize datetimes to RFC3339 with Z suffix."""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        """Normalize datetimes to timezone-aware UTC instances."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _parse_order_type(value: str) -> OrderType:
+        """Map wire order types onto the execution-service order model."""
+        normalized = value.lower()
+        mapping = {
+            "market": OrderType.MARKET,
+            "limit": OrderType.LIMIT,
+            "stop": OrderType.STOP,
+            "moc": OrderType.MARKET_ON_CLOSE,
+            "market_on_close": OrderType.MARKET_ON_CLOSE,
+        }
+        try:
+            return mapping[normalized]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported order type: {value}") from exc
+
+    @staticmethod
+    def _parse_time_in_force(value: str) -> TimeInForce:
+        """Map wire time-in-force values onto the execution-service model."""
+        normalized = value.lower()
+        mapping = {
+            "day": TimeInForce.DAY,
+            "gtc": TimeInForce.GTC,
+            "ioc": TimeInForce.IOC,
+            "fok": TimeInForce.FOK,
+        }
+        try:
+            return mapping[normalized]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported time_in_force: {value}") from exc
+
+    def _emit_order_lifecycle_event(
+        self,
+        *,
+        order: Order,
+        occurred_at: datetime,
+        order_state: str,
+        causation_id: str | None,
+        rejection_reason: str | None = None,
+        expiry_reason: str | None = None,
+        cancellation_reason: str | None = None,
+    ) -> OrderLifecycleEvent | None:
+        """Emit a canonical order lifecycle transition when lifecycle mode is enabled."""
+        if self._event_bus is None or self._lifecycle_context is None:
+            return None
+
+        order_event = self._order_events.get(order.order_id)
+        strategy_id = order.strategy_id or (order_event.source_strategy_id if order_event else None) or "manual"
+        lifecycle_event = OrderLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=self._ensure_utc(occurred_at),
+            order_id=order.order_id,
+            intent_id=order_event.intent_id if order_event is not None else None,
+            strategy_id=strategy_id,
+            symbol=order.symbol,
+            order_state=order_state,
+            side=order.side.value,
+            quantity=order.quantity,
+            filled_quantity=order.filled_quantity,
+            order_type=order_event.order_type if order_event is not None else order.order_type.value,
+            limit_price=order.limit_price,
+            stop_price=order.stop_price,
+            time_in_force=(order_event.time_in_force if order_event is not None else order.time_in_force.value.upper()),
+            price_basis=self._lifecycle_context.execution_price_basis,
+            idempotency_key=order_event.idempotency_key if order_event is not None else order.order_id,
+            rejection_reason=rejection_reason,
+            expiry_reason=expiry_reason,
+            cancellation_reason=cancellation_reason,
+            source_service="execution_service",
+            correlation_id=order_event.correlation_id if order_event is not None else None,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(lifecycle_event)
+        self._latest_order_lifecycle_event_ids[order.order_id] = lifecycle_event.event_id
+        return lifecycle_event
+
+    def _emit_fill_lifecycle_event(
+        self,
+        *,
+        fill: Fill,
+        order: Order,
+        causation_id: str | None,
+    ) -> FillLifecycleEvent | None:
+        """Emit a canonical fill lifecycle event when lifecycle mode is enabled."""
+        if self._event_bus is None or self._lifecycle_context is None:
+            return None
+
+        order_event = self._order_events.get(order.order_id)
+        gross_value = fill.quantity * fill.price
+        net_value = -(gross_value + fill.commission) if fill.side == "buy" else gross_value - fill.commission
+
+        lifecycle_event = FillLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=self._ensure_utc(fill.timestamp),
+            fill_id=fill.fill_id,
+            order_id=order.order_id,
+            intent_id=order_event.intent_id if order_event is not None else None,
+            strategy_id=fill.strategy_id
+            or order.strategy_id
+            or (order_event.source_strategy_id if order_event else None)
+            or "manual",
+            symbol=fill.symbol,
+            side=fill.side,
+            filled_quantity=fill.quantity,
+            fill_price=fill.price,
+            price_basis=self._lifecycle_context.execution_price_basis,
+            commission=fill.commission,
+            slippage_bps=fill.slippage_bps,
+            gross_value=gross_value,
+            net_value=net_value,
+            order_received_at=order_event.timestamp if order_event is not None else None,
+            source_service="execution_service",
+            correlation_id=order_event.correlation_id if order_event is not None else None,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(lifecycle_event)
+        return lifecycle_event
+
+    def _publish_fill_event(self, fill: Fill) -> None:
+        """Publish the legacy fill event for downstream portfolio/reporting consumers."""
+        if self._event_bus is None:
+            return
+
+        timestamp_str = self._isoformat_utc(fill.timestamp)
+        order_event = self._order_events.get(fill.order_id)
+
+        fill_event = FillEvent(
+            fill_id=fill.fill_id,
+            source_order_id=fill.order_id,
+            timestamp=timestamp_str,
+            symbol=fill.symbol,
+            side=fill.side,
+            filled_quantity=fill.quantity,
+            fill_price=fill.price,
+            commission=fill.commission,
+            slippage_bps=fill.slippage_bps,
+            strategy_id=fill.strategy_id,
+            source_service="execution_service",
+            correlation_id=order_event.correlation_id if order_event else None,
+            causation_id=fill.order_id,
+        )
+        self._event_bus.publish(fill_event)
 
     def submit_order(self, order: Order) -> str:
         """Submit a new order for execution.
@@ -303,6 +479,14 @@ class ExecutionService:
         # Remove from pending
         self._remove_from_pending(order)
 
+        self._emit_order_lifecycle_event(
+            order=order,
+            occurred_at=(order.last_updated or datetime.now(timezone.utc)),
+            order_state="cancelled",
+            causation_id=self._latest_order_lifecycle_event_ids.get(order.order_id),
+            cancellation_reason="manual_cancel",
+        )
+
         logger.info(
             "execution.order.cancelled_manual",
             order_id=order_id,
@@ -412,8 +596,6 @@ class ExecutionService:
 
         # Process bar ONLY for this symbol's pending orders
         symbol = event.symbol
-        fills: list[Fill] = []
-
         if symbol in self._pending_orders_by_symbol:
             order_ids = self._pending_orders_by_symbol.get(symbol, [])
 
@@ -441,6 +623,13 @@ class ExecutionService:
                 if decision.should_expire:
                     order.expire(bar.trade_datetime)
                     self._remove_from_pending(order)
+                    self._emit_order_lifecycle_event(
+                        order=order,
+                        occurred_at=bar.trade_datetime,
+                        order_state="expired",
+                        causation_id=self._latest_order_lifecycle_event_ids.get(order.order_id),
+                        expiry_reason=decision.reason,
+                    )
                     logger.info(
                         "execution.order.expired",
                         order_id=order.order_id,
@@ -470,7 +659,6 @@ class ExecutionService:
                         slippage_bps=decision.slippage_bps,
                         strategy_id=order.strategy_id,  # Preserve strategy attribution
                     )
-                    fills.append(fill)
 
                     logger.info(
                         "execution.fill.generated",
@@ -483,8 +671,23 @@ class ExecutionService:
                         commission=fill.commission,
                     )
 
+                    fill_lifecycle_event = self._emit_fill_lifecycle_event(
+                        fill=fill,
+                        order=order,
+                        causation_id=self._latest_order_lifecycle_event_ids.get(order.order_id),
+                    )
+
                     # Update order state
                     order.update_fill(decision.fill_quantity, decision.fill_price, bar.trade_datetime)
+
+                    self._emit_order_lifecycle_event(
+                        order=order,
+                        occurred_at=bar.trade_datetime,
+                        order_state="filled" if order.is_complete else "partially_filled",
+                        causation_id=fill_lifecycle_event.event_id if fill_lifecycle_event is not None else None,
+                    )
+
+                    self._publish_fill_event(fill)
 
                     # Remove from pending if complete
                     if order.is_complete:
@@ -500,6 +703,13 @@ class ExecutionService:
                 if decision.should_cancel and not order.is_complete:
                     order.cancel(bar.trade_datetime)
                     self._remove_from_pending(order)
+                    self._emit_order_lifecycle_event(
+                        order=order,
+                        occurred_at=bar.trade_datetime,
+                        order_state="cancelled",
+                        causation_id=self._latest_order_lifecycle_event_ids.get(order.order_id),
+                        cancellation_reason=decision.reason or "policy_decision",
+                    )
                     logger.warning(
                         "execution.order.cancelled",
                         order_id=order.order_id,
@@ -507,32 +717,6 @@ class ExecutionService:
                         reason=decision.reason or "policy_decision",
                         filled_quantity=order.filled_quantity,
                     )
-
-        # Publish fill events
-        if self._event_bus:
-            for fill in fills:
-                # Convert fill timestamp to ISO8601 string
-                timestamp_str = fill.timestamp.isoformat().replace("+00:00", "Z")
-
-                # Get OrderEvent for causation chain
-                order_event = self._order_events.get(fill.order_id)
-
-                fill_event = FillEvent(
-                    fill_id=fill.fill_id,
-                    source_order_id=fill.order_id,
-                    timestamp=timestamp_str,
-                    symbol=fill.symbol,
-                    side=fill.side,
-                    filled_quantity=fill.quantity,
-                    fill_price=fill.price,
-                    commission=fill.commission,
-                    slippage_bps=fill.slippage_bps,
-                    strategy_id=fill.strategy_id,  # Preserve strategy attribution
-                    source_service="execution_service",
-                    correlation_id=order_event.correlation_id if order_event else None,  # Propagate workflow ID
-                    causation_id=fill.order_id,  # This fill was caused by the order (order_id = OrderEvent.event_id)
-                )
-                self._event_bus.publish(fill_event)
 
     def on_order(self, event: OrderEvent) -> None:
         """
@@ -552,18 +736,28 @@ class ExecutionService:
             symbol=event.symbol,
             side=OrderSide.BUY if event.side == "buy" else OrderSide.SELL,
             quantity=event.quantity,
-            order_type=OrderType.MARKET,  # For Phase 5, always use market orders
-            time_in_force=TimeInForce.GTC,  # GTC so orders don't expire for testing
+            order_type=self._parse_order_type(event.order_type),
+            time_in_force=self._parse_time_in_force(event.time_in_force),
+            limit_price=event.limit_price,
+            stop_price=event.stop_price,
             created_at=created_at,
             strategy_id=event.source_strategy_id,  # Preserve strategy attribution
         )
 
         # Store OrderEvent for causation chain propagation
         self._order_events[order.order_id] = event
+        if event.causation_id is not None:
+            self._latest_order_lifecycle_event_ids[order.order_id] = event.causation_id
 
         # Submit order
         try:
             order_id = self.submit_order(order)
+            self._emit_order_lifecycle_event(
+                order=order,
+                occurred_at=created_at,
+                order_state="submitted",
+                causation_id=event.causation_id or event.event_id,
+            )
             logger.debug(
                 "execution.order_from_event",
                 order_id=order_id,
@@ -574,6 +768,13 @@ class ExecutionService:
                 intent_id=event.intent_id,
             )
         except ValueError as e:
+            self._emit_order_lifecycle_event(
+                order=order,
+                occurred_at=created_at,
+                order_state="rejected",
+                causation_id=event.causation_id or event.event_id,
+                rejection_reason=str(e),
+            )
             logger.error(
                 "execution.order_submission_failed",
                 source_strategy_id=event.source_strategy_id,

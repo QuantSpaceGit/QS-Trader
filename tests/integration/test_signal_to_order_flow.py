@@ -297,10 +297,12 @@ class TestSignalToOrderFlow:
         manager_service_with_shorts.on_portfolio_state(portfolio_state)
 
         # Test cases: (symbol, intention, expected_side)
+        # Use flat symbols for OPEN_* signals so this test exercises side mapping
+        # instead of the duplicate-open suppression rules.
         test_cases = [
-            ("AAPL", SignalIntention.OPEN_LONG, "buy"),
+            ("MSFT", SignalIntention.OPEN_LONG, "buy"),
             ("AAPL", SignalIntention.CLOSE_LONG, "sell"),
-            ("AAPL", SignalIntention.OPEN_SHORT, "sell"),
+            ("GOOG", SignalIntention.OPEN_SHORT, "sell"),
             ("TSLA", SignalIntention.CLOSE_SHORT, "buy"),
         ]
 

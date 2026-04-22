@@ -32,13 +32,17 @@ Future Enhancements:
 """
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 import structlog
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
+from qs_trader.events.lifecycle_context import LifecycleRunContext
+from qs_trader.events.lifecycle_events import OrderIntentEvent, OrderLifecycleEvent
 from qs_trader.libraries.risk import load_policy
 from qs_trader.libraries.risk.models import RiskConfig
 from qs_trader.libraries.risk.tools import limits as risk_limits
@@ -64,7 +68,12 @@ class ManagerService:
     - Portfolio state synchronization via PortfolioStateEvent
     """
 
-    def __init__(self, risk_config: RiskConfig, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        risk_config: RiskConfig,
+        event_bus: EventBus,
+        lifecycle_context: LifecycleRunContext | None = None,
+    ) -> None:
         """
         Initialize ManagerService.
 
@@ -79,6 +88,7 @@ class ManagerService:
         self._config = risk_config
         self._event_bus = event_bus
         self._logger = LoggerFactory.get_logger("manager.service")
+        self._lifecycle_context = lifecycle_context
 
         # Portfolio state cache (updated by PortfolioStateEvent)
         self._cached_equity: Decimal | None = None
@@ -89,10 +99,13 @@ class ManagerService:
         # Prevents duplicate CLOSE signals while waiting for fill confirmation
         # Cleared when position goes to 0 (via PortfolioStateEvent)
         self._pending_closes: dict[tuple[str, str], str] = {}
+        self._intent_records: dict[str, dict[str, Any]] = {}
 
         # Subscribe to events
         self._event_bus.subscribe("signal", self.on_signal)  # type: ignore[arg-type]
         self._event_bus.subscribe("portfolio_state", self.on_portfolio_state)  # type: ignore[arg-type]
+        if self._lifecycle_context is not None:
+            self._event_bus.subscribe("order_lifecycle", self.on_order_lifecycle)  # type: ignore[arg-type]
 
         # Log after subscriptions
         self._logger.debug(
@@ -107,7 +120,12 @@ class ManagerService:
         )
 
     @classmethod
-    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "ManagerService":
+    def from_config(
+        cls,
+        config_dict: dict[str, Any],
+        event_bus: EventBus,
+        lifecycle_context: LifecycleRunContext | None = None,
+    ) -> "ManagerService":
         """
         Factory method to create ManagerService from configuration.
 
@@ -144,7 +162,7 @@ class ManagerService:
                 extra={"overrides": policy_overrides},
             )
 
-        return cls(risk_config=risk_config, event_bus=event_bus)
+        return cls(risk_config=risk_config, event_bus=event_bus, lifecycle_context=lifecycle_context)
 
     def get_effective_risk_config(self) -> dict[str, Any]:
         """Return a serializable snapshot of the resolved risk config."""
@@ -167,6 +185,130 @@ class ManagerService:
         """
         strategy_positions = self._cached_strategy_positions.get(strategy_id, {})
         return strategy_positions.get(symbol, 0)
+
+    @staticmethod
+    def _resolve_intent_context(signal_event: SignalEvent) -> tuple[str, str, str]:
+        """Map the legacy signal contract onto canonical intent semantics."""
+        mapping = {
+            "OPEN_LONG": ("open_long", "open", "long"),
+            "CLOSE_LONG": ("close_long", "close", "long"),
+            "OPEN_SHORT": ("open_short", "open", "short"),
+            "CLOSE_SHORT": ("close_short", "close", "short"),
+        }
+        try:
+            return mapping[signal_event.intention]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported signal intention: {signal_event.intention}") from exc
+
+    def _emit_intent_event(
+        self,
+        *,
+        occurred_at: str,
+        intent_id: str,
+        strategy_id: str,
+        symbol: str,
+        intent_type: str,
+        intent_state: str,
+        direction: str,
+        correlation_id: str | None,
+        causation_id: str | None,
+        target_quantity: Decimal | None = None,
+        suppression_reason: str | None = None,
+        cancellation_reason: str | None = None,
+    ) -> OrderIntentEvent | None:
+        """Emit a canonical order-intent lifecycle event when enabled."""
+        if self._lifecycle_context is None:
+            return None
+
+        occurred_at_dt = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+        if occurred_at_dt.tzinfo is None:
+            occurred_at_dt = occurred_at_dt.replace(tzinfo=timezone.utc)
+        else:
+            occurred_at_dt = occurred_at_dt.astimezone(timezone.utc)
+
+        intent_event = OrderIntentEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=occurred_at_dt,
+            intent_id=intent_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            intent_type=intent_type,
+            intent_state=intent_state,
+            direction=direction,
+            target_quantity=target_quantity,
+            suppression_reason=suppression_reason,
+            cancellation_reason=cancellation_reason,
+            source_service="manager_service",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(intent_event)
+        self._intent_records[intent_id] = {
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "intent_type": intent_type,
+            "direction": direction,
+            "target_quantity": target_quantity,
+            "correlation_id": correlation_id,
+            "occurred_at": occurred_at,
+            "last_state": intent_state,
+            "last_event_id": intent_event.event_id,
+        }
+        return intent_event
+
+    def _emit_order_created_event(
+        self,
+        *,
+        occurred_at: str,
+        order_id: str,
+        intent_id: str,
+        strategy_id: str,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        order_type: str,
+        time_in_force: str,
+        idempotency_key: str,
+        correlation_id: str | None,
+        causation_id: str | None,
+        limit_price: Decimal | None = None,
+        stop_price: Decimal | None = None,
+    ) -> OrderLifecycleEvent | None:
+        """Emit the canonical order-created lifecycle event when enabled."""
+        if self._lifecycle_context is None:
+            return None
+
+        occurred_at_dt = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+        if occurred_at_dt.tzinfo is None:
+            occurred_at_dt = occurred_at_dt.replace(tzinfo=timezone.utc)
+        else:
+            occurred_at_dt = occurred_at_dt.astimezone(timezone.utc)
+
+        order_event = OrderLifecycleEvent(
+            experiment_id=self._lifecycle_context.experiment_id,
+            run_id=self._lifecycle_context.run_id,
+            occurred_at=occurred_at_dt,
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            order_state="created",
+            side=side,
+            quantity=quantity,
+            filled_quantity=Decimal("0"),
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            time_in_force=time_in_force,
+            price_basis=self._lifecycle_context.execution_price_basis,
+            idempotency_key=idempotency_key,
+            source_service="manager_service",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+        self._event_bus.publish(order_event)
+        return order_event
 
     def on_signal(self, event: SignalEvent) -> None:
         """
@@ -229,11 +371,51 @@ class ManagerService:
             },
         )
 
+        try:
+            _, intent_type, direction = self._resolve_intent_context(event)
+        except ValueError:
+            self._logger.warning(
+                "Signal rejected: unknown intention",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "intention": event.intention,
+                },
+            )
+            return
+
+        lifecycle_intent_id = str(uuid4()) if self._lifecycle_context is not None else event.signal_id
+        root_causation_id = event.causation_id or event.event_id
+        pending_intent_event = self._emit_intent_event(
+            occurred_at=event.timestamp,
+            intent_id=lifecycle_intent_id,
+            strategy_id=event.strategy_id,
+            symbol=event.symbol,
+            intent_type=intent_type,
+            intent_state="pending",
+            direction=direction,
+            target_quantity=None,
+            correlation_id=event.correlation_id,
+            causation_id=root_causation_id,
+        )
+
         # Step 1: Get portfolio equity from cache
         # Manager must receive PortfolioStateEvent before processing signals
         current_equity = self._cached_equity
 
         if current_equity is None:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="no_cached_equity",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
             self._logger.warning(
                 "Signal rejected: no cached equity (PortfolioStateEvent not received)",
                 extra={
@@ -248,6 +430,56 @@ class ManagerService:
         current_price = event.price
         current_positions_list = self._cached_positions
 
+        current_quantity = self._get_position_quantity(event.strategy_id, event.symbol)
+        if event.intention == "OPEN_LONG" and current_quantity > 0:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="duplicate_open_without_scale_in",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
+            self._logger.warning(
+                "manager.signal.rejected.duplicate_open",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                    "current_quantity": current_quantity,
+                    "suppression_reason": "duplicate_open_without_scale_in",
+                },
+            )
+            return
+        if event.intention == "OPEN_SHORT" and current_quantity < 0:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="duplicate_open_without_scale_in",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
+            self._logger.warning(
+                "manager.signal.rejected.duplicate_open",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                    "current_quantity": current_quantity,
+                    "suppression_reason": "duplicate_open_without_scale_in",
+                },
+            )
+            return
+
         # Map intention to side for OrderEvent
         # OPEN_LONG: Buy to open long position
         # CLOSE_SHORT: Buy to cover short position
@@ -258,6 +490,18 @@ class ManagerService:
         elif event.intention in ("CLOSE_LONG", "OPEN_SHORT"):
             side = "sell"  # OrderEvent schema requires lowercase
         else:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="unknown_intention",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
             self._logger.warning(
                 "Signal rejected: unknown intention",
                 extra={
@@ -272,6 +516,18 @@ class ManagerService:
         # Reject OPEN_SHORT signals if shorting is not allowed by risk policy
         if event.intention == "OPEN_SHORT":
             if self._config.shorting and not self._config.shorting.allow_short_positions:
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="shorting_not_allowed",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 # Emit Rich-formatted display event (INFO level shown in console)
                 policy_logger = structlog.get_logger("qs_trader.events.policy")
                 policy_logger.info(
@@ -301,6 +557,18 @@ class ManagerService:
         sizing_config = self._config.sizing.get(event.strategy_id) or self._config.sizing.get("default")
 
         if sizing_config is None:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="no_sizing_config",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
             self._logger.warning(
                 "Signal rejected: no sizing config for strategy",
                 extra={
@@ -321,6 +589,18 @@ class ManagerService:
             # Partial closes (confidence < 1.0) are allowed to accumulate
             pending_key = (event.strategy_id, event.symbol)
             if pending_key in self._pending_closes and event.confidence >= Decimal("1.0"):
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="duplicate_close_pending",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 # Duplicate full close signal - reject silently (common strategy mistake)
                 # This prevents: signal1 → CLOSE_LONG, signal2 → CLOSE_LONG (same bar)
                 # Without fill in between, second CLOSE would open a short position
@@ -337,9 +617,19 @@ class ManagerService:
                 return
 
             # Get current position for this strategy-symbol pair
-            current_quantity = self._get_position_quantity(event.strategy_id, event.symbol)
-
             if current_quantity == 0:
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="no_position_to_close",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 # Emit Rich-formatted rejection event
                 rejection_logger = structlog.get_logger("qs_trader.events.rejection")
                 rejection_logger.info(
@@ -365,6 +655,18 @@ class ManagerService:
 
             # Validate position direction matches intention
             if event.intention == "CLOSE_LONG" and current_quantity <= 0:
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="wrong_position_direction",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 # Emit Rich-formatted rejection event
                 rejection_logger = structlog.get_logger("qs_trader.events.rejection")
                 rejection_logger.info(
@@ -389,6 +691,18 @@ class ManagerService:
                 return
 
             if event.intention == "CLOSE_SHORT" and current_quantity >= 0:
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="wrong_position_direction",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 # Emit Rich-formatted rejection event
                 rejection_logger = structlog.get_logger("qs_trader.events.rejection")
                 rejection_logger.info(
@@ -483,6 +797,20 @@ class ManagerService:
                                 "reason": "Position < 1 lot, cannot close",
                             },
                         )
+                        self._emit_intent_event(
+                            occurred_at=event.timestamp,
+                            intent_id=lifecycle_intent_id,
+                            strategy_id=event.strategy_id,
+                            symbol=event.symbol,
+                            intent_type=intent_type,
+                            intent_state="suppressed",
+                            direction=direction,
+                            suppression_reason="position_too_small_for_lot",
+                            correlation_id=event.correlation_id,
+                            causation_id=(
+                                pending_intent_event.event_id if pending_intent_event is not None else event.event_id
+                            ),
+                        )
                         return  # Skip order emission
 
                 self._logger.debug(
@@ -547,6 +875,18 @@ class ManagerService:
 
             except (ValueError, TypeError) as e:
                 # Sizing calculation failed - reject signal
+                self._emit_intent_event(
+                    occurred_at=event.timestamp,
+                    intent_id=lifecycle_intent_id,
+                    strategy_id=event.strategy_id,
+                    symbol=event.symbol,
+                    intent_type=intent_type,
+                    intent_state="suppressed",
+                    direction=direction,
+                    suppression_reason="sizing_failed",
+                    correlation_id=event.correlation_id,
+                    causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+                )
                 self._logger.warning(
                     "Signal rejected: sizing calculation failed",
                     extra={
@@ -559,6 +899,18 @@ class ManagerService:
 
         # If we reach here, quantity was successfully calculated
         if quantity == 0:
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="quantity_rounded_to_zero",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
             self._logger.debug(
                 "Signal rejected: position size rounded to zero",
                 extra={
@@ -590,6 +942,18 @@ class ManagerService:
 
         if violations:
             reasons = [v.message for v in violations]
+            self._emit_intent_event(
+                occurred_at=event.timestamp,
+                intent_id=lifecycle_intent_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                intent_type=intent_type,
+                intent_state="suppressed",
+                direction=direction,
+                suppression_reason="risk_limit_violation",
+                correlation_id=event.correlation_id,
+                causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+            )
             self._logger.warning(
                 "Signal rejected: limit violations",
                 extra={
@@ -603,10 +967,40 @@ class ManagerService:
 
         # Step 5: Generate audit trail fields
         idempotency_key = f"{event.strategy_id}-{event.signal_id}-{event.timestamp}"
-        intent_id = event.signal_id  # Link order back to signal
+        intent_id = lifecycle_intent_id if self._lifecycle_context is not None else event.signal_id
+
+        accepted_intent_event = self._emit_intent_event(
+            occurred_at=event.timestamp,
+            intent_id=intent_id,
+            strategy_id=event.strategy_id,
+            symbol=event.symbol,
+            intent_type=intent_type,
+            intent_state="accepted",
+            direction=direction,
+            target_quantity=Decimal(str(quantity)),
+            correlation_id=event.correlation_id,
+            causation_id=pending_intent_event.event_id if pending_intent_event is not None else event.event_id,
+        )
+
+        order_id = str(uuid4())
+        created_order_lifecycle_event = self._emit_order_created_event(
+            occurred_at=event.timestamp,
+            order_id=order_id,
+            intent_id=intent_id,
+            strategy_id=event.strategy_id,
+            symbol=event.symbol,
+            side=side,
+            quantity=Decimal(str(quantity)),
+            order_type="market",
+            time_in_force="GTC",
+            idempotency_key=idempotency_key,
+            correlation_id=event.correlation_id,
+            causation_id=accepted_intent_event.event_id if accepted_intent_event is not None else event.event_id,
+        )
 
         # Step 6: Emit OrderEvent with causation chain
         order_event = OrderEvent(
+            event_id=order_id,
             intent_id=intent_id,
             idempotency_key=idempotency_key,
             timestamp=event.timestamp,
@@ -618,7 +1012,9 @@ class ManagerService:
             source_strategy_id=event.strategy_id,
             source_service="manager_service",
             correlation_id=event.correlation_id,  # Propagate workflow ID
-            causation_id=event.event_id,  # This order was caused by the signal
+            causation_id=(
+                created_order_lifecycle_event.event_id if created_order_lifecycle_event is not None else event.event_id
+            ),
         )
 
         self._event_bus.publish(order_event)
@@ -641,6 +1037,39 @@ class ManagerService:
                 "intent_id": intent_id,
                 "idempotency_key": idempotency_key,
             },
+        )
+
+    def on_order_lifecycle(self, event: OrderLifecycleEvent) -> None:
+        """Update canonical intent state when execution reaches a terminal outcome."""
+        if self._lifecycle_context is None or event.intent_id is None:
+            return
+
+        intent_record = self._intent_records.get(event.intent_id)
+        if intent_record is None:
+            return
+
+        if intent_record["last_state"] in {"partially_accepted", "cancelled"}:
+            return
+
+        if event.order_state not in {"expired", "cancelled", "rejected"}:
+            return
+
+        has_partial_fill = Decimal(str(event.filled_quantity)) > 0
+        next_state = "partially_accepted" if has_partial_fill else "cancelled"
+        cancellation_reason = event.expiry_reason or event.cancellation_reason or event.rejection_reason
+
+        self._emit_intent_event(
+            occurred_at=event.occurred_at.isoformat().replace("+00:00", "Z"),
+            intent_id=event.intent_id,
+            strategy_id=intent_record["strategy_id"],
+            symbol=intent_record["symbol"],
+            intent_type=intent_record["intent_type"],
+            intent_state=next_state,
+            direction=intent_record["direction"],
+            target_quantity=intent_record["target_quantity"],
+            correlation_id=intent_record["correlation_id"],
+            causation_id=event.event_id,
+            cancellation_reason=cancellation_reason if next_state == "cancelled" else None,
         )
 
     def on_portfolio_state(self, event: "PortfolioStateEvent") -> None:
