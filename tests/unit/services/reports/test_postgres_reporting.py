@@ -26,6 +26,7 @@ from qs_trader.events.events import (
 from qs_trader.events.lifecycle_events import OrderLifecycleEvent, StrategyDecisionEvent
 from qs_trader.libraries.performance.models import FullMetrics
 from qs_trader.services.reporting.config import ReportingConfig
+from qs_trader.services.reporting.bar_snapshot_collector import collect_run_bar_snapshots
 from qs_trader.services.reporting.event_collector import collect_run_events
 from qs_trader.services.reporting.lifecycle_event_collector import collect_run_lifecycle_events
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
@@ -127,12 +128,20 @@ def _build_run_event_store() -> InMemoryEventStore:
         PriceBarEvent(
             symbol="AAPL",
             timestamp=timestamp,
+            timestamp_local="2024-01-02T16:00:00-05:00",
+            timezone="America/New_York",
             interval="1d",
             open=Decimal("100.00"),
             high=Decimal("101.00"),
             low=Decimal("99.50"),
             close=Decimal("100.75"),
+            open_adj=Decimal("99.75"),
+            high_adj=Decimal("100.75"),
+            low_adj=Decimal("99.25"),
+            close_adj=Decimal("100.25"),
             volume=1000,
+            volume_raw=1200,
+            volume_adj=1000,
             source="unit_test",
         )
     )
@@ -940,8 +949,10 @@ def test_save_run_remains_backward_compatible_without_event_store() -> None:
     writer._insert_returns = MagicMock()
     writer._insert_trades = MagicMock()
     writer._insert_drawdowns = MagicMock()
+    writer._insert_bar_snapshots = MagicMock(return_value=0)
     writer._insert_run_events = MagicMock(return_value=0)
     writer._insert_lifecycle_events = MagicMock(return_value=0)
+    writer._insert_observability_bars = MagicMock(return_value=0)
 
     writer.save_run(
         experiment_id="exp",
@@ -959,8 +970,197 @@ def test_save_run_remains_backward_compatible_without_event_store() -> None:
     writer._insert_returns.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_trades.assert_called_once_with(conn, "exp", "run-001", [])
     writer._insert_drawdowns.assert_called_once_with(conn, "exp", "run-001", [])
+    writer._insert_bar_snapshots.assert_called_once_with(conn, "exp", "run-001", None)
     writer._insert_run_events.assert_called_once_with(conn, "exp", "run-001", None)
     writer._insert_lifecycle_events.assert_called_once_with(conn, "exp", "run-001", None)
+    writer._insert_observability_bars.assert_called_once_with(conn, "exp", "run-001", None)
+
+
+def _build_observability_event_store() -> InMemoryEventStore:
+    store = InMemoryEventStore()
+    store.append(
+        IndicatorEvent(
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            timestamp="2024-01-02T00:00:00Z",
+            indicators={"sma_fast": Decimal("100.25"), "sma_slow": Decimal("99.5")},
+        )
+    )
+    store.append(
+        IndicatorEvent(
+            strategy_id="sma_crossover",
+            symbol="AAPL",
+            timestamp="2024-01-03T00:00:00Z",
+            indicators={"sma_fast": Decimal("101.00"), "sma_slow": Decimal("99.75")},
+        )
+    )
+    return store
+
+
+def _build_bar_snapshot_event_store() -> InMemoryEventStore:
+    store = InMemoryEventStore()
+    store.append(
+        PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2024-01-02T21:00:00Z",
+            timestamp_local="2024-01-02T16:00:00-05:00",
+            timezone="America/New_York",
+            interval="1d",
+            open=Decimal("100.00"),
+            high=Decimal("101.00"),
+            low=Decimal("99.50"),
+            close=Decimal("100.75"),
+            open_adj=Decimal("99.75"),
+            high_adj=Decimal("100.75"),
+            low_adj=Decimal("99.25"),
+            close_adj=Decimal("100.25"),
+            volume=1000,
+            volume_raw=1200,
+            volume_adj=1000,
+            price_currency="USD",
+            price_scale=2,
+            source="qs-datamaster-equity-1d",
+        )
+    )
+    return store
+
+
+def test_collect_run_bar_snapshots_serializes_canonical_rows() -> None:
+    """Runtime bar snapshot collection should preserve raw/adjusted OHLCV truth."""
+    rows = collect_run_bar_snapshots("exp", "run-001", _build_bar_snapshot_event_store())
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["experiment_id"] == "exp"
+    assert row["run_id"] == "run-001"
+    assert row["symbol"] == "AAPL"
+    assert row["source_name"] == "qs-datamaster-equity-1d"
+    assert row["price_scale"] == 2
+    assert row["open_raw"] == Decimal("100.00")
+    assert row["close_adj"] == Decimal("100.25")
+    assert row["volume_raw"] == 1200
+    assert row["volume_adj"] == 1000
+
+
+def test_insert_bar_snapshots_persists_canonical_rows() -> None:
+    """run_bar_snapshots inserts should batch runtime market-data rows."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_bar_snapshots(conn, "exp", "run-001", _build_bar_snapshot_event_store())
+
+    assert inserted == 1
+    conn.execute.assert_called_once()
+    statement, params = conn.execute.call_args.args
+    assert "INSERT INTO run_bar_snapshots" in str(statement)
+    assert isinstance(params, list)
+    assert len(params) == 1
+    assert params[0]["experiment_id"] == "exp"
+    assert params[0]["run_id"] == "run-001"
+    assert params[0]["source_name"] == "qs-datamaster-equity-1d"
+    assert params[0]["volume_raw"] == 1200
+    assert params[0]["volume_adj"] == 1000
+
+
+def test_insert_bar_snapshots_without_bar_events_is_no_op() -> None:
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_bar_snapshots(conn, "exp", "run-001", _build_lifecycle_event_store())
+
+    assert inserted == 0
+    conn.execute.assert_not_called()
+
+
+def test_insert_observability_bars_persists_canonical_rows() -> None:
+    """run_observability_bars inserts should batch per-bar observability rows."""
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_observability_bars(
+        conn, "exp", "run-001", _build_observability_event_store()
+    )
+
+    assert inserted == 2
+    conn.execute.assert_called_once()
+    statement, params = conn.execute.call_args.args
+    assert "INSERT INTO run_observability_bars" in str(statement)
+    assert "CAST(:indicators_json AS jsonb)" in str(statement)
+    assert isinstance(params, list)
+    assert len(params) == 2
+    assert {row["run_id"] for row in params} == {"run-001"}
+    assert {row["strategy_id"] for row in params} == {"sma_crossover"}
+    assert {row["symbol"] for row in params} == {"AAPL"}
+    assert [row["bar_timestamp"] for row in params] == [
+        "2024-01-02T00:00:00Z",
+        "2024-01-03T00:00:00Z",
+    ]
+    assert all(row["schema_version"] == 1 for row in params)
+    assert all(row["runtime_features_json"] is None for row in params)
+    payload = json.loads(params[0]["indicators_json"])
+    assert payload == {"sma_fast": "100.25", "sma_slow": "99.5"}
+
+
+def test_insert_observability_bars_without_indicator_events_is_no_op() -> None:
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    inserted = writer._insert_observability_bars(
+        conn, "exp", "run-001", _build_lifecycle_event_store()
+    )
+
+    assert inserted == 0
+    conn.execute.assert_not_called()
+
+
+def test_delete_existing_run_cascades_bar_snapshots() -> None:
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    writer._delete_existing_run(conn, "exp", "run-001")
+
+    executed_tables: list[str] = []
+    for call in conn.execute.call_args_list:
+        statement = str(call.args[0])
+        for token in statement.split():
+            if token.startswith(
+                (
+                    "run_bar_snapshots",
+                    "run_observability_bars",
+                    "run_lifecycle_events",
+                    "drawdowns",
+                    "trades",
+                    "returns",
+                    "equity_curve",
+                    "runs",
+                )
+            ):
+                executed_tables.append(token)
+                break
+
+    assert "run_bar_snapshots" in executed_tables
+    assert executed_tables.index("run_bar_snapshots") < executed_tables.index("runs")
+
+
+def test_delete_existing_run_cascades_observability_bars() -> None:
+    writer = object.__new__(PostgreSQLWriter)
+    conn = MagicMock()
+
+    writer._delete_existing_run(conn, "exp", "run-001")
+
+    executed_tables: list[str] = []
+    for call in conn.execute.call_args_list:
+        statement = str(call.args[0])
+        for token in statement.split():
+            if token.startswith(("run_observability_bars", "run_lifecycle_events", "drawdowns", "trades", "returns", "equity_curve", "runs")):
+                executed_tables.append(token)
+                break
+
+    assert "run_observability_bars" in executed_tables
+    # observability must be deleted strictly before the parent runs row.
+    assert executed_tables.index("run_observability_bars") < executed_tables.index(
+        "runs"
+    )
 
 
 def test_postgresql_writer_updates_audit_export_path() -> None:

@@ -90,6 +90,22 @@ def test_adapter_reads_connection_config_from_clickhouse_subkey(instrument):
     assert adapter._database == "market_prod"
 
 
+def test_adapter_rejects_unsafe_database_identifier(ch_config, instrument):
+    config = dict(ch_config)
+    config["database"] = "market-prod"
+
+    with pytest.raises(ValueError, match="database"):
+        ClickhouseDataAdapter(config, instrument)
+
+
+def test_adapter_rejects_unsafe_bars_table_identifier(ch_config, instrument):
+    config = dict(ch_config)
+    config["bars_table"] = "as_us_equity_ohlc_daily;drop"
+
+    with pytest.raises(ValueError, match="bars_table"):
+        ClickhouseDataAdapter(config, instrument)
+
+
 # ---------------------------------------------------------------------------
 # read_bars
 # ---------------------------------------------------------------------------
@@ -97,8 +113,8 @@ def test_adapter_reads_connection_config_from_clickhouse_subkey(instrument):
 
 def test_read_bars_returns_bars_in_order(adapter):
     rows = [
-        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 50_000_000),
-        (date(2024, 1, 3), 186.0, 187.0, 185.5, 186.5, 185.0, 186.0, 185.0, 186.0, 45_000_000),
+        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
+        (date(2024, 1, 3), 186.0, 187.0, 185.5, 186.5, 185.0, 186.0, 185.0, 186.0, 55_000_000, 45_000_000),
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
@@ -112,11 +128,13 @@ def test_read_bars_returns_bars_in_order(adapter):
     assert bars[0].close == Decimal("185.80")
     assert bars[0].close_adj == Decimal("185.00")
     assert bars[0].volume == 50_000_000
+    assert bars[0].volume_raw == 60_000_000
+    assert bars[0].volume_adj == 50_000_000
 
 
 def test_read_bars_uses_cache_on_repeated_call(adapter):
     rows = [
-        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 50_000_000),
+        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
@@ -130,7 +148,7 @@ def test_read_bars_uses_cache_on_repeated_call(adapter):
 
 def test_read_bars_re_fetches_on_different_range(adapter):
     rows = [
-        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 50_000_000),
+        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
@@ -171,6 +189,8 @@ def test_to_price_bar_event_timestamp_is_utc_market_close(adapter):
         low_adj=Decimal("184.00"),
         close_adj=Decimal("185.00"),
         volume=50_000_000,
+        volume_raw=60_000_000,
+        volume_adj=50_000_000,
     )
     event = adapter.to_price_bar_event(bar)
 
@@ -194,6 +214,8 @@ def test_to_price_bar_event_fields(adapter):
         low_adj=Decimal("169.50"),
         close_adj=Decimal("171.50"),
         volume=30_000_000,
+        volume_raw=35_000_000,
+        volume_adj=30_000_000,
     )
     event = adapter.to_price_bar_event(bar)
 
@@ -205,6 +227,8 @@ def test_to_price_bar_event_fields(adapter):
     assert event.open_adj == Decimal("170.50")
     assert event.close_adj == Decimal("171.50")
     assert event.volume == 30_000_000
+    assert event.volume_raw == 35_000_000
+    assert event.volume_adj == 30_000_000
     assert event.price_currency == "USD"
     assert event.price_scale == 2
     assert event.source == "qs-datamaster-equity-1d"
@@ -229,6 +253,8 @@ def test_to_price_bar_event_none_adj_fields(adapter):
     event = adapter.to_price_bar_event(bar)
     assert event.open_adj is None
     assert event.close_adj is None
+    assert event.volume_raw is None
+    assert event.volume_adj is None
 
 
 # ---------------------------------------------------------------------------

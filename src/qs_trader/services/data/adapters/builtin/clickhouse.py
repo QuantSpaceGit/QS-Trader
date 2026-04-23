@@ -10,7 +10,8 @@ Canonical PriceBarEvent mapping:
         series used by the QS-Trader split_adjusted execution path and the
         Research-owned visualization contract (openadj, highadj, lowadj,
         closeadj from AlgoSeek)
-  - volume → dailyvolumeadj (adjusted daily volume, rounded to int)
+    - volume → adjusted runtime volume consumed by the engine
+    - volume_raw / volume_adj → dual-basis runtime volume snapshot truth
 
 Design:
   - Implements IDataAdapter protocol for DataSourceResolver auto-discovery
@@ -37,6 +38,7 @@ Example:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -47,6 +49,14 @@ from qs_trader.events.events import CorporateActionEvent, PriceBarEvent
 from qs_trader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _assert_safe_identifier(name: str, field: str) -> None:
+    """Reject identifiers containing characters unsafe for SQL object names."""
+    if not _SAFE_IDENTIFIER_RE.fullmatch(name):
+        raise ValueError(f"ClickHouse adapter field '{field}' contains invalid characters: {name!r}")
 
 
 @dataclass(slots=True)
@@ -64,6 +74,8 @@ class ClickhouseBar:
     low_adj: Optional[Decimal]
     close_adj: Optional[Decimal]
     volume: int
+    volume_raw: Optional[int] = None
+    volume_adj: Optional[int] = None
 
 
 class ClickhouseDataAdapter:
@@ -72,7 +84,7 @@ class ClickhouseDataAdapter:
     Responsibilities:
       - Batch-fetch OHLC bars from ClickHouse for the full date range.
       - Stream bars as ClickhouseBar objects to DataService.
-      - Convert to canonical PriceBarEvent with adjusted OHLC.
+            - Convert to canonical PriceBarEvent with raw/adjusted OHLCV snapshot truth.
       - Provide date range and timestamp extraction.
 
     Configuration keys (from data_sources.yaml clickhouse section):
@@ -102,6 +114,8 @@ class ClickhouseDataAdapter:
         self._password: str = ch_cfg.get("password", "")
         self._database: str = ch_cfg.get("database", "market")
         self._bars_table: str = config.get("bars_table", "as_us_equity_ohlc_daily")
+        _assert_safe_identifier(self._database, "database")
+        _assert_safe_identifier(self._bars_table, "bars_table")
 
         # Display / metadata config (top-level keys from YAML)
         self.tz_name: str = config.get("timezone", "America/New_York")
@@ -182,6 +196,8 @@ class ClickhouseDataAdapter:
             low_adj=bar.low_adj,
             close_adj=bar.close_adj,
             volume=bar.volume,
+            volume_raw=bar.volume_raw,
+            volume_adj=bar.volume_adj,
             price_currency=self.price_currency,
             price_scale=self.price_scale,
             source=self.dataset_name,
@@ -206,15 +222,14 @@ class ClickhouseDataAdapter:
         """Query ClickHouse for the min/max tradedate for this symbol."""
         try:
             client = self._get_client()
-            result = client.query(
-                f"""
+            query = f"""
                 SELECT
                     toString(min(tradedate)) AS min_date,
                     toString(max(tradedate)) AS max_date
-                FROM {self._database}.as_us_equity_ohlc_daily
-                WHERE ticker = '{self.instrument.symbol}'
+                FROM {self._database}.{self._bars_table}
+                WHERE ticker = {{symbol:String}}
                 """
-            )
+            result = client.query(query, parameters={"symbol": self.instrument.symbol})
             if result.result_rows:
                 row = result.result_rows[0]
                 return (row[0] or None, row[1] or None)
@@ -282,16 +297,24 @@ class ClickhouseDataAdapter:
                     toFloat64(highadj)  AS highadj,
                     toFloat64(lowadj)   AS lowadj,
                     toFloat64(closeadj) AS closeadj,
-                    toInt64(round(dailyvolumeadj)) AS volume
-                                FROM {self._database}.{self._bars_table}
-                WHERE ticker = '{symbol}'
-                  AND tradedate >= toDate('{start_date}')
-                  AND tradedate <= toDate('{end_date}')
+                    toInt64(round(dailyvolume)) AS volume_raw,
+                    toInt64(round(dailyvolumeadj)) AS volume_adj
+                FROM {self._database}.{self._bars_table}
+                WHERE ticker = {{symbol:String}}
+                  AND tradedate >= toDate({{start_date:String}})
+                  AND tradedate <= toDate({{end_date:String}})
                   AND openadj > 0
                   AND closeadj > 0
                 ORDER BY tradedate ASC
             """
-            result = client.query(query)
+            result = client.query(
+                query,
+                parameters={
+                    "symbol": symbol,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            )
         except Exception as exc:
             logger.error(
                 "clickhouse_adapter.fetch_failed",
@@ -305,7 +328,19 @@ class ClickhouseDataAdapter:
         bars: list[ClickhouseBar] = []
         q = self.quantizer
         for row in result.result_rows:
-            trade_date, raw_o, raw_h, raw_l, raw_c, raw_oa, raw_ha, raw_la, raw_ca, raw_vol = row
+            (
+                trade_date,
+                raw_o,
+                raw_h,
+                raw_l,
+                raw_c,
+                raw_oa,
+                raw_ha,
+                raw_la,
+                raw_ca,
+                raw_vol_raw,
+                raw_vol_adj,
+            ) = row
 
             def _dec(v: Any) -> Optional[Decimal]:
                 if v is None:
@@ -315,6 +350,10 @@ class ClickhouseDataAdapter:
                     return d.quantize(q) if d > 0 else None
                 except Exception:
                     return None
+
+            volume_raw = int(raw_vol_raw) if raw_vol_raw is not None else None
+            volume_adj = int(raw_vol_adj) if raw_vol_adj is not None else None
+            strategy_volume = volume_adj if volume_adj is not None else (volume_raw or 0)
 
             bars.append(
                 ClickhouseBar(
@@ -328,7 +367,9 @@ class ClickhouseDataAdapter:
                     high_adj=_dec(raw_ha),
                     low_adj=_dec(raw_la),
                     close_adj=_dec(raw_ca),
-                    volume=int(raw_vol) if raw_vol is not None else 0,
+                    volume=strategy_volume,
+                    volume_raw=volume_raw,
+                    volume_adj=volume_adj,
                 )
             )
 

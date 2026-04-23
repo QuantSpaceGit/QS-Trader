@@ -8,6 +8,7 @@ Canonical PriceBarEvent mapping:
     historical prices for splits; dividend drops remain visible)
   - close_adj → mapped from "Adj Close" (total-return adjusted close)
   - open_adj/high_adj/low_adj → None (Yahoo CSV does not provide total-return adjusted values)
+    - volume / volume_raw → Yahoo raw volume (no distinct adjusted series)
 
 Design Goals:
   - Lightweight, zero third-party dependencies (uses Python csv module)
@@ -256,6 +257,7 @@ class YahooCSVDataAdapter(IDataAdapter):
             low_adj=low_adj,
             close_adj=close_adj,
             volume=bar.volume,
+            volume_raw=bar.volume,
             price_currency=self.price_currency,
             price_scale=self.price_scale,
             source=self.dataset_name,

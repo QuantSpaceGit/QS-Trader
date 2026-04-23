@@ -45,6 +45,8 @@ def _integration_audit_event_store() -> InMemoryEventStore:
             low=Decimal("99.50"),
             close=Decimal("100.75"),
             volume=1000,
+            volume_raw=1200,
+            volume_adj=1000,
             source="integration_test",
         )
     )
@@ -781,3 +783,278 @@ class TestReportingIntegration:
 
         audit_zip = Path(mock_system_config.output.experiments_root) / "audit-exports" / "audit_exp" / "run-001.zip"
         assert not audit_zip.exists()
+
+
+# ---------------------------------------------------------------------------
+# Postgres-backed end-to-end observability persistence (v3)
+# ---------------------------------------------------------------------------
+#
+# Exercises the always-on ``run_observability_bars`` persistence path. The
+# fixture is opt-in: the test is skipped when the RESEARCH_POSTGRES_* env is
+# not wired (local dev without stack, CI without DB), matching the pattern
+# used by ``QS-Research/tests/test_pg_delete_restore.py``.
+
+
+def _pg_observability_connection_url() -> str | None:
+    import os
+    import socket
+
+    required = [
+        "RESEARCH_POSTGRES_DB",
+        "RESEARCH_POSTGRES_USER",
+        "RESEARCH_POSTGRES_PASSWORD",
+        "RESEARCH_POSTGRES_HOST",
+    ]
+    if any(not os.environ.get(name) for name in required):
+        return None
+    host = os.environ["RESEARCH_POSTGRES_HOST"]
+    # Fall back to localhost when the configured host is only reachable from
+    # inside the docker network (matches the QS-Research test pattern).
+    if not Path("/.dockerenv").exists():
+        try:
+            socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            if host == "postgres":
+                host = "localhost"
+            else:
+                return None
+    port = os.environ.get("RESEARCH_POSTGRES_PORT", "5432")
+    db = os.environ["RESEARCH_POSTGRES_DB"]
+    user = os.environ["RESEARCH_POSTGRES_USER"]
+    password = os.environ["RESEARCH_POSTGRES_PASSWORD"]
+    return (
+        f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
+    )
+
+
+def test_save_run_persists_bar_snapshots_and_observability_rows_and_cascades_on_resave() -> None:
+    """Run persistence must populate both snapshot and observability ledgers.
+
+    The test drives ``PostgreSQLWriter.save_run`` twice with different
+    bar + indicator payloads for the same ``(experiment_id, run_id)`` and
+    asserts:
+
+    - the first save inserts one runtime bar snapshot row and one
+      observability row per emitted bar;
+    - ``_delete_existing_run`` cascades the prior rows on re-save so both
+      ledgers reflect only the latest event stream;
+    - the round-trip leaves the database in a clean state when the test
+      cleans up after itself.
+    """
+    import pytest
+    from sqlalchemy import create_engine, text
+
+    connection_url = _pg_observability_connection_url()
+    if connection_url is None:
+        pytest.skip(
+            "RESEARCH_POSTGRES_* env not configured; "
+            "postgres observability integration test requires a live DB."
+        )
+
+    from qs_trader.libraries.performance.models import FullMetrics
+    from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
+
+    experiment_id = "observability_integration"
+    run_id = "obs-int-001"
+    strategy_id = "sma_crossover"
+    symbol = "AAPL"
+
+    metrics = FullMetrics(
+        backtest_id=experiment_id,
+        start_date="2024-01-01",
+        end_date="2024-01-05",
+        duration_days=5,
+        initial_equity=Decimal("100000"),
+        final_equity=Decimal("100100"),
+        total_return_pct=Decimal("0.10"),
+        cagr=Decimal("0.10"),
+        best_day_return_pct=Decimal("0.05"),
+        worst_day_return_pct=Decimal("-0.01"),
+        volatility_annual_pct=Decimal("1.00"),
+        max_drawdown_pct=Decimal("-0.10"),
+        max_drawdown_duration_days=1,
+        avg_drawdown_pct=Decimal("-0.05"),
+        current_drawdown_pct=Decimal("0.00"),
+        sharpe_ratio=Decimal("1.00"),
+        sortino_ratio=Decimal("1.00"),
+        calmar_ratio=Decimal("1.00"),
+        risk_free_rate=Decimal("0.00"),
+        total_trades=0,
+        winning_trades=0,
+        losing_trades=0,
+        win_rate=Decimal("0"),
+        profit_factor=Decimal("0"),
+        avg_win=Decimal("0"),
+        avg_loss=Decimal("0"),
+        avg_win_pct=Decimal("0"),
+        avg_loss_pct=Decimal("0"),
+        largest_win=Decimal("0"),
+        largest_loss=Decimal("0"),
+        largest_win_pct=Decimal("0"),
+        largest_loss_pct=Decimal("0"),
+        expectancy=Decimal("0"),
+        max_consecutive_wins=0,
+        max_consecutive_losses=0,
+        avg_trade_duration_days=Decimal("0"),
+        total_commissions=Decimal("0"),
+        commission_pct_of_pnl=Decimal("0"),
+    )
+
+    def _event_store_with_indicators(values: list[tuple[str, Decimal]]) -> InMemoryEventStore:
+        store = InMemoryEventStore()
+        for bar_timestamp, value in values:
+            store.append(
+                PriceBarEvent(
+                    symbol=symbol,
+                    timestamp=bar_timestamp,
+                    interval="1d",
+                    open=Decimal("100.00"),
+                    high=Decimal("101.00"),
+                    low=Decimal("99.50"),
+                    close=Decimal("100.75"),
+                    open_adj=Decimal("99.75"),
+                    high_adj=Decimal("100.75"),
+                    low_adj=Decimal("99.25"),
+                    close_adj=Decimal("100.25"),
+                    volume=int(value * Decimal("10")),
+                    volume_raw=int(value * Decimal("12")),
+                    volume_adj=int(value * Decimal("10")),
+                    source="qs-datamaster-equity-1d",
+                )
+            )
+            store.append(
+                IndicatorEvent(
+                    strategy_id=strategy_id,
+                    symbol=symbol,
+                    timestamp=bar_timestamp,
+                    indicators={"sma_fast": value},
+                )
+            )
+        return store
+
+    writer = PostgreSQLWriter(connection_url)
+    engine = create_engine(connection_url)
+
+    try:
+        writer.save_run(
+            experiment_id=experiment_id,
+            run_id=run_id,
+            metrics=metrics,
+            equity_curve=[],
+            returns=[],
+            trades=[],
+            drawdowns=[],
+            event_store=_event_store_with_indicators(
+                [
+                    ("2024-01-02T00:00:00Z", Decimal("100.25")),
+                    ("2024-01-03T00:00:00Z", Decimal("101.00")),
+                ]
+            ),
+            artifact_mode="database_only",
+        )
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT strategy_id, symbol, bar_timestamp, indicators_json "
+                    "FROM run_observability_bars "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id "
+                    "ORDER BY bar_timestamp"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            ).fetchall()
+            snapshot_rows = conn.execute(
+                text(
+                    "SELECT symbol, bar_timestamp, volume_raw, volume_adj "
+                    "FROM run_bar_snapshots "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id "
+                    "ORDER BY bar_timestamp"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            ).fetchall()
+
+        assert len(rows) == 2, (
+            f"Expected 2 observability rows after first save, got {len(rows)}"
+        )
+        assert len(snapshot_rows) == 2, (
+            f"Expected 2 bar snapshot rows after first save, got {len(snapshot_rows)}"
+        )
+        assert all(row.strategy_id == strategy_id for row in rows)
+        assert all(row.symbol == symbol for row in rows)
+        indicators_first = rows[0].indicators_json
+        assert indicators_first.get("sma_fast") == "100.25"
+        assert snapshot_rows[0].volume_raw == 1203
+        assert snapshot_rows[0].volume_adj == 1002
+
+        writer.save_run(
+            experiment_id=experiment_id,
+            run_id=run_id,
+            metrics=metrics,
+            equity_curve=[],
+            returns=[],
+            trades=[],
+            drawdowns=[],
+            event_store=_event_store_with_indicators(
+                [("2024-01-04T00:00:00Z", Decimal("102.50"))]
+            ),
+            artifact_mode="database_only",
+        )
+
+        with engine.connect() as conn:
+            rows_after = conn.execute(
+                text(
+                    "SELECT bar_timestamp, indicators_json "
+                    "FROM run_observability_bars "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id "
+                    "ORDER BY bar_timestamp"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            ).fetchall()
+            snapshot_rows_after = conn.execute(
+                text(
+                    "SELECT bar_timestamp, volume_raw, volume_adj "
+                    "FROM run_bar_snapshots "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id "
+                    "ORDER BY bar_timestamp"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            ).fetchall()
+
+        assert len(rows_after) == 1, (
+            "Re-save must cascade the prior observability rows before "
+            f"inserting the new set, got {len(rows_after)}"
+        )
+        assert rows_after[0].indicators_json.get("sma_fast") == "102.50"
+        assert len(snapshot_rows_after) == 1, (
+            "Re-save must cascade the prior bar snapshot rows before "
+            f"inserting the new set, got {len(snapshot_rows_after)}"
+        )
+        assert snapshot_rows_after[0].volume_raw == 1230
+        assert snapshot_rows_after[0].volume_adj == 1025
+    finally:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM run_bar_snapshots "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            )
+            conn.execute(
+                text(
+                    "DELETE FROM run_observability_bars "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            )
+            conn.execute(
+                text(
+                    "DELETE FROM runs "
+                    "WHERE experiment_id = :experiment_id AND run_id = :run_id"
+                ),
+                {"experiment_id": experiment_id, "run_id": run_id},
+            )
+        writer.close()
+        engine.dispose()
+
+
