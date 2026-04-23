@@ -323,6 +323,16 @@ output:
 
 For the archived DuckDB-era design note and the current storage-boundary context, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md) and `QS-Infra/docs/archive/research-operational-postgres-migration.md`.
 
+### Audit Fidelity
+
+QS-Trader captures the exact runtime market-data inputs consumed during a run so the downstream audit export is internally self-reconciling. Key facts for operators and auditors:
+
+- **Runtime bar snapshot capture** (`bar_snapshot_collector.py`) persists one row per `PriceBarEvent` into `run_bar_snapshots` at end-of-run. This ledger is the canonical bar-data source for the v4 audit export — the export no longer re-queries ClickHouse to reconstruct bar columns.
+- **`price_scale` is the runtime precision authority.** The active adapter config defines the decimal precision at which prices are quantized and stored. This precision is recorded in `run_bar_snapshots.price_scale` and surfaced in the audit ZIP's `summary.csv` as `runtime_bar_price_scale`.
+- **Indicator consistency.** Because both bar columns and indicator values in `symbols/<SYMBOL>.csv` are derived from the same runtime snapshot series, a human auditor can exactly reproduce any `indicator_*` value by applying the documented `prior_completed_window` formula to the exported `close_adj` column.
+- **Complete audit evidence set.** The runtime bar snapshot (`run_bar_snapshots`) and the per-bar observability rows (`run_observability_bars`) together form the complete audit evidence set for each run — the former records market-data inputs, the latter records derived telemetry (indicators, consumed features).
+- **Post-cutover fail-closed.** Runs executed after the `run_bar_snapshots` table was deployed are expected to have snapshot rows. An audit export for a run where observability bars exist but snapshot rows are absent will fail with an error rather than silently fall back to a potentially inconsistent ClickHouse projection.
+
 ### Interactive Debugging
 
 QS-Trader includes an interactive debugger for step-through strategy development:
