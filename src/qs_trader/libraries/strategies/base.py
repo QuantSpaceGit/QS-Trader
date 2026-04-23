@@ -107,7 +107,12 @@ class StrategyConfig(BaseModel):
     # Debugging/logging flags
     log_indicators: bool = Field(
         default=False,
-        description="Enable indicator event logging for debugging. When True, strategy can call context.track_indicators() and events will be emitted.",
+        description=(
+            "DEPRECATED (audit-export v3): no longer gates indicator emission. "
+            "IndicatorEvent is always emitted when context.track_indicators() is "
+            "called. The field is still parsed for back-compat; setting it to "
+            "False triggers a setup-time deprecation warning only."
+        ),
     )
 
     # Pydantic v2 configuration

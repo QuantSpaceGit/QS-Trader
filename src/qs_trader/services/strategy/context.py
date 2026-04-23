@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import structlog
 
 from qs_trader.events.event_bus import IEventBus
-from qs_trader.events.events import FillEvent, IndicatorEvent, PriceBarEvent, SignalEvent
+from qs_trader.events.events import FillEvent, IndicatorEvent, PriceBarEvent, RuntimeFeaturesEvent, SignalEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import StrategyDecisionEvent
 from qs_trader.events.price_basis import BarView, PriceBasis
@@ -92,8 +92,18 @@ class Context:
         self._lifecycle_projection = lifecycle_projection
 
         # Indicator tracking for automatic event emission: {indicator_name: value}
-        # Reset at start of each bar, emitted at end if log_indicators: true
+        # Reset at the start of each bar and emitted automatically at bar end
+        # whenever the strategy tracked at least one indicator.
         self._indicators: dict[str, Any] = {}
+
+        # Runtime-feature tracking — audit-export v3 Phase 2 observability.
+        # Records the feature-store values the strategy actually consumed on
+        # this bar (via ``get_features`` / ``get_indicators`` / ``get_regime``
+        # or an explicit ``record_consumed_features`` call). Emitted at the
+        # end of the bar as a :class:`RuntimeFeaturesEvent` when non-empty
+        # and persisted into ``run_observability_bars.runtime_features_json``.
+        # Cleared at the start of each bar by ``StrategyService.on_bar``.
+        self._runtime_features: dict[str, Any] = {}
 
         logger.debug(
             "strategy.context.initialized",
@@ -267,8 +277,8 @@ class Context:
         Track indicator values for automatic event emission with optional display names and visualization metadata.
 
         Strategies call this to register calculated indicators.
-        If log_indicators: true in strategy config, StrategyService will automatically
-        emit an IndicatorEvent at the end of on_bar() processing.
+        StrategyService automatically emits an IndicatorEvent at the end of
+        on_bar() processing whenever at least one indicator was tracked.
 
         Indicators are already on the correct scale (backward-adjusted from data service).
         No type classification or adjustment logic needed.
@@ -339,7 +349,7 @@ class Context:
         Note:
             - Accumulates indicators within a bar (can call multiple times)
             - Indicators cleared by StrategyService at start of each bar
-            - Only emitted if log_indicators: true in strategy config
+            - Emitted automatically whenever the strategy tracked indicators
             - Display names appear in CSV exports as ticker column
             - Placement and colors used for HTML report chart rendering
         """
@@ -378,7 +388,7 @@ class Context:
         """
         Emit indicator event.
 
-        Called by StrategyService when log_indicators: true.
+        Called by StrategyService whenever the current bar tracked indicators.
 
         Args:
             symbol: Security symbol
@@ -651,7 +661,9 @@ class Context:
         """
         if self._feature_service is None:
             return None
-        return self._feature_service.get_features(symbol, date, columns=columns)
+        values = self._feature_service.get_features(symbol, date, columns=columns)
+        self._capture_consumed_features(values)
+        return values
 
     def get_indicators(
         self,
@@ -674,7 +686,9 @@ class Context:
         """
         if self._feature_service is None:
             return None
-        return self._feature_service.get_indicators(symbol, date, columns=columns)
+        values = self._feature_service.get_indicators(symbol, date, columns=columns)
+        self._capture_consumed_features(values)
+        return values
 
     def get_regime(self, date: str) -> Optional[dict[str, str]]:
         """Fetch market regime labels for a date.
@@ -689,7 +703,9 @@ class Context:
         """
         if self._feature_service is None:
             return None
-        return self._feature_service.get_regime(date)
+        values = self._feature_service.get_regime(date)
+        self._capture_consumed_features(values)
+        return values
 
     @staticmethod
     def _parse_timestamp(timestamp: str) -> datetime:
@@ -821,3 +837,84 @@ class Context:
             self._indicator_placements.clear()
         if hasattr(self, "_indicator_colors"):
             self._indicator_colors.clear()
+
+    # ------------------------------------------------------------------
+    # Runtime-feature capture (audit-export v3 Phase 2)
+    # ------------------------------------------------------------------
+
+    def record_consumed_features(self, features: dict[str, Any] | None) -> None:
+        """Record feature-store values the strategy consumed on the current bar.
+
+        Strategies may call this explicitly when they read feature values
+        through a path that bypasses the instrumented ``get_features`` /
+        ``get_indicators`` / ``get_regime`` helpers (e.g., a pre-computed
+        dict, a manual ClickHouse query, or an upstream feature pipeline).
+
+        Duplicate keys within a bar are last-write-wins; the final map is
+        emitted as a :class:`RuntimeFeaturesEvent` at the end of
+        :meth:`StrategyService.on_bar` and persisted into
+        ``run_observability_bars.runtime_features_json``. ``None`` values
+        and non-mapping payloads are ignored so strategies can forward the
+        output of ``get_features`` (which returns ``None`` before warmup)
+        without a guard.
+        """
+        self._capture_consumed_features(features)
+
+    def _capture_consumed_features(self, features: Any) -> None:
+        """Internal hook used by the instrumented feature-access helpers."""
+        if not isinstance(features, dict):
+            return
+        for key, value in features.items():
+            self._runtime_features[str(key)] = value
+
+    def get_tracked_runtime_features(self) -> dict[str, Any]:
+        """Return the runtime-feature values captured on the current bar.
+
+        Used by :class:`StrategyService` to build the per-bar
+        :class:`RuntimeFeaturesEvent`. Strategies should not call this
+        directly — emit through :meth:`record_consumed_features` instead.
+        """
+        return self._runtime_features.copy()
+
+    def clear_tracked_runtime_features(self) -> None:
+        """Clear runtime-feature tracking.
+
+        Called by :class:`StrategyService` at the start of each bar to
+        reset the runtime-feature buffer; strategies should not call this
+        directly.
+        """
+        self._runtime_features.clear()
+
+    def _emit_runtime_features_event(
+        self,
+        symbol: str,
+        timestamp: str,
+        runtime_features: dict[str, Any],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> "RuntimeFeaturesEvent":
+        """Emit a :class:`RuntimeFeaturesEvent` to the event bus.
+
+        Called automatically by :class:`StrategyService` at the end of
+        ``on_bar`` when :meth:`get_tracked_runtime_features` returned a
+        non-empty map. Strategies should not call this directly — use
+        :meth:`record_consumed_features` to register the values; the emit
+        path is owned by :class:`StrategyService` so the ``(strategy_id,
+        symbol, timestamp)`` triple stays aligned with the companion
+        :class:`IndicatorEvent` for the same bar.
+        """
+        event = RuntimeFeaturesEvent(
+            strategy_id=self._strategy_id,
+            symbol=symbol,
+            timestamp=timestamp,
+            runtime_features=runtime_features,
+            metadata=metadata if metadata else None,
+            source_service="strategy_service",
+        )
+        self._event_bus.publish(event)
+        logger.debug(
+            "strategy.runtime_features.emitted",
+            strategy_id=self._strategy_id,
+            symbol=symbol,
+            feature_count=len(runtime_features),
+        )
+        return event

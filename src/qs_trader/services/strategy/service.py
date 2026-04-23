@@ -122,6 +122,7 @@ class StrategyService:
                 strategy.setup(context)
                 # Remove from quarantine on successful setup (handles retry scenarios)
                 self._quarantined.discard(name)
+                self._warn_if_log_indicators_deprecated(name, strategy)
                 logger.debug(
                     "strategy.service.setup_complete",
                     strategy=name,
@@ -217,6 +218,7 @@ class StrategyService:
 
             # Clear tracked indicators from previous bar
             context.clear_tracked_indicators()
+            context.clear_tracked_runtime_features()
 
             # Route bar to strategy
             try:
@@ -225,6 +227,10 @@ class StrategyService:
 
                 # Emit indicator event if enabled and indicators were tracked
                 self._emit_indicators_if_enabled(name, event.symbol, event.timestamp, context)
+                # Always-on: emit RuntimeFeaturesEvent when the strategy
+                # consumed at least one feature-store value on this bar. See
+                # QS-Infra/docs/audit-export-v3-observability-bars.md Phase 2.
+                self._emit_runtime_features_if_consumed(name, event.symbol, event.timestamp, context)
 
             except Exception as e:
                 logger.error(
@@ -320,12 +326,45 @@ class StrategyService:
                 )
                 self._strategy_metrics[name]["errors"] += 1
 
+    def _warn_if_log_indicators_deprecated(self, strategy_name: str, strategy: "Strategy") -> None:
+        """Emit a one-time deprecation warning when the legacy flag is explicit.
+
+        ``log_indicators`` is parsed by :class:`StrategyConfig` for back-compat
+        but no longer controls emission (audit-export v3 observability is
+        always-on). We warn when a strategy author explicitly set the flag to
+        ``False`` on the config, since that's the case where the runtime
+        change is user-visible.
+        """
+        config = getattr(strategy, "config", None)
+        if config is None:
+            return
+        fields_set = getattr(config, "model_fields_set", None)
+        if not fields_set or "log_indicators" not in fields_set:
+            return
+        if getattr(config, "log_indicators", True):
+            return
+        logger.warning(
+            "strategy.service.log_indicators_deprecated",
+            strategy=strategy_name,
+            message=(
+                "log_indicators=False is deprecated and has no effect as of "
+                "audit-export v3 observability. Remove the flag from strategy "
+                "config."
+            ),
+        )
+
     def _emit_indicators_if_enabled(self, strategy_name: str, symbol: str, timestamp: str, context: Context) -> None:
         """
-        Emit IndicatorEvent if log_indicators enabled and indicators were tracked.
+        Emit IndicatorEvent whenever tracked indicators exist on the bar.
 
-        Called after each strategy's on_bar() completes. Checks if indicators were
-        tracked via context.track_indicators() and emits event if logging enabled.
+        Always-on as of audit-export v3: per-bar observability is a stack-wide
+        invariant that must not be gated by per-strategy config. See
+        ``QS-Infra/docs/audit-export-v3-observability-bars.md``. Strategies
+        that do not call ``context.track_indicators()`` emit nothing (no row).
+
+        The legacy ``log_indicators`` config flag is parsed for back-compat but
+        has no runtime effect here. A single deprecation warning is emitted
+        per strategy at setup time in :meth:`setup`.
 
         Args:
             strategy_name: Strategy identifier
@@ -333,14 +372,6 @@ class StrategyService:
             timestamp: Bar timestamp
             context: Strategy context with tracked indicators
         """
-        # Get strategy config to check log_indicators flag
-        strategy = self._strategies[strategy_name]
-        log_indicators = getattr(strategy.config, "log_indicators", False)
-
-        # Only emit if enabled and indicators were tracked
-        if not log_indicators:
-            return
-
         indicators = context.get_tracked_indicators()
         if not indicators:
             return  # No indicators tracked this bar
@@ -361,6 +392,42 @@ class StrategyService:
         except Exception as e:
             logger.error(
                 "strategy.service.emit_indicators_error",
+                strategy=strategy_name,
+                symbol=symbol,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+
+    def _emit_runtime_features_if_consumed(
+        self, strategy_name: str, symbol: str, timestamp: str, context: Context
+    ) -> None:
+        """Emit :class:`RuntimeFeaturesEvent` when the bar consumed features.
+
+        Always-on as of audit-export v3 Phase 2. The event is emitted only
+        when :meth:`Context.get_tracked_runtime_features` returns a
+        non-empty map, so bars that did not read from the feature store
+        produce no row in ``run_observability_bars.runtime_features_json``.
+        Fail-closed logging mirrors the indicator path so a single bad bar
+        cannot silently drop the entire run.
+        """
+        runtime_features = context.get_tracked_runtime_features()
+        if not runtime_features:
+            return
+        try:
+            context._emit_runtime_features_event(
+                symbol=symbol,
+                timestamp=timestamp,
+                runtime_features=runtime_features,
+            )
+            logger.debug(
+                "strategy.service.runtime_features_emitted",
+                strategy=strategy_name,
+                symbol=symbol,
+                feature_count=len(runtime_features),
+            )
+        except Exception as e:
+            logger.error(
+                "strategy.service.emit_runtime_features_error",
                 strategy=strategy_name,
                 symbol=symbol,
                 error=str(e),
