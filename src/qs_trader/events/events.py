@@ -263,11 +263,18 @@ class PriceBarEvent(ValidatedEvent):
 
     Price adjustment modes:
         - open/high/low/close: Base adapter OHLC columns kept for compatibility
-            and diagnostics.
+            and diagnostics. For the canonical ClickHouse path these are the
+            raw runtime OHLC values.
 
         - open_adj/high_adj/low_adj/close_adj: Adjusted ClickHouse OHLC series
             used by the canonical QS-Trader / QS-Research backtest path when the
             adapter provides those fields.
+
+        - volume: Strategy-facing runtime volume series consumed by the engine.
+            For the canonical ClickHouse path this is the adjusted volume.
+
+        - volume_raw/volume_adj: Optional dual-basis runtime volume truth used
+            by Phase 1 audit snapshot persistence.
     """
 
     SCHEMA_BASE: ClassVar[Optional[str]] = "data/bar"
@@ -295,6 +302,8 @@ class PriceBarEvent(ValidatedEvent):
     close_adj: Optional[Decimal] = None
 
     volume: int
+    volume_raw: Optional[int] = None
+    volume_adj: Optional[int] = None
     price_currency: str = "USD"
     price_scale: int = 2
     source: str
@@ -308,7 +317,7 @@ class PriceBarEvent(ValidatedEvent):
         # Format with fixed precision based on price_scale (default 2 decimals)
         return f"{v:.{self.price_scale}f}"
 
-    @field_serializer("volume")
+    @field_serializer("volume", "volume_raw", "volume_adj")
     def _serialize_volume(self, v: Optional[int]) -> Optional[int | str]:
         """
         Serialize volume as int if within JavaScript safe integer range,
@@ -488,7 +497,9 @@ class IndicatorEvent(ValidatedEvent):
 
     Emitted by strategies to log indicator calculations for debugging and analysis.
     Includes indicator type classification and adjustment metadata for proper reporting.
-    Opt-in via strategy config (log_indicators: true).
+    Emitted automatically whenever a strategy calls ``Context.track_indicators()``.
+    The legacy ``log_indicators`` config flag is retained for back-compat only
+    and no longer gates emission.
 
     Attributes:
         strategy_id: Strategy that calculated these indicators
@@ -527,6 +538,34 @@ class IndicatorEvent(ValidatedEvent):
 
     # Optional fields
     metadata: Optional[dict[str, Any]] = None  # Additional context
+
+
+class RuntimeFeaturesEvent(ValidatedEvent):
+    """Runtime feature-consumption event — validates against strategy/runtime_features.v{version}.json.
+
+    Captures the feature-store values a strategy actually consumed on a given
+    bar (from ``Context.get_features`` / ``get_indicators`` / ``get_regime``
+    or an explicit ``Context.record_consumed_features`` call). One event per
+    ``(strategy_id, symbol, timestamp)`` with at least one consumed value.
+
+    Emitted as a parallel stream to :class:`IndicatorEvent` so strategies can
+    consume features without tracking indicators (and vice versa) without
+    breaking the ``indicators`` required/minProperties=1 contract. The
+    observability collector merges both streams into a single
+    ``run_observability_bars`` row per ``(strategy, symbol, timestamp)``.
+
+    See ``QS-Infra/docs/audit-export-v3-observability-bars.md`` Phase 2.
+    """
+
+    SCHEMA_BASE: ClassVar[Optional[str]] = "strategy/runtime_features"
+    event_type: str = "runtime_features"
+
+    strategy_id: str
+    symbol: str
+    timestamp: str
+    runtime_features: dict[str, Any]
+
+    metadata: Optional[dict[str, Any]] = None
 
 
 # ============================================

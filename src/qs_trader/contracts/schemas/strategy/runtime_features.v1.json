@@ -1,0 +1,51 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://qs-trader.dev/schemas/strategy/runtime_features.v1.json",
+    "title": "Runtime Features Event",
+    "description": "Feature-store values a strategy actually consumed from QS-Datamaster at decision time. Captured per bar so the v3 audit export can project a runtime_feature_* namespace distinct from the static feature_* namespace sourced from ClickHouse directly.",
+    "type": "object",
+    "required": [
+        "strategy_id",
+        "symbol",
+        "timestamp",
+        "runtime_features"
+    ],
+    "properties": {
+        "strategy_id": {
+            "type": "string",
+            "description": "Strategy that consumed these runtime features",
+            "examples": [
+                "sma_crossover",
+                "mean_reversion"
+            ]
+        },
+        "symbol": {
+            "type": "string",
+            "description": "Security symbol the features were consumed for",
+            "examples": [
+                "AAPL",
+                "SPY"
+            ]
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Bar timestamp for which the features were read (ISO 8601 with timezone)"
+        },
+        "runtime_features": {
+            "type": "object",
+            "description": "Dictionary of feature name -> value the strategy consumed. Values are completely flexible (numeric, boolean, string, array, nested object) to match Datamaster feature-store shapes. Keys should match the original feature-store column names; collisions across get_features/get_indicators/get_regime are last-write-wins within a single bar.",
+            "additionalProperties": {},
+            "minProperties": 1
+        },
+        "metadata": {
+            "type": [
+                "object",
+                "null"
+            ],
+            "description": "Optional provenance metadata (e.g., source table, feature_set_version).",
+            "additionalProperties": {}
+        }
+    },
+    "additionalProperties": false
+}

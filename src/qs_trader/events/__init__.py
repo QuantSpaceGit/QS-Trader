@@ -35,6 +35,7 @@ from qs_trader.events.events import (
     PortfolioStateEvent,
     PriceBarEvent,
     RiskEvaluationTriggerEvent,
+    RuntimeFeaturesEvent,
     SignalEvent,
     StrategyGroup,
     ValidatedEvent,
@@ -70,6 +71,7 @@ __all__ = [
     # Trading Events
     "SignalEvent",
     "IndicatorEvent",
+    "RuntimeFeaturesEvent",
     "OrderEvent",
     "FillEvent",
     "StrategyDecisionEvent",

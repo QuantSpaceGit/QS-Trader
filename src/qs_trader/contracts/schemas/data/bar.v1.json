@@ -1,188 +1,186 @@
 {
-    "$id": "contracts.schemas.bar.v1.json",
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "OHLCV Bar v1",
-    "type": "object",
-    "required": [
-        "symbol",
-        "asset_class",
-        "interval",
-        "timestamp",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume"
-    ],
-    "properties": {
-        "symbol": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Canonical instrument identifier (e.g., AAPL, BTC-USD, FIGI/SecId if you prefer)."
-        },
-        "asset_class": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Asset class (e.g., equity, crypto, forex)."
-        },
-        "interval": {
-            "type": "string",
-            "enum": [
-                "1s",
-                "5s",
-                "10s",
-                "15s",
-                "30s",
-                "1m",
-                "2m",
-                "5m",
-                "10m",
-                "15m",
-                "30m",
-                "1h",
-                "4h",
-                "1d"
-            ],
-            "description": "Bar periodicity."
-        },
-        "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Bar open timestamp (inclusive, UTC RFC3339 with Z suffix). Always required."
-        },
-        "timestamp_local": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "format": "date-time",
-            "description": "Bar open timestamp in local exchange/session time (RFC3339 with offset, e.g., 2024-03-10T09:30:00-05:00 for NYSE). Optional - only include if local session semantics are relevant (e.g., equity markets with trading hours). Omit for 24/7 markets like crypto."
-        },
-        "timezone": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "pattern": "^[A-Za-z]+(/[A-Za-z_]+)+$",
-            "description": "IANA timezone identifier for the primary trading venue (e.g., 'America/New_York' for NYSE, 'Asia/Tokyo' for TSE). Optional - helps consumers understand local context and recompute local time if needed."
-        },
-        "open": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "Open price (split-adjusted only, decimal as string)."
-        },
-        "high": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "High price (split-adjusted only, decimal as string)."
-        },
-        "low": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "Low price (split-adjusted only, decimal as string)."
-        },
-        "close": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "Close price (split-adjusted only, decimal as string)."
-        },
-        "open_adj": {
-            "anyOf": [
-                {
-                    "type": "string",
-                    "pattern": "^-?\\d+(\\.\\d+)?$"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Open price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
-        },
-        "high_adj": {
-            "anyOf": [
-                {
-                    "type": "string",
-                    "pattern": "^-?\\d+(\\.\\d+)?$"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "High price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
-        },
-        "low_adj": {
-            "anyOf": [
-                {
-                    "type": "string",
-                    "pattern": "^-?\\d+(\\.\\d+)?$"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Low price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
-        },
-        "close_adj": {
-            "anyOf": [
-                {
-                    "type": "string",
-                    "pattern": "^-?\\d+(\\.\\d+)?$"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Close price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
-        },
-        "volume": {
-            "oneOf": [
-                {
-                    "type": "integer",
-                    "minimum": 0
-                },
-                {
-                    "type": "string",
-                    "pattern": "^\\d+$"
-                }
-            ],
-            "description": "Trade volume (units or lots). Allow big int as string. Already backward-adjusted by data service."
-        },
-        "vwap": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "Optional VWAP as decimal string."
-        },
-        "turnover": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "description": "Quote currency notional, decimal string."
-        },
-        "trade_count": {
-            "type": "integer",
-            "minimum": 0
-        },
-        "price_currency": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 3,
-            "description": "ISO 4217, e.g., USD."
-        },
-        "price_scale": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Optional fixed-point scale if applicable."
-        },
-        "source": {
-            "type": "string",
-            "description": "Producer id/service name. Data service handles backward adjustment internally."
-        },
-        "trace_id": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "description": "For distributed tracing."
-        }
+  "$id": "contracts.schemas.bar.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OHLCV Bar v1",
+  "type": "object",
+  "required": ["symbol", "asset_class", "interval", "timestamp", "open", "high", "low", "close", "volume"],
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical instrument identifier (e.g., AAPL, BTC-USD, FIGI/SecId if you prefer)."
     },
-    "additionalProperties": false
+    "asset_class": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Asset class (e.g., equity, crypto, forex)."
+    },
+    "interval": {
+      "type": "string",
+      "enum": ["1s", "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "4h", "1d"],
+      "description": "Bar periodicity."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Bar open timestamp (inclusive, UTC RFC3339 with Z suffix). Always required."
+    },
+    "timestamp_local": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Bar open timestamp in local exchange/session time (RFC3339 with offset, e.g., 2024-03-10T09:30:00-05:00 for NYSE). Optional - only include if local session semantics are relevant (e.g., equity markets with trading hours). Omit for 24/7 markets like crypto."
+    },
+    "timezone": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z]+(/[A-Za-z_]+)+$",
+      "description": "IANA timezone identifier for the primary trading venue (e.g., 'America/New_York' for NYSE, 'Asia/Tokyo' for TSE). Optional - helps consumers understand local context and recompute local time if needed."
+    },
+    "open": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Base adapter open price emitted at runtime (decimal as string). For the canonical ClickHouse path this is the raw OHLC series."
+    },
+    "high": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Base adapter high price emitted at runtime (decimal as string). For the canonical ClickHouse path this is the raw OHLC series."
+    },
+    "low": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Base adapter low price emitted at runtime (decimal as string). For the canonical ClickHouse path this is the raw OHLC series."
+    },
+    "close": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Base adapter close price emitted at runtime (decimal as string). For the canonical ClickHouse path this is the raw OHLC series."
+    },
+    "open_adj": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^-?\\d+(\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Open price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
+    },
+    "high_adj": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^-?\\d+(\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "High price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
+    },
+    "low_adj": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^-?\\d+(\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Low price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
+    },
+    "close_adj": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^-?\\d+(\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Close price (total-return adjusted: splits + dividends, decimal as string). Optional. May be null if unavailable."
+    },
+    "volume": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\d+$"
+        }
+      ],
+      "description": "Strategy-facing runtime volume series. For the canonical ClickHouse path this is the adjusted volume; other adapters may use their only available runtime series."
+    },
+    "volume_raw": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\d+$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional raw/runtime-unadjusted volume series. Null when the adapter does not expose a distinct raw series."
+    },
+    "volume_adj": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\d+$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional adjusted runtime volume series. Null when the adapter does not expose a distinct adjusted series."
+    },
+    "vwap": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Optional VWAP as decimal string."
+    },
+    "turnover": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Quote currency notional, decimal string."
+    },
+    "trade_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "price_currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3,
+      "description": "ISO 4217, e.g., USD."
+    },
+    "price_scale": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional fixed-point scale if applicable."
+    },
+    "source": {
+      "type": "string",
+      "description": "Dataset or producer identifier for the runtime bar source."
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "description": "For distributed tracing."
+    }
+  },
+  "additionalProperties": false
 }

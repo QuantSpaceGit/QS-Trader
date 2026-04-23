@@ -233,6 +233,30 @@ class TestPriceBarEvent:
         assert reconstructed.open == Decimal("123.456789")
         assert reconstructed.close == Decimal("123.456789")
 
+    def test_price_bar_roundtrip_preserves_dual_volume_fields(self):
+        """Optional runtime snapshot volume fields should survive JSON round-trip."""
+        original = PriceBarEvent(
+            source_service="data_service",
+            symbol="TEST",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("123.45"),
+            high=Decimal("124.45"),
+            low=Decimal("122.45"),
+            close=Decimal("123.95"),
+            volume=1000,
+            volume_raw=1200,
+            volume_adj=1000,
+            source="test",
+        )
+
+        reconstructed = PriceBarEvent.model_validate_json(original.model_dump_json())
+
+        assert reconstructed.volume == 1000
+        assert reconstructed.volume_raw == 1200
+        assert reconstructed.volume_adj == 1000
+
 
 # ============================================
 # CorporateActionEvent Tests

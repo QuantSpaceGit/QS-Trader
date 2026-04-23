@@ -1,0 +1,26 @@
+{
+    "event_id": "b2c3d4e5-f6a7-4b5c-9d0e-1f2a3b4c5d6e",
+    "event_type": "runtime_features",
+    "occurred_at": "2024-03-15T14:30:00.123456Z",
+    "source_service": "strategy",
+    "correlation_id": "f1e2d3c4-b5a6-4a5b-8c9d-0e1f2a3b4c5d",
+    "causation_id": "e1f2a3b4-c5d6-4a5b-8c9d-0e1f2a3b4c5d",
+    "strategy_id": "momentum_regime_aware",
+    "symbol": "AAPL",
+    "timestamp": "2024-03-15T14:30:00.000000Z",
+    "runtime_features": {
+        "momentum_score": 0.0623,
+        "composite_regime": "bull",
+        "trend_regime": "uptrend",
+        "vol_regime": "normal",
+        "breadth_regime": "risk_on",
+        "risk_regime": "risk_on",
+        "volatility_21d": 0.1824,
+        "rsi_14": 65.4,
+        "sector": "technology"
+    },
+    "metadata": {
+        "source_table": "features_equity_composite_daily",
+        "feature_set_version": "v3"
+    }
+}

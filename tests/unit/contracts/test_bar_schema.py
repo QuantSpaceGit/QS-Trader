@@ -152,3 +152,22 @@ def test_bar_decimal_fields_accept_strings(bar_schema):
 
     # Should not raise
     validate(instance=valid_payload, schema=bar_schema)
+
+
+def test_bar_optional_dual_volume_fields_accept_int_string_and_null(bar_schema):
+    """Verify that the runtime snapshot volume fields are optional and nullable."""
+    payload = {
+        "symbol": "AAPL",
+        "asset_class": "equity",
+        "interval": "1d",
+        "timestamp": "2020-08-31T00:00:00Z",
+        "open": "127.67",
+        "high": "131.0",
+        "low": "126.25",
+        "close": "129.04",
+        "volume": "210249674",
+        "volume_raw": 210249674,
+        "volume_adj": None,
+    }
+
+    validate(instance=payload, schema=bar_schema)
