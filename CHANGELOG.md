@@ -6,6 +6,26 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- **Runtime bar snapshot persistence** (audit export v4 phase 1): QS-Trader now persists the exact runtime `PriceBarEvent` stream into the new `run_bar_snapshots` Postgres ledger so downstream audit exports can reconstruct the bars the engine actually consumed
+
+  - `PriceBarEvent` and the `data/bar.v1.json` contract now carry optional `volume_raw` / `volume_adj` runtime snapshot fields alongside the strategy-facing `volume`
+  - Canonical ClickHouse bars emit dual-basis runtime volume (`dailyvolume` + `dailyvolumeadj`) while preserving the existing adjusted-volume engine behavior
+  - `PostgreSQLWriter.save_run` now inserts `run_bar_snapshots` inside the same transaction as runs, lifecycle events, and observability rows; re-saves delete snapshot rows before the parent `runs` row
+  - Requires QS-Research Alembic migration `010_run_bar_snapshots`
+
+- **Always-on per-bar indicator observability** (audit export v3): Every bar that tracks at least one indicator via `Context.track_indicators(...)` is persisted to the new `run_observability_bars` Postgres ledger at run teardown, and becomes the canonical source for the `indicator_*` namespace in the audit export CSV bundle
+
+  - New `IndicatorEvent` lifecycle payload captured through the existing `InMemoryEventStore` (one event per `(strategy_id, symbol, bar_timestamp)` with tracked values)
+  - `PostgreSQLWriter.save_run` now invokes `_insert_observability_bars` inside the same transaction as lifecycle events, keyed on `(experiment_id, run_id, strategy_id, symbol, bar_timestamp)`; cascade-delete is owned by `pg_delete_orchestrator`
+  - Audit export v3 (`audit_export_schema_version = 3`) sources indicators exclusively from `run_observability_bars`; `summary.csv` adds `observability_source`, `observability_row_count`, `observability_columns`; runs persisted before the ledger existed soft-degrade to `observability_source = "legacy"` with empty `indicator_*` columns
+  - Requires QS-Research Alembic migration `009_run_observability_bars`
+
+### Deprecated
+
+- **`StrategyConfig.log_indicators` flag**: Retained for back-compat parsing only. As of audit-export v3 the flag no longer gates `IndicatorEvent` emission — indicator capture is always on. Setting `log_indicators=False` emits `strategy.service.log_indicators_deprecated` at setup. Remove the flag from strategy YAML when convenient; it will be dropped in a future release.
+
 ### Changed
 
 - **Explicit `price_basis` contract**: Backtest config, manifests, reporting, and scaffold examples now use a single `price_basis` contract instead of the removed legacy adjustment-mode knobs
@@ -13,6 +33,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - `BacktestConfig` and `ClickHouseInputManifest` reject legacy `adjustment_mode`, `strategy_adjustment_mode`, and `portfolio_adjustment_mode` inputs
   - Strategy-facing `Context` price/bar accessors require an explicit basis, making `raw` versus `adjusted` behavior truthful and testable
   - Reporting metadata and audit-export summaries now emit `price_basis`, while scaffold strategies and experiment templates demonstrate the explicit-basis API
+
+- **Canonical ClickHouse runtime volume fallback**: Strategy-facing runtime volume now falls back to raw `dailyvolume` when `dailyvolumeadj` is absent, instead of silently collapsing to zero
 
 ______________________________________________________________________
 

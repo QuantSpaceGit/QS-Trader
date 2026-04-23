@@ -1,5 +1,5 @@
 ---
-description: "Trader: prepare and publish a new GitHub release end-to-end (version bump, docs, QA, build, tag, GitHub release)"
+description: 'Trader: prepare and publish a new GitHub release end-to-end (version bump, docs, QA, build, tag, GitHub release)'
 ---
 
 Perform the full `QS-Trader` release workflow end-to-end for a new version.

@@ -147,6 +147,8 @@ Step 3. Loader merges provided fields with defaults using Pydantic validation (t
 
 Step 4. The resulting effective config instance is passed to the strategy runtime.
 
+> **Deprecated:** `StrategyConfig.log_indicators` — As of audit-export v3, per-bar indicator observability is always on; every strategy that calls `Context.track_indicators(...)` persists an `IndicatorEvent` regardless of this flag. The field is still parsed for back-compat, but setting `log_indicators: false` emits the `strategy.service.log_indicators_deprecated` warning at setup and otherwise has no effect. Remove the flag from strategy YAML when convenient; it will be dropped in a future release.
+
 Strategic Philosophy:
 
 - “Acquire or build a robust strategy” → treat it like a model artifact with version and documentation.
