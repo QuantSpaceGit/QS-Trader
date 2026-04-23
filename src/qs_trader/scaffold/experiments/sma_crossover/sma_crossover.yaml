@@ -39,7 +39,7 @@ strategies:
       fast_period: 20
       slow_period: 50
       confidence: 1.0
-      log_indicators: true # Enable indicator event logging
+      log_indicators: true # Deprecated no-op; safe to remove from new configs
 
 risk_policy:
   name: "naive" # Registry name

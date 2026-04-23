@@ -37,7 +37,7 @@ class SMAConfig(StrategyConfig):
     fast_period: int = 10  # Fast SMA period
     slow_period: int = 50  # Slow SMA period (strategy needs this many bars minimum)
     confidence: Decimal = Decimal("1.0")  # Signal confidence
-    log_indicators: bool = True  # Enable indicator logging for visualization
+    log_indicators: bool = True  # Legacy no-op; indicator emission is now always-on when tracked
 
 
 # Export config for auto-discovery
@@ -129,7 +129,7 @@ class SMACrossover(Strategy[SMAConfig]):
         golden_cross = prev_fast_sma <= prev_slow_sma and fast_sma > slow_sma
         death_cross = prev_fast_sma >= prev_slow_sma and fast_sma < slow_sma
 
-        # Track indicators for logging (only emitted if log_indicators: true in strategy config)
+        # Track indicators for logging/observability (automatically emitted when tracked)
         # Indicators already on correct scale (backward-adjusted from data service)
         context.track_indicators(
             indicators={

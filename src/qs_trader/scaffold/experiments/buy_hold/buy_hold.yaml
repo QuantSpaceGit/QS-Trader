@@ -36,7 +36,7 @@ strategies:
     universe: ["AAPL"] # Symbols this strategy trades (subset of backtest universe)
     data_sources: ["sample-csv-1d"] # Data feeds this strategy uses
     config: # Strategy-specific config overrides
-      log_indicators: false # Enable indicator event logging
+      log_indicators: false # Deprecated no-op; safe to remove from new configs
 
 risk_policy:
   name: "naive" # Registry name

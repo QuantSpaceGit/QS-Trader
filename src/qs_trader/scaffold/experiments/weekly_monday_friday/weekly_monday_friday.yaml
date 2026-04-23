@@ -36,7 +36,7 @@ strategies:
     data_sources: ["yahoo-us-equity-1d-csv"] # Data feeds this strategy uses
     config: # Strategy-specific configuration parameters
       confidence: 1.0 # Signal confidence level (0.0 to 1.0)
-      log_indicators: false # Enable indicator event logging
+      log_indicators: false # Deprecated no-op; safe to remove from new configs
 
 # Risk management policy
 risk_policy:

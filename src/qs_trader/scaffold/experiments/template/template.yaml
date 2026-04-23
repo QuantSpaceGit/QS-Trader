@@ -81,7 +81,7 @@ strategies:
     config: # Strategy-specific parameters
       fast_period: 10
       slow_period: 50
-      log_indicators: false # Enable indicator event logging (optional, default: false)
+      log_indicators: false # Deprecated no-op; indicator emission now depends on context.track_indicators()
 
   # Strategy 2: Momentum
   # - strategy_id: "momentum"
@@ -101,12 +101,12 @@ strategies:
   # INDICATOR LOGGING (Optional)
   # ==============================================================================
   # Strategies can log indicator values during backtests for debugging and analysis.
-  # Enable via 'log_indicators: true' in strategy config.
+  # The legacy 'log_indicators' flag is retained for back-compat only and no longer gates emission.
   #
   # How it works:
   # 1. Strategy calculates indicators (SMA, RSI, custom formulas, ML scores, etc.)
   # 2. Strategy calls context.track_indicators({"indicator_name": value})
-  # 3. If log_indicators: true, StrategyService automatically emits IndicatorEvent
+  # 3. StrategyService automatically emits IndicatorEvent for any tracked indicators
   # 4. Events displayed in console (if display_events includes "indicator" or "*")
   # 5. Events stored in EventStore for replay/analysis
   #
@@ -140,7 +140,7 @@ strategies:
   # - Composite indicators: combining multiple signals
   #
   # Performance:
-  # - Zero overhead when log_indicators: false (default)
+  # - Zero overhead when the strategy never calls context.track_indicators()
   # - Minimal overhead when enabled (dict update + event emission)
   # - No impact on strategy logic or signals
   #
