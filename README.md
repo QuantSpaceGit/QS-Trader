@@ -531,7 +531,7 @@ src/qs-trader/
 ├── engine/      # Orchestration & backtest engine
 ├── services/    # data, strategy, execution, portfolio, reports
 ├── events/      # Event definitions & bus/store
-├── contracts/   # Versioned JSON schemas: data/, strategy/, manager/, execution/, portfolio/, lifecycle/
+├── contracts/   # Versioned JSON schemas: data/, strategy/, manager/, execution/, portfolio/, reporting/, lifecycle/
 ├── libraries/   # Built-in indicators, strategies, risk policies
 ├── cli/         # Command-line interface
 └── scaffold/    # Project & library templates distributed with package
