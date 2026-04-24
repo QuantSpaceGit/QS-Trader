@@ -1,0 +1,372 @@
+{
+  "$id": "contracts.schemas.performance_metrics.v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Performance Metrics Snapshot v2",
+  "description": "Sleeve-scoped performance metrics snapshot for isolated ensemble reporting. Preserves the v1 payload shape and adds required sleeve attribution via sleeve_id and symbol.",
+  "type": "object",
+  "required": [
+    "sleeve_id",
+    "symbol",
+    "timestamp",
+    "equity",
+    "cash",
+    "positions_value",
+    "total_return_pct",
+    "max_drawdown_pct",
+    "current_drawdown_pct",
+    "num_positions",
+    "gross_exposure",
+    "net_exposure",
+    "leverage"
+  ],
+  "properties": {
+    "sleeve_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable sleeve identifier for the isolated execution unit. Phase 1 uses a single-symbol sleeve key derived from strategy_id + symbol + parameter combo hash."
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Instrument identifier owned by this sleeve. Phase 1 sleeves are always single-symbol."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Snapshot timestamp (UTC RFC3339 with Z suffix). Matches PortfolioStateEvent.snapshot_datetime."
+    },
+    "equity": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Current sleeve equity (cash + positions_value). Decimal string."
+    },
+    "cash": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Current sleeve cash balance. Can be negative with margin. Decimal string."
+    },
+    "positions_value": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Total market value of all positions in this sleeve. Decimal string."
+    },
+    "total_return_pct": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Total return from initial sleeve equity: (equity - initial) / initial * 100. Decimal string."
+    },
+    "max_drawdown_pct": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Maximum peak-to-trough equity decline from inception. Always positive or zero. Decimal string."
+    },
+    "current_drawdown_pct": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Current drawdown from peak: (peak - equity) / peak * 100. Zero if at peak. Always positive or zero. Decimal string."
+    },
+    "num_positions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of currently open positions in this sleeve."
+    },
+    "gross_exposure": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Gross exposure: |long| + |short|. Always positive. Decimal string."
+    },
+    "net_exposure": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Net exposure: long - short. Can be positive (net long) or negative (net short). Decimal string."
+    },
+    "leverage": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Leverage ratio: gross_exposure / equity. Always positive. Decimal string."
+    },
+    "total_trades": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of completed round-trip trades from inception. A round-trip trade is entry + full exit."
+    },
+    "winning_trades": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of profitable round-trip trades (P&L > 0)."
+    },
+    "losing_trades": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of unprofitable round-trip trades (P&L <= 0)."
+    },
+    "total_commissions": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Cumulative commissions paid from inception. Decimal string."
+    },
+    "cagr": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Compound Annual Growth Rate from inception. Annualized percentage return. Decimal string."
+    },
+    "volatility": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Annualized volatility (standard deviation of returns). Percentage. Decimal string."
+    },
+    "sharpe_ratio": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Sharpe ratio: (Return - RiskFreeRate) / Volatility. Risk-adjusted return metric. Decimal string."
+    },
+    "sortino_ratio": {
+      "type": ["string", "null"],
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Sortino ratio: Uses downside deviation only. Higher is better. Null if no downside risk (infinite Sortino - all returns positive). Decimal string."
+    },
+    "calmar_ratio": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Calmar ratio: CAGR / MaxDrawdown. Return per unit of risk. Decimal string."
+    },
+    "win_rate": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Win rate: winning_trades / total_trades * 100. Percentage of profitable trades. Decimal string."
+    },
+    "profit_factor": {
+      "type": ["string", "null"],
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "description": "Profit factor: gross_profit / gross_loss. Null if no losing trades. Decimal string."
+    },
+    "expectancy": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Expectancy: expected value per trade. (WinRate × AvgWin) - (LossRate × AvgLoss). Decimal string."
+    },
+    "strategy_metrics": {
+      "type": "array",
+      "description": "Per-strategy performance breakdown. Only included if per_strategy_metrics=true in config.",
+      "items": {
+        "type": "object",
+        "required": ["strategy_id", "equity_allocated", "positions_value", "num_positions", "return_pct"],
+        "properties": {
+          "strategy_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Strategy identifier."
+          },
+          "equity_allocated": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Equity allocated to this strategy. Decimal string."
+          },
+          "positions_value": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total market value of positions for this strategy. Decimal string."
+          },
+          "num_positions": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of positions held by this strategy."
+          },
+          "return_pct": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Strategy return from inception: (current_equity - allocated) / allocated * 100. Decimal string."
+          },
+          "total_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of completed trades for this strategy."
+          },
+          "winning_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of winning trades for this strategy."
+          }
+        }
+      }
+    },
+    "monthly_returns": {
+      "type": "array",
+      "description": "Monthly performance breakdown. Each element represents one month.",
+      "items": {
+        "type": "object",
+        "required": [
+          "period",
+          "period_type",
+          "start_date",
+          "end_date",
+          "return_pct",
+          "num_trades",
+          "winning_trades",
+          "losing_trades"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$",
+            "description": "Period identifier (YYYY-MM format)."
+          },
+          "period_type": {
+            "type": "string",
+            "enum": ["monthly"],
+            "description": "Period type identifier."
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period start date (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period end date (YYYY-MM-DD)."
+          },
+          "return_pct": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Period return percentage. Decimal string."
+          },
+          "num_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of trades completed in this period."
+          },
+          "winning_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of winning trades in this period."
+          },
+          "losing_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of losing trades in this period."
+          }
+        }
+      }
+    },
+    "quarterly_returns": {
+      "type": "array",
+      "description": "Quarterly performance breakdown. Each element represents one quarter.",
+      "items": {
+        "type": "object",
+        "required": [
+          "period",
+          "period_type",
+          "start_date",
+          "end_date",
+          "return_pct",
+          "num_trades",
+          "winning_trades",
+          "losing_trades"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-Q[1-4]$",
+            "description": "Period identifier (YYYY-Q# format)."
+          },
+          "period_type": {
+            "type": "string",
+            "enum": ["quarterly"],
+            "description": "Period type identifier."
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period start date (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period end date (YYYY-MM-DD)."
+          },
+          "return_pct": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Period return percentage. Decimal string."
+          },
+          "num_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of trades completed in this period."
+          },
+          "winning_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of winning trades in this period."
+          },
+          "losing_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of losing trades in this period."
+          }
+        }
+      }
+    },
+    "annual_returns": {
+      "type": "array",
+      "description": "Annual performance breakdown. Each element represents one year.",
+      "items": {
+        "type": "object",
+        "required": [
+          "period",
+          "period_type",
+          "start_date",
+          "end_date",
+          "return_pct",
+          "num_trades",
+          "winning_trades",
+          "losing_trades"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}$",
+            "description": "Period identifier (YYYY format)."
+          },
+          "period_type": {
+            "type": "string",
+            "enum": ["annual"],
+            "description": "Period type identifier."
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period start date (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Period end date (YYYY-MM-DD)."
+          },
+          "return_pct": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Period return percentage. Decimal string."
+          },
+          "num_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of trades completed in this period."
+          },
+          "winning_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of winning trades in this period."
+          },
+          "losing_trades": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of losing trades in this period."
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

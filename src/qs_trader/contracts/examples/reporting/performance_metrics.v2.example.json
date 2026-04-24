@@ -1,0 +1,74 @@
+{
+  "sleeve_id": "sma_crossover:NVDA:fp10-sp50",
+  "symbol": "NVDA",
+  "timestamp": "2025-10-29T15:30:00Z",
+  "equity": "26358.13",
+  "cash": "12143.75",
+  "positions_value": "14214.38",
+  "total_return_pct": "5.4325",
+  "max_drawdown_pct": "8.25",
+  "current_drawdown_pct": "2.15",
+  "num_positions": 1,
+  "gross_exposure": "14214.38",
+  "net_exposure": "14214.38",
+  "leverage": "0.5392",
+  "total_trades": 15,
+  "winning_trades": 9,
+  "losing_trades": 6,
+  "total_commissions": "45.50",
+  "cagr": "18.75",
+  "volatility": "15.32",
+  "sharpe_ratio": "1.22",
+  "sortino_ratio": "1.85",
+  "calmar_ratio": "2.27",
+  "win_rate": "60.00",
+  "profit_factor": "2.15",
+  "expectancy": "285.50",
+  "strategy_metrics": [
+    {
+      "strategy_id": "sma_crossover",
+      "equity_allocated": "25000.00",
+      "positions_value": "14214.38",
+      "num_positions": 1,
+      "return_pct": "5.4325",
+      "total_trades": 15,
+      "winning_trades": 9
+    }
+  ],
+  "monthly_returns": [
+    {
+      "period": "2025-10",
+      "period_type": "monthly",
+      "start_date": "2025-10-01",
+      "end_date": "2025-10-31",
+      "return_pct": "3.12",
+      "num_trades": 4,
+      "winning_trades": 3,
+      "losing_trades": 1
+    }
+  ],
+  "quarterly_returns": [
+    {
+      "period": "2025-Q4",
+      "period_type": "quarterly",
+      "start_date": "2025-10-01",
+      "end_date": "2025-12-31",
+      "return_pct": "5.43",
+      "num_trades": 15,
+      "winning_trades": 9,
+      "losing_trades": 6
+    }
+  ],
+  "annual_returns": [
+    {
+      "period": "2025",
+      "period_type": "annual",
+      "start_date": "2025-01-01",
+      "end_date": "2025-12-31",
+      "return_pct": "5.43",
+      "num_trades": 15,
+      "winning_trades": 9,
+      "losing_trades": 6
+    }
+  ]
+}

@@ -23,6 +23,9 @@ contracts/
 │   │   └── corporate_action.v1.json  # Corporate actions (splits, dividends)
 │   ├── strategy/                 # StrategyService events
 │   │   └── signal.v1.json        # Trading signals
+│   ├── reporting/                # ReportingService events
+│   │   ├── performance_metrics.v1.json  # Legacy portfolio-scoped metrics snapshot
+│   │   └── performance_metrics.v2.json  # Sleeve-scoped ensemble metrics snapshot
 │   └── execution/                # ExecutionService events
 │       └── fill.v1.json          # Order fills
 └── examples/
@@ -32,6 +35,9 @@ contracts/
     │   └── corporate_action.v1.example.json
     ├── strategy/
     │   └── signal.v1.example.json
+   ├── reporting/
+   │   ├── performance_metrics.v1.example.json
+   │   └── performance_metrics.v2.example.json
     └── execution/
         └── fill.v1.example.json
 ```
@@ -164,6 +170,63 @@ Order fill events indicating completed trades with execution details.
 **Schema**: `schemas/execution/fill.v1.json`\
 **Example**: `examples/execution/fill.v1.example.json`
 
+### ReportingService Events
+
+#### reporting/performance_metrics.v1 and v2 - Performance Metrics Snapshots
+
+Point-in-time performance snapshots emitted by `ReportingService`.
+
+**v1 scope**:
+
+- Legacy portfolio-scoped snapshot with no sleeve attribution
+- Remains valid for existing non-ensemble consumers
+
+**v2 scope**:
+
+- Preserves the full v1 metric payload shape
+- Adds required `sleeve_id` and `symbol` for isolated ensemble attribution
+- Semantics are sleeve-scoped: consumers should key persisted projections by `(run_id, sleeve_id)` rather than treating rows as aggregated portfolio snapshots
+
+**Use case**: ensemble leaderboard projections, per-sleeve drill-down, and cross-repo contract locking before Research persistence is implemented.
+
+**Schemas**:
+
+- `schemas/reporting/performance_metrics.v1.json`
+- `schemas/reporting/performance_metrics.v2.json`
+
+**Examples**:
+
+- `examples/reporting/performance_metrics.v1.example.json`
+- `examples/reporting/performance_metrics.v2.example.json`
+
+### Ensemble Sleeve Contract (Phase 1 design lock)
+
+Phase 1 of the per-symbol isolated ensembles work also freezes the Trader-side domain contract that later runtime code will implement.
+
+**`SleeveId`**
+
+- Canonical identity: `(strategy_id, sleeve_key)`
+- Phase 1 `sleeve_key` is a stable single-symbol key derived from `(symbol, parameter_combo_hash)`
+- This key is the join surface for reporting, persistence, and later manager sizing
+
+**`SleeveBudget`**
+
+- Immutable sleeve allocation captured at engine startup
+- Contains the canonical `SleeveId`
+- Contains `allocated_equity`
+- Contains `symbols`, which is length `1` in Phase 1
+
+**Backtest config `sleeve` block**
+
+When sleeve execution is enabled, the additive config payload is expected to carry:
+
+- `sleeve_id`: stable serialized sleeve identifier
+- `sleeve_key`: stable key for the isolated execution unit
+- `allocated_equity`: frozen per-sleeve capital allocation
+- `symbol`: the single instrument owned by the sleeve in Phase 1
+
+This is a documentation lock for the upcoming runtime surface; existing non-ensemble configs remain on the v1 contract until they explicitly opt into the sleeve-aware path.
+
 ## Versioning Strategy
 
 ### Semantic Versioning
@@ -249,6 +312,14 @@ Modify the existing schema file directly:
 - Order fill events from ExecutionService
 - Required: fill_id, source_order_id, timestamp, symbol, side, filled_quantity, fill_price
 - Optional: strategy_id, commission, slippage_bps, gross_value, net_value
+
+#### reporting/performance_metrics.v2.json
+
+**v2.0** (2026-05-01)
+
+- Adds required `sleeve_id` and `symbol` for per-symbol isolated ensembles
+- Preserves the v1 metric field set so existing consumers can opt into v2 without renaming metric keys
+- Defines sleeve-scoped semantics for downstream leaderboard persistence
 
 ## Validation
 
