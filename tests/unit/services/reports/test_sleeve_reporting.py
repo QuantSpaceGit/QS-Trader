@@ -31,7 +31,7 @@ def _reporting_config(**overrides: object) -> ReportingConfig:
         "display_final_report": False,
     }
     base_config.update(overrides)
-    return ReportingConfig(**base_config)
+    return ReportingConfig.model_validate(base_config)
 
 
 def _reporting_system_config() -> SimpleNamespace:
@@ -214,9 +214,7 @@ def test_observability_rows_are_disambiguated_by_sleeve_id() -> None:
     assert len(rows) == 2
     by_sleeve = {row["sleeve_id"]: row for row in rows}
     assert set(by_sleeve) == {"sma_crossover:AAPL-alt", "sma_crossover:AAPL-main"}
-    assert json.loads(by_sleeve["sma_crossover:AAPL-main"]["runtime_features_json"]) == {
-        "momentum_score": "0.12"
-    }
+    assert json.loads(by_sleeve["sma_crossover:AAPL-main"]["runtime_features_json"]) == {"momentum_score": "0.12"}
     assert json.loads(by_sleeve["sma_crossover:AAPL-alt"]["indicators_json"]) == {"sma_fast": "101.25"}
 
 
