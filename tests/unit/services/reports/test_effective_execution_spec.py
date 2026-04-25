@@ -183,3 +183,33 @@ def test_build_effective_execution_spec_exports_explicit_raw_price_basis_without
     assert payload["price_basis"] == "raw"
     assert "strategy_adjustment_mode" not in payload
     assert "portfolio_adjustment_mode" not in payload
+
+
+def test_build_effective_execution_spec_includes_sleeve_context_when_present() -> None:
+    """Sleeve-bound runs should persist the explicit sleeve allocation context."""
+    backtest_config = SimpleNamespace(
+        strategies=[],
+        risk_policy=SimpleNamespace(name="naive", config={}),
+        price_basis="adjusted",
+        sleeve=SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "sleeve_id": "sma_crossover:AAPL",
+                "sleeve_key": "AAPL",
+                "allocated_equity": "25000",
+                "symbol": "AAPL",
+            }
+        ),
+    )
+
+    payload = build_effective_execution_spec(
+        backtest_config=backtest_config,
+        strategy_instances={},
+        manager_service=None,
+    )
+
+    assert payload["sleeve"] == {
+        "sleeve_id": "sma_crossover:AAPL",
+        "sleeve_key": "AAPL",
+        "allocated_equity": "25000",
+        "symbol": "AAPL",
+    }

@@ -1357,6 +1357,7 @@ class PortfolioService:
         lifecycle_event = TradeLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=occurred_at,
             trade_id=trade_id,
             strategy_id=strategy_id,
@@ -1445,6 +1446,7 @@ class PortfolioService:
         lifecycle_event = PositionLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=occurred_at,
             position_key=f"{strategy_id}:{symbol}",
             strategy_id=strategy_id,
@@ -1494,6 +1496,7 @@ class PortfolioService:
         lifecycle_event = PortfolioLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=self._parse_event_timestamp(timestamp),
             portfolio_id=self._portfolio_id,
             lifecycle_type=lifecycle_type,

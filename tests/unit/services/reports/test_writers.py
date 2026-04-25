@@ -20,6 +20,7 @@ from qs_trader.events.events import (
     PerformanceMetricsEvent,
     PriceBarEvent,
     SignalEvent,
+    TradeEvent,
 )
 from qs_trader.libraries.performance.models import (
     DrawdownPeriod,
@@ -1181,3 +1182,131 @@ class TestWriteStrategyChartData:
 
         assert len(bb_rows) == 1
         assert float(bb_rows[0]["close"]) == pytest.approx(152.0)
+
+    def test_write_chart_data_preserves_legacy_runtime_event_identifiers(self, tmp_output_dir: Path) -> None:
+        """Chart data should preserve the legacy raw event/workflow identifiers."""
+        store = InMemoryEventStore()
+        timestamp = "2023-01-01T10:00:00+00:00"
+        signal_event_id = "550e8400-e29b-41d4-a716-446655440101"
+        workflow_id = "550e8400-e29b-41d4-a716-446655440102"
+        signal_causation_id = "550e8400-e29b-41d4-a716-446655440103"
+        order_event_id = "550e8400-e29b-41d4-a716-446655440104"
+        fill_event_id = "550e8400-e29b-41d4-a716-446655440105"
+        business_fill_id = "550e8400-e29b-41d4-a716-446655440199"
+
+        store.append(
+            PriceBarEvent(
+                symbol="AAPL",
+                timestamp=timestamp,
+                interval="1d",
+                open=Decimal("150.00"),
+                high=Decimal("152.00"),
+                low=Decimal("149.00"),
+                close=Decimal("151.00"),
+                volume=1000000,
+                source="test",
+            )
+        )
+        store.append(
+            SignalEvent(
+                event_id=signal_event_id,
+                correlation_id=workflow_id,
+                causation_id=signal_causation_id,
+                source_service="strategy_service",
+                signal_id="signal-legacy",
+                timestamp=timestamp,
+                strategy_id="test_strategy",
+                symbol="AAPL",
+                intention="OPEN_LONG",
+                price=Decimal("151.00"),
+                confidence=Decimal("1.0"),
+                reason="golden cross",
+            )
+        )
+        store.append(
+            OrderEvent(
+                event_id=order_event_id,
+                correlation_id=workflow_id,
+                causation_id=signal_event_id,
+                source_service="manager_service",
+                intent_id="signal-legacy",
+                idempotency_key="order-key-legacy",
+                timestamp=timestamp,
+                symbol="AAPL",
+                side="buy",
+                quantity=Decimal("100"),
+                order_type="market",
+                source_strategy_id="test_strategy",
+            )
+        )
+        store.append(
+            FillEvent(
+                event_id=fill_event_id,
+                correlation_id=workflow_id,
+                causation_id=order_event_id,
+                source_service="execution_service",
+                fill_id=business_fill_id,
+                source_order_id="order-legacy",
+                timestamp=timestamp,
+                symbol="AAPL",
+                side="buy",
+                filled_quantity=Decimal("100"),
+                fill_price=Decimal("151.10"),
+                commission=Decimal("1.50"),
+                slippage_bps=2,
+                strategy_id="test_strategy",
+            )
+        )
+        store.append(
+            TradeEvent(
+                trade_id="T00042",
+                timestamp=timestamp,
+                strategy_id="test_strategy",
+                symbol="AAPL",
+                status="closed",
+                side="long",
+                fills=[business_fill_id],
+                entry_price=Decimal("151.10"),
+                exit_price=Decimal("155.00"),
+                current_quantity=Decimal("0"),
+                realized_pnl=Decimal("390.00"),
+                commission_total=Decimal("1.50"),
+                entry_timestamp=timestamp,
+                exit_timestamp="2023-01-05T10:00:00+00:00",
+            )
+        )
+        store.append(
+            PerformanceMetricsEvent(
+                timestamp=timestamp,
+                equity=Decimal("100000.0"),
+                cash=Decimal("85000.0"),
+                positions_value=Decimal("15000.0"),
+                total_return_pct=Decimal("0.0"),
+                max_drawdown_pct=Decimal("0.0"),
+                current_drawdown_pct=Decimal("0.0"),
+                num_positions=1,
+                gross_exposure=Decimal("15000.0"),
+                net_exposure=Decimal("15000.0"),
+                leverage=Decimal("0.15"),
+            )
+        )
+
+        output_path = tmp_output_dir / "chart_data.json"
+
+        write_strategy_chart_data(store, "test_strategy", output_path)
+
+        data = json.loads(output_path.read_text())
+        bar_row = next(row for row in data if row["ticker"] == "AAPL" and row["signal_intention"] == "OPEN_LONG")
+
+        assert bar_row["signal_event_id"] == signal_event_id
+        assert bar_row["signal_correlation_id"] == workflow_id
+        assert bar_row["signal_causation_id"] == signal_causation_id
+        assert bar_row["order_id"] == order_event_id
+        assert bar_row["order_event_id"] == order_event_id
+        assert bar_row["order_correlation_id"] == workflow_id
+        assert bar_row["order_causation_id"] == signal_event_id
+        assert bar_row["fill_id"] == fill_event_id
+        assert bar_row["fill_event_id"] == fill_event_id
+        assert bar_row["fill_correlation_id"] == workflow_id
+        assert bar_row["fill_causation_id"] == order_event_id
+        assert bar_row["trade_id"] == "T00042"

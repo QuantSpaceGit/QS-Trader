@@ -31,7 +31,7 @@ Future Enhancements:
 - Advanced order types (limit, stop)
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -44,7 +44,7 @@ from qs_trader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
 from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import OrderIntentEvent, OrderLifecycleEvent
 from qs_trader.libraries.risk import load_policy
-from qs_trader.libraries.risk.models import RiskConfig
+from qs_trader.libraries.risk.models import RiskConfig, SleeveBudget
 from qs_trader.libraries.risk.tools import limits as risk_limits
 from qs_trader.libraries.risk.tools import sizing as risk_sizing
 from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
@@ -131,6 +131,7 @@ class ManagerService:
         event_bus: EventBus,
         lifecycle_context: LifecycleRunContext | None = None,
         lifecycle_projection: LifecycleIntentProjection | None = None,
+        sleeve_budget: SleeveBudget | None = None,
     ) -> "ManagerService":
         """
         Factory method to create ManagerService from configuration.
@@ -159,6 +160,9 @@ class ManagerService:
 
         # Load risk policy from library
         risk_config = load_policy(policy_name)
+
+        if sleeve_budget is not None:
+            risk_config = replace(risk_config, sleeve_budget=sleeve_budget)
 
         # Apply overrides from config (future enhancement: allow parameter overrides)
         if policy_overrides:
@@ -249,6 +253,7 @@ class ManagerService:
         intent_event = OrderIntentEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=occurred_at_dt,
             intent_id=intent_id,
             strategy_id=strategy_id,
@@ -309,6 +314,7 @@ class ManagerService:
         order_event = OrderLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=occurred_at_dt,
             order_id=order_id,
             intent_id=intent_id,
@@ -878,13 +884,15 @@ class ManagerService:
             # Use strategy's allocated capital from risk policy budgets
             # Note: get_allocated_capital will use strategy-specific budget or fall back to "default"
             # The loader ensures a "default" budget always exists (auto-created at 95% if not specified)
-            allocated_capital = self._config.get_allocated_capital(event.strategy_id, current_equity)
+            allocated_capital = self._config.get_allocated_capital(event.strategy_id, current_equity, event.symbol)
             self._logger.debug(
                 "Using allocated capital from risk policy",
                 extra={
                     "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
                     "allocated_capital": float(allocated_capital),
                     "current_equity": float(current_equity),
+                    "sleeve_id": self._lifecycle_context.sleeve_id if self._lifecycle_context is not None else None,
                 },
             )
 

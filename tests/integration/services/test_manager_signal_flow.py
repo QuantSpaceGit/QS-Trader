@@ -14,7 +14,7 @@ import pytest
 
 from qs_trader.events import PortfolioPosition, StrategyGroup
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
+from qs_trader.events.events import BaseEvent, OrderEvent, PortfolioStateEvent, SignalEvent
 from qs_trader.services.manager import ManagerService
 
 
@@ -1279,3 +1279,98 @@ def test_partial_close_rounds_up_when_confidence_floors_to_zero(event_bus):
     )
     assert order.side == "sell"
     assert order.symbol == "SPY"
+
+
+def test_sleeve_allocated_equity_changes_order_size_for_identical_strategy_config() -> None:
+    """Sleeve-bound runs should size from frozen allocated_equity, not total portfolio equity."""
+    from qs_trader.libraries.risk.models import (
+        ConcentrationLimit,
+        LeverageLimit,
+        RiskConfig,
+        ShortingPolicy,
+        SizingConfig,
+        StrategyBudget,
+        SleeveBudget,
+        SleeveId,
+    )
+
+    def _emit_quantity(allocated_equity: str) -> Decimal:
+        event_bus = EventBus()
+        service = ManagerService(
+            RiskConfig(
+                budgets=[StrategyBudget(strategy_id="sma_crossover", capital_weight=0.95)],
+                sizing={
+                    "sma_crossover": SizingConfig(
+                        model="fixed_fraction",
+                        fraction=Decimal("0.10"),
+                        min_quantity=1,
+                        lot_size=1,
+                    )
+                },
+                concentration=ConcentrationLimit(max_position_pct=1.0),
+                leverage=LeverageLimit(max_gross=1.0, max_net=1.0),
+                cash_buffer_pct=0.05,
+                shorting=ShortingPolicy(allow_short_positions=False),
+                sleeve_budget=SleeveBudget(
+                    sleeve_id=SleeveId(strategy_id="sma_crossover", sleeve_key="AAPL"),
+                    allocated_equity=Decimal(allocated_equity),
+                    symbols=("AAPL",),
+                ),
+            ),
+            event_bus,
+        )
+
+        service.on_portfolio_state(
+            PortfolioStateEvent(
+                portfolio_id="test-portfolio",
+                start_datetime="2020-01-01T00:00:00Z",
+                snapshot_datetime="2020-01-02T00:00:00Z",
+                reporting_currency="USD",
+                initial_portfolio_equity=Decimal("100000.00"),
+                cash_balance=Decimal("100000.00"),
+                current_portfolio_equity=Decimal("100000.00"),
+                total_market_value=Decimal("0.00"),
+                total_unrealized_pl=Decimal("0.00"),
+                total_realized_pl=Decimal("0.00"),
+                total_pl=Decimal("0.00"),
+                long_exposure=Decimal("0.00"),
+                short_exposure=Decimal("0.00"),
+                net_exposure=Decimal("0.00"),
+                gross_exposure=Decimal("0.00"),
+                leverage=Decimal("0.00"),
+                strategies_groups=[],
+            )
+        )
+
+        orders_received: list[BaseEvent] = []
+
+        def capture_order(event: BaseEvent) -> None:
+            assert isinstance(event, OrderEvent)
+            orders_received.append(event)
+
+        event_bus.subscribe("order", capture_order)
+
+        service.on_signal(
+            SignalEvent(
+                signal_id=f"sig-{allocated_equity}",
+                timestamp="2020-01-02T16:00:00Z",
+                strategy_id="sma_crossover",
+                symbol="AAPL",
+                intention="OPEN_LONG",
+                price=Decimal("100.00"),
+                confidence=Decimal("1.00"),
+                metadata={},
+            )
+        )
+
+        assert len(orders_received) == 1
+        order = orders_received[0]
+        assert isinstance(order, OrderEvent)
+        return order.quantity
+
+    lower_budget_qty = _emit_quantity("20000")
+    higher_budget_qty = _emit_quantity("50000")
+
+    assert lower_budget_qty == Decimal("20")
+    assert higher_budget_qty == Decimal("50")
+    assert higher_budget_qty > lower_budget_qty

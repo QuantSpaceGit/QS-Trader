@@ -195,6 +195,7 @@ class Context:
             decision_event = StrategyDecisionEvent(
                 experiment_id=self._lifecycle_context.experiment_id,
                 run_id=self._lifecycle_context.run_id,
+                sleeve_id=self._lifecycle_context.sleeve_id,
                 occurred_at=occurred_at_dt,
                 decision_id=decision_id,
                 strategy_id=self._strategy_id,
@@ -420,6 +421,7 @@ class Context:
         indicator_event = IndicatorEvent(
             strategy_id=self._strategy_id,
             symbol=symbol,
+            sleeve_id=self._lifecycle_context.sleeve_id if self._lifecycle_context is not None else None,
             timestamp=timestamp,
             indicators=indicators,
             metadata=metadata if metadata else None,
@@ -905,6 +907,7 @@ class Context:
         event = RuntimeFeaturesEvent(
             strategy_id=self._strategy_id,
             symbol=symbol,
+            sleeve_id=self._lifecycle_context.sleeve_id if self._lifecycle_context is not None else None,
             timestamp=timestamp,
             runtime_features=runtime_features,
             metadata=metadata if metadata else None,

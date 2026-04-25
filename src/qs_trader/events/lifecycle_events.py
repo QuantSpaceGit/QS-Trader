@@ -12,7 +12,7 @@ from pydantic import Field, field_serializer, model_validator
 
 from qs_trader.events.events import RESERVED_ENVELOPE_KEYS, BaseEvent, load_and_compile_schema
 
-LIFECYCLE_RESERVED_ENVELOPE_KEYS = RESERVED_ENVELOPE_KEYS | {"experiment_id", "run_id"}
+LIFECYCLE_RESERVED_ENVELOPE_KEYS = RESERVED_ENVELOPE_KEYS | {"experiment_id", "run_id", "sleeve_id"}
 
 
 @lru_cache(maxsize=8)
@@ -38,6 +38,7 @@ class LifecycleBaseEvent(BaseEvent):
 
     experiment_id: str
     run_id: str
+    sleeve_id: str | None = None
 
     @model_validator(mode="after")
     def _validate_lifecycle_envelope(self) -> "LifecycleBaseEvent":
@@ -56,6 +57,8 @@ class LifecycleBaseEvent(BaseEvent):
             envelope_data["correlation_id"] = self.correlation_id
         if self.causation_id is not None:
             envelope_data["causation_id"] = self.causation_id
+        if self.sleeve_id is not None:
+            envelope_data["sleeve_id"] = self.sleeve_id
 
         try:
             envelope_validator.validate(envelope_data)

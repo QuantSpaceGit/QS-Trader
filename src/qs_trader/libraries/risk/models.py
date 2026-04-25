@@ -19,6 +19,81 @@ from typing import Literal
 
 
 @dataclass(frozen=True)
+class SleeveId:
+    """Canonical identity for an isolated execution sleeve.
+
+    Attributes:
+        strategy_id: Strategy that owns the sleeve.
+        sleeve_key: Stable sleeve key (Phase 2: usually the isolated symbol key).
+    """
+
+    strategy_id: str
+    sleeve_key: str
+
+    def __post_init__(self) -> None:
+        """Validate sleeve identity fields."""
+        if not self.strategy_id:
+            raise ValueError("strategy_id cannot be empty")
+        if not self.sleeve_key:
+            raise ValueError("sleeve_key cannot be empty")
+
+    @property
+    def serialized(self) -> str:
+        """Return the stable serialized sleeve identifier."""
+        return f"{self.strategy_id}:{self.sleeve_key}"
+
+    def __str__(self) -> str:
+        """Return the serialized sleeve identifier."""
+        return self.serialized
+
+    @classmethod
+    def parse(cls, value: str) -> "SleeveId":
+        """Parse a serialized sleeve identifier.
+
+        The serialized contract is ``<strategy_id>:<sleeve_key>``. Only the
+        first ``:`` is structural so sleeve keys remain free to contain
+        additional delimiters.
+        """
+        if not value:
+            raise ValueError("sleeve_id cannot be empty")
+        if ":" not in value:
+            raise ValueError("sleeve_id must be in '<strategy_id>:<sleeve_key>' format")
+
+        strategy_id, sleeve_key = value.split(":", 1)
+        return cls(strategy_id=strategy_id, sleeve_key=sleeve_key)
+
+
+@dataclass(frozen=True)
+class SleeveBudget:
+    """Frozen capital allocation for a sleeve-bound execution.
+
+    Attributes:
+        sleeve_id: Canonical sleeve identifier.
+        allocated_equity: Capital frozen for the sleeve.
+        symbols: Symbols owned by the sleeve.
+    """
+
+    sleeve_id: SleeveId
+    allocated_equity: Decimal
+    symbols: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        """Validate sleeve budget fields."""
+        if self.allocated_equity <= 0:
+            raise ValueError("allocated_equity must be positive")
+        if not self.symbols:
+            raise ValueError("symbols cannot be empty")
+        if any(not symbol for symbol in self.symbols):
+            raise ValueError("symbols cannot contain empty values")
+
+    def matches(self, strategy_id: str, symbol: str | None = None) -> bool:
+        """Return whether the sleeve owns the supplied strategy/symbol pair."""
+        if strategy_id != self.sleeve_id.strategy_id:
+            return False
+        return symbol is None or symbol in self.symbols
+
+
+@dataclass(frozen=True)
 class StrategyBudget:
     """Capital allocation for a strategy.
 
@@ -178,6 +253,7 @@ class RiskConfig:
         leverage: Leverage limit configuration
         shorting: Shorting policy configuration
         cash_buffer_pct: Reserve cash as % of equity (default: 2%)
+        sleeve_budget: Optional frozen sleeve allocation for isolated executions
 
     Example:
         >>> config = RiskConfig(
@@ -202,6 +278,7 @@ class RiskConfig:
     leverage: LeverageLimit
     shorting: ShortingPolicy
     cash_buffer_pct: float = 0.02
+    sleeve_budget: SleeveBudget | None = None
 
     def __post_init__(self) -> None:
         """Validate risk config."""
@@ -221,12 +298,13 @@ class RiskConfig:
         if not 0.0 <= self.cash_buffer_pct <= 0.5:
             raise ValueError(f"cash_buffer_pct must be in [0, 0.5], got {self.cash_buffer_pct}")
 
-    def get_allocated_capital(self, strategy_id: str, equity: Decimal) -> Decimal:
+    def get_allocated_capital(self, strategy_id: str, equity: Decimal, symbol: str | None = None) -> Decimal:
         """Calculate allocated capital for a strategy.
 
         Args:
             strategy_id: Strategy identifier
             equity: Current portfolio equity
+            symbol: Optional signal symbol for sleeve-bound runs
 
         Returns:
             Allocated capital for the strategy
@@ -240,6 +318,9 @@ class RiskConfig:
             >>> allocated
             Decimal('30000')
         """
+        if self.sleeve_budget is not None and self.sleeve_budget.matches(strategy_id, symbol):
+            return self.sleeve_budget.allocated_equity
+
         # Try strategy-specific budget first
         for budget in self.budgets:
             if budget.strategy_id == strategy_id:

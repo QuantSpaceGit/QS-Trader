@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- **Phase 2 sleeve primitives**: Added an optional `sleeve` config block, sleeve-aware reporting and event attribution, and full legacy compatibility for runs that do not define sleeves.
+
 - **Runtime bar snapshot persistence** (audit export v4 phase 1): QS-Trader now persists the exact runtime `PriceBarEvent` stream into the new `run_bar_snapshots` Postgres ledger so downstream audit exports can reconstruct the bars the engine actually consumed
 
   - `PriceBarEvent` and the `data/bar.v1.json` contract now carry optional `volume_raw` / `volume_adj` runtime snapshot fields alongside the strategy-facing `volume`

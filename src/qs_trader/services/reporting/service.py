@@ -181,6 +181,12 @@ def build_effective_execution_spec(
         },
     }
 
+    sleeve = getattr(backtest_config, "sleeve", None)
+    if sleeve is not None:
+        payload["sleeve"] = _normalize_jsonish(
+            sleeve.model_dump(mode="json") if hasattr(sleeve, "model_dump") else dict(sleeve)
+        )
+
     price_basis = _resolve_exported_price_basis(backtest_config)
     if price_basis is not None:
         payload["price_basis"] = price_basis
@@ -277,6 +283,8 @@ class ReportingService:
         self._split_role: str | None = None
         self._backtest_config: Any | None = None
         self._effective_execution_spec: dict[str, Any] | None = None
+        self._sleeve_id: str | None = None
+        self._sleeve_symbol: str | None = None
 
         # Subscribe to events
         self._subscribe_to_events()
@@ -823,6 +831,8 @@ class ReportingService:
         )
 
         event = PerformanceMetricsEvent(
+            sleeve_id=self._sleeve_id,
+            symbol=self._sleeve_symbol,
             timestamp=portfolio_event.snapshot_datetime,  # ISO string
             equity=portfolio_event.current_portfolio_equity,
             cash=portfolio_event.cash_balance,
@@ -1169,6 +1179,7 @@ class ReportingService:
             )
 
         output_path = self.config.get_output_path(self.output_dir) if should_write_files else None
+        sleeve_mode_active = getattr(self._backtest_config, "sleeve", None) is not None
 
         # Only build each time-series when at least one consumer needs it
         needs_equity = db_enabled or (self.config.write_parquet and self.config.include_equity_curve)
@@ -1302,18 +1313,25 @@ class ReportingService:
 
         # Write HTML report
         if should_write_files and output_path is not None and self.config.write_html_report:
-            try:
-                from qs_trader.services.reporting.html_reporter import HTMLReportGenerator
-
-                html_gen = HTMLReportGenerator(output_path)
-                report_path = html_gen.generate()
-                self.logger.info("html_report.generated", path=str(report_path))
-            except Exception as e:
-                self.logger.error(
-                    "html_report.generation_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
+            if sleeve_mode_active:
+                self.logger.info(
+                    "html_report.skipped",
+                    reason="Sleeve mode active; ensemble bundle supersedes per-sleeve HTML report",
+                    sleeve_id=self._sleeve_id,
                 )
+            else:
+                try:
+                    from qs_trader.services.reporting.html_reporter import HTMLReportGenerator
+
+                    html_gen = HTMLReportGenerator(output_path)
+                    report_path = html_gen.generate()
+                    self.logger.info("html_report.generated", path=str(report_path))
+                except Exception as e:
+                    self.logger.error(
+                        "html_report.generation_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
 
         # Write to database (if enabled in system config)
         if system_config is not None:
@@ -1600,6 +1618,9 @@ class ReportingService:
             self._submission_source = getattr(self._backtest_config, "submission_source", None)
             self._split_pct = getattr(self._backtest_config, "split_pct", None)
             self._split_role = getattr(self._backtest_config, "split_role", None)
+            sleeve = getattr(self._backtest_config, "sleeve", None)
+            self._sleeve_id = getattr(sleeve, "sleeve_id", None)
+            self._sleeve_symbol = getattr(sleeve, "symbol", None)
 
         # Initialize strategy performance calculator with strategy IDs
         self._strategy_perf_calc = StrategyPerformanceCalculator(self._strategy_ids)
@@ -1706,6 +1727,8 @@ class ReportingService:
         self._split_role = None
         self._backtest_config = None
         self._effective_execution_spec = None
+        self._sleeve_id = None
+        self._sleeve_symbol = None
         self._set_database_write_status(state="not_attempted")
         self._active_trade_events = {}
         self._open_trade_records = []

@@ -112,11 +112,11 @@ def collect_run_observability_bars(
     """Collect canonical per-bar observability rows from the event store.
 
     Iterates both :class:`IndicatorEvent` and :class:`RuntimeFeaturesEvent`
-    entries and merges them by ``(strategy_id, symbol, timestamp)`` into a
+    entries and merges them by ``(strategy_id, symbol, timestamp, sleeve_id)`` into a
     single row per bar. A row is emitted whenever at least one of
     ``indicators`` or ``runtime_features`` is non-empty; bars with neither
     stream contribute nothing. Non-observability events are ignored.
-    Rows are sorted by ``(strategy_id, symbol, bar_timestamp)`` for
+    Rows are sorted by ``(strategy_id, symbol, bar_timestamp, sleeve_id)`` for
     deterministic persistence.
 
     Args:
@@ -138,12 +138,12 @@ def collect_run_observability_bars(
         return []
 
     # Merge indicator + runtime-features streams by (strategy, symbol, ts).
-    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    merged: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     for event in event_store.get_all():
         if isinstance(event, IndicatorEvent):
             if not event.indicators:
                 continue
-            key = (event.strategy_id, event.symbol, event.timestamp)
+            key = (event.strategy_id, event.symbol, event.timestamp, event.sleeve_id)
             slot = merged.setdefault(
                 key,
                 {
@@ -151,6 +151,7 @@ def collect_run_observability_bars(
                     "run_id": run_id,
                     "strategy_id": event.strategy_id,
                     "symbol": event.symbol,
+                    "sleeve_id": event.sleeve_id,
                     "bar_timestamp": event.timestamp,
                     "schema_version": _OBSERVABILITY_SCHEMA_VERSION,
                     "indicators_json": None,
@@ -161,7 +162,7 @@ def collect_run_observability_bars(
         elif isinstance(event, RuntimeFeaturesEvent):
             if not event.runtime_features:
                 continue
-            key = (event.strategy_id, event.symbol, event.timestamp)
+            key = (event.strategy_id, event.symbol, event.timestamp, event.sleeve_id)
             slot = merged.setdefault(
                 key,
                 {
@@ -169,6 +170,7 @@ def collect_run_observability_bars(
                     "run_id": run_id,
                     "strategy_id": event.strategy_id,
                     "symbol": event.symbol,
+                    "sleeve_id": event.sleeve_id,
                     "bar_timestamp": event.timestamp,
                     "schema_version": _OBSERVABILITY_SCHEMA_VERSION,
                     "indicators_json": None,
@@ -192,6 +194,7 @@ def collect_run_observability_bars(
             row["strategy_id"],
             row["symbol"],
             row["bar_timestamp"],
+            row["sleeve_id"] or "",
         )
     )
     return rows

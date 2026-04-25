@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from qs_trader.events.price_basis import PriceBasis
+from qs_trader.libraries.risk.models import SleeveBudget, SleeveId
 
 
 class DataSourceConfig(BaseModel):
@@ -73,6 +74,45 @@ class RiskPolicyConfig(BaseModel):
 
     name: str = Field(..., description="Risk policy name from registry")
     config: dict[str, Any] = Field(default_factory=dict, description="Policy-specific config overrides")
+
+
+class SleeveConfigItem(BaseModel):
+    """Optional per-run sleeve binding for isolated executions."""
+
+    sleeve_id: str = Field(..., description="Stable serialized sleeve identifier (<strategy_id>:<sleeve_key>)")
+    sleeve_key: str = Field(..., description="Stable sleeve key for the isolated execution unit")
+    allocated_equity: Decimal = Field(..., gt=0, description="Frozen capital allocated to this sleeve")
+    symbol: str = Field(..., description="Single symbol owned by the sleeve")
+
+    @field_validator("sleeve_id", "sleeve_key", "symbol")
+    @classmethod
+    def validate_non_empty_strings(cls, value: str) -> str:
+        """Normalize and validate required string fields."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value cannot be empty")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_serialized_identity(self) -> "SleeveConfigItem":
+        """Ensure the serialized sleeve_id matches the explicit sleeve_key."""
+        parsed = SleeveId.parse(self.sleeve_id)
+        if parsed.sleeve_key != self.sleeve_key:
+            raise ValueError(f"sleeve_id '{self.sleeve_id}' does not match sleeve_key '{self.sleeve_key}'")
+        return self
+
+    @property
+    def parsed_sleeve_id(self) -> SleeveId:
+        """Return the parsed canonical sleeve identifier."""
+        return SleeveId.parse(self.sleeve_id)
+
+    def to_budget(self) -> SleeveBudget:
+        """Convert the config payload into the immutable runtime sleeve budget."""
+        return SleeveBudget(
+            sleeve_id=self.parsed_sleeve_id,
+            allocated_equity=self.allocated_equity,
+            symbols=(self.symbol,),
+        )
 
 
 class ReportingConfigItem(BaseModel):
@@ -277,6 +317,12 @@ class BacktestConfig(BaseModel):
         "If omitted, no performance metrics will be calculated or displayed.",
     )
 
+    sleeve: SleeveConfigItem | None = Field(
+        default=None,
+        description="Optional sleeve binding for isolated per-symbol runs. When present the run must operate on a "
+        "single-symbol universe matching sleeve.symbol.",
+    )
+
     # Feature store (optional)
     feature_config: FeatureConfig | None = Field(
         default=None,
@@ -432,6 +478,43 @@ class BacktestConfig(BaseModel):
                 )
 
         return v
+
+    @model_validator(mode="after")
+    def validate_sleeve_scope(self) -> "BacktestConfig":
+        """Enforce the additive sleeve contract when sleeve mode is enabled."""
+        if self.sleeve is None:
+            return self
+
+        expected_symbol = self.sleeve.symbol
+        all_symbols = self.all_symbols
+        if all_symbols != {expected_symbol}:
+            raise ValueError(
+                "Sleeve-bound backtests must load exactly one symbol matching sleeve.symbol. "
+                f"Expected only '{expected_symbol}', found {sorted(all_symbols)}."
+            )
+
+        for strategy in self.strategies:
+            if set(strategy.universe) != {expected_symbol}:
+                raise ValueError(
+                    f"Sleeve-bound backtests require strategy '{strategy.strategy_id}' to trade only '{expected_symbol}', "
+                    f"found {strategy.universe}."
+                )
+
+        sleeve_strategy_id = self.sleeve.parsed_sleeve_id.strategy_id
+        strategy_ids = {strategy.strategy_id for strategy in self.strategies}
+        if sleeve_strategy_id not in strategy_ids:
+            raise ValueError(
+                f"sleeve_id strategy '{sleeve_strategy_id}' not found in configured strategies {sorted(strategy_ids)}"
+            )
+
+        return self
+
+    @property
+    def sleeve_budget(self) -> SleeveBudget | None:
+        """Return the immutable sleeve budget for this run, when configured."""
+        if self.sleeve is None:
+            return None
+        return self.sleeve.to_budget()
 
 
 class ConfigLoadError(Exception):

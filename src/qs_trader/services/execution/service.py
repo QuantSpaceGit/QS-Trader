@@ -167,6 +167,7 @@ class ExecutionService:
         lifecycle_event = OrderLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=self._ensure_utc(occurred_at),
             order_id=order.order_id,
             intent_id=order_event.intent_id if order_event is not None else None,
@@ -211,6 +212,7 @@ class ExecutionService:
         lifecycle_event = FillLifecycleEvent(
             experiment_id=self._lifecycle_context.experiment_id,
             run_id=self._lifecycle_context.run_id,
+            sleeve_id=self._lifecycle_context.sleeve_id,
             occurred_at=self._ensure_utc(fill.timestamp),
             fill_id=fill.fill_id,
             order_id=order.order_id,

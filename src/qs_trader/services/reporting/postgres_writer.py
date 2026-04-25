@@ -283,12 +283,12 @@ class PostgreSQLWriter:
                 """
                 INSERT INTO run_lifecycle_events (
                     event_id, schema_version, experiment_id, run_id,
-                    strategy_id, symbol, lifecycle_family, lifecycle_type,
+                    sleeve_id, strategy_id, symbol, lifecycle_family, lifecycle_type,
                     event_timestamp, correlation_id, causation_id,
                     price_basis, payload_json
                 ) VALUES (
                     :event_id, :schema_version, :experiment_id, :run_id,
-                    :strategy_id, :symbol, :lifecycle_family, :lifecycle_type,
+                    :sleeve_id, :strategy_id, :symbol, :lifecycle_family, :lifecycle_type,
                     :event_timestamp, :correlation_id, :causation_id,
                     :price_basis, CAST(:payload_json AS jsonb)
                 )
@@ -319,10 +319,10 @@ class PostgreSQLWriter:
             text(
                 """
                 INSERT INTO run_observability_bars (
-                    experiment_id, run_id, strategy_id, symbol, bar_timestamp,
+                    experiment_id, run_id, strategy_id, symbol, sleeve_id, bar_timestamp,
                     schema_version, indicators_json, runtime_features_json
                 ) VALUES (
-                    :experiment_id, :run_id, :strategy_id, :symbol, :bar_timestamp,
+                    :experiment_id, :run_id, :strategy_id, :symbol, :sleeve_id, :bar_timestamp,
                     :schema_version, CAST(:indicators_json AS jsonb),
                     CAST(:runtime_features_json AS jsonb)
                 )

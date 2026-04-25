@@ -4,14 +4,18 @@ Tests the full end-to-end flow of reporting service integration using fixtures.
 All tests are self-contained and don't depend on user-modifiable config files.
 """
 
+import hashlib
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from itertools import count
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
+from uuid import UUID
 
+from qs_trader.engine.config import load_backtest_config
 from qs_trader.engine.engine import BacktestEngine
 from qs_trader.events.event_bus import EventBus
 from qs_trader.events.event_store import InMemoryEventStore
@@ -28,6 +32,94 @@ from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.manifest import ClickHouseInputManifest
 from qs_trader.services.reporting.service import ReportingService
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+_NO_SLEEVE_LEGACY_ARTIFACTS = (
+    "performance.json",
+    "report.html",
+    "timeseries/chart_data.json",
+    "timeseries/equity_curve.json",
+    "timeseries/returns.json",
+    "timeseries/drawdowns.json",
+)
+
+_FIXED_NO_SLEEVE_RUN_ID = "20240131_123456"
+
+_NO_SLEEVE_LEGACY_BASELINE_HASHES = {
+    "performance.json": "e77269ab7e3cd59999a3af52a40d73502f345e329ba7e83c582a1eab650d9153",
+    "report.html": "ae0023674263e4b87bc46173b0b662f51530d2d8f3a344c63617867bf2710467",
+    "timeseries/chart_data.json": "512a72cad9df37cf6269c4d74096d2542794036f59b84143bd81e66af342c74a",
+    "timeseries/equity_curve.json": "dd077dc133b43c46a44ca57bcb27d82374b5de7d36c09d623482590ba6e4066b",
+    "timeseries/returns.json": "b10b66b58283c4fcfbf46b9a32acd00b85e2c5cc9727148e5ad4f1b631d6d737",
+    "timeseries/drawdowns.json": "56696d96dbe133f6ab6d4e66d1b7232a04fc722dc90c4922d37f7a2263b5cb39",
+}
+
+
+def _legacy_artifact_hashes(run_dir: Path) -> dict[str, str]:
+    """Collect deterministic hashes for the legacy no-sleeve artifact set."""
+    hashes: dict[str, str] = {}
+    for relative_path in _NO_SLEEVE_LEGACY_ARTIFACTS:
+        artifact_path = run_dir / relative_path
+        assert artifact_path.exists(), f"Missing expected legacy artifact: {artifact_path}"
+        hashes[relative_path] = _sha256(artifact_path)
+    return hashes
+
+
+class _FrozenNoSleeveLegacyDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        if tz is None:
+            return cls(2024, 1, 31, 12, 34, 56)
+        return cls(2024, 1, 31, 12, 34, 56, tzinfo=tz)
+
+
+class _DeterministicUUIDFactory:
+    def __init__(self) -> None:
+        self._counter = count(1)
+
+    def __call__(self) -> UUID:
+        return UUID(int=next(self._counter))
+
+
+def _run_controlled_no_sleeve_scaffold(mock_system_config: Mock, output_root: Path) -> dict[str, str]:
+    """Run the scaffold with a fixed run directory, footer clock, and UUID stream."""
+    config = load_backtest_config("src/qs_trader/scaffold/experiments/sma_crossover/sma_crossover.yaml")
+    config.display_events = []
+    assert config.reporting is not None
+    config.reporting.display_final_report = False
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    mock_system_config.output.experiments_root = str(output_root)
+    mock_system_config.output.database = Mock(enabled=False, backend="postgres", postgres_url=None)
+    mock_system_config.custom_libraries.adapters = None
+
+    results_dir = output_root / config.sanitized_backtest_id / "runs" / _FIXED_NO_SLEEVE_RUN_ID
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    uuid_factory = _DeterministicUUIDFactory()
+    with (
+        patch("qs_trader.events.events.uuid4", new=uuid_factory),
+        patch("qs_trader.services.strategy.context.uuid.uuid4", new=uuid_factory),
+        patch("qs_trader.services.manager.service.uuid4", new=uuid_factory),
+        patch("qs_trader.services.execution.models.uuid4", new=uuid_factory),
+        patch("qs_trader.services.reporting.service.uuid.uuid4", new=uuid_factory),
+        patch("qs_trader.services.reporting.html_reporter.datetime", _FrozenNoSleeveLegacyDatetime),
+        patch("qs_trader.engine.engine.get_system_config", return_value=mock_system_config),
+    ):
+        engine = BacktestEngine.from_config(config, results_dir=results_dir)
+        try:
+            result = engine.run()
+
+            assert result.bars_processed > 0
+            assert not (results_dir / "timeseries" / "trades.json").exists()
+
+            return _legacy_artifact_hashes(results_dir)
+        finally:
+            engine.shutdown()
 
 
 def _integration_audit_event_store() -> InMemoryEventStore:
@@ -231,6 +323,21 @@ class TestReportingIntegration:
         if trades_file.exists():
             assert trades_file.stat().st_size > 0, "trades.json is empty"  # Cleanup
         engine.shutdown()
+
+    def test_sma_crossover_scaffold_preserves_no_sleeve_golden_outputs(self, mock_system_config) -> None:
+        """Phase 2 backward compatibility preserves byte-identical no-sleeve legacy artifacts.
+
+        The harness fixes the run directory name, the HTML footer clock, and UUID generation
+        so the produced files can be compared directly against committed pre-change hashes.
+        """
+
+        base_output_parent = Path(mock_system_config.output.experiments_root).parent
+        first_hashes = _run_controlled_no_sleeve_scaffold(mock_system_config, base_output_parent / "first")
+        second_hashes = _run_controlled_no_sleeve_scaffold(mock_system_config, base_output_parent / "second")
+
+        assert first_hashes == _NO_SLEEVE_LEGACY_BASELINE_HASHES
+        assert second_hashes == _NO_SLEEVE_LEGACY_BASELINE_HASHES
+        assert first_hashes == second_hashes
 
     def test_backtest_event_store_and_reporting_same_directory(self, buy_hold_backtest_config, mock_system_config):
         """Test that event store and reporting outputs are in same timestamped directory.

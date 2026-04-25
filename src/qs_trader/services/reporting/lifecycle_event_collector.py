@@ -69,6 +69,7 @@ def collect_run_lifecycle_events(
                 "schema_version": event.event_version,
                 "experiment_id": event.experiment_id,
                 "run_id": event.run_id,
+                "sleeve_id": event.sleeve_id,
                 "strategy_id": getattr(event, "strategy_id", None),
                 "symbol": getattr(event, "symbol", None),
                 "lifecycle_family": event.event_type,

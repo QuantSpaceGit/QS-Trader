@@ -380,6 +380,7 @@ class BacktestEngine:
         lifecycle_context = LifecycleRunContext(
             experiment_id=config.sanitized_backtest_id,
             run_id=str(resolved_run_id),
+            sleeve_id=config.sleeve.sleeve_id if config.sleeve is not None else None,
         )
         lifecycle_projection = LifecycleIntentProjection()
         lifecycle_projection.bind(event_bus)
@@ -612,6 +613,7 @@ class BacktestEngine:
                     event_bus=event_bus,
                     lifecycle_context=lifecycle_context,
                     lifecycle_projection=lifecycle_projection,
+                    sleeve_budget=config.sleeve_budget,
                 )
 
                 logger.debug(

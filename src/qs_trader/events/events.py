@@ -215,7 +215,7 @@ class ValidatedEvent(BaseEvent):
             )
 
         # Serialize to dict for validation
-        data = self.model_dump()
+        data = self.model_dump(exclude_none=True)
 
         # Extract payload (everything except envelope fields)
         payload_data = {k: v for k, v in data.items() if k not in RESERVED_ENVELOPE_KEYS}
@@ -533,6 +533,7 @@ class IndicatorEvent(ValidatedEvent):
     # No adjustment metadata needed - everything is transparent
     strategy_id: str  # Strategy source attribution
     symbol: str  # Security identifier
+    sleeve_id: str | None = None  # Optional isolated-sleeve attribution
     timestamp: str  # Bar timestamp for which indicators were calculated (ISO8601 UTC)
     indicators: dict[str, Any]  # Flexible structure: name -> value (any JSON-serializable type)
 
@@ -562,6 +563,7 @@ class RuntimeFeaturesEvent(ValidatedEvent):
 
     strategy_id: str
     symbol: str
+    sleeve_id: str | None = None
     timestamp: str
     runtime_features: dict[str, Any]
 
@@ -1049,6 +1051,9 @@ class PerformanceMetricsEvent(ValidatedEvent):
     SCHEMA_BASE: ClassVar[Optional[str]] = "reporting/performance_metrics"
     event_type: str = "performance_metrics"
 
+    sleeve_id: str | None = None
+    symbol: str | None = None
+
     # Required domain fields
     timestamp: str  # ISO8601 string (UTC RFC3339 with Z suffix)
     equity: Decimal
@@ -1085,6 +1090,43 @@ class PerformanceMetricsEvent(ValidatedEvent):
     monthly_returns: list[PeriodMetricsSnapshot] = Field(default_factory=list)
     quarterly_returns: list[PeriodMetricsSnapshot] = Field(default_factory=list)
     annual_returns: list[PeriodMetricsSnapshot] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_performance_metrics_version(cls, data: Any) -> Any:
+        """Auto-select v1/v2 contract based on sleeve attribution presence."""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        has_sleeve = normalized.get("sleeve_id") is not None
+        has_symbol = normalized.get("symbol") is not None
+        if has_sleeve != has_symbol:
+            raise ValueError(
+                "PerformanceMetricsEvent requires both sleeve_id and symbol together when sleeve mode is active"
+            )
+
+        normalized.setdefault("event_version", 2 if has_sleeve else 1)
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_performance_metrics_version(self) -> "PerformanceMetricsEvent":
+        """Enforce the v1/v2 attribution contract explicitly."""
+        has_sleeve = self.sleeve_id is not None
+        has_symbol = self.symbol is not None
+
+        if has_sleeve != has_symbol:
+            raise ValueError(
+                "PerformanceMetricsEvent requires both sleeve_id and symbol together when sleeve mode is active"
+            )
+
+        if has_sleeve and self.event_version != 2:
+            raise ValueError("Sleeve-scoped performance metrics must use event_version=2")
+
+        if not has_sleeve and self.event_version != 1:
+            raise ValueError("Portfolio-scoped performance metrics must use event_version=1")
+
+        return self
 
     @field_serializer(
         "equity",
