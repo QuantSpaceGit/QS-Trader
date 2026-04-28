@@ -6,9 +6,22 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [0.2.0-beta.10] - 2026-04-28
+
 ### Added
 
-- **Phase 2 sleeve primitives**: Added an optional `sleeve` config block, sleeve-aware reporting and event attribution, and full legacy compatibility for runs that do not define sleeves.
+- **Backtest audit export**: QS-Trader can now emit a database-backed audit export bundle that packages summary metadata, runtime bars, and derived observability rows for persisted runs
+
+  - Audit export v3 sources `indicator_*` columns from `run_observability_bars` instead of reconstructing them from ad-hoc run artifacts
+  - Audit export v4 sources canonical bar columns from `run_bar_snapshots`, so downstream audits no longer have to re-query ClickHouse to rebuild the exact runtime market-data stream
+  - Post-cutover runs fail closed when required runtime snapshots are missing, preventing silently inconsistent audit bundles
+
+- **Lifecycle ledger emission** (phase 2): QS-Trader now emits and persists the canonical lifecycle envelope for strategy decisions, order intents, order lifecycle events, fills, trades, positions, and portfolio state transitions
+
+  - Adds the `lifecycle-envelope.v1` contract family plus lifecycle-specific schema/example files for downstream consumers
+  - Persists lifecycle rows alongside other reporting outputs so Research-owned services can replay the exact execution narrative for a run
+
+- **Phase 2 sleeve primitives**: Added an optional `sleeve` config block, sleeve-aware reporting and event attribution, and full legacy compatibility for runs that do not define sleeves
 
 - **Runtime bar snapshot persistence** (audit export v4 phase 1): QS-Trader now persists the exact runtime `PriceBarEvent` stream into the new `run_bar_snapshots` Postgres ledger so downstream audit exports can reconstruct the bars the engine actually consumed
 
@@ -35,6 +48,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - `BacktestConfig` and `ClickHouseInputManifest` reject legacy `adjustment_mode`, `strategy_adjustment_mode`, and `portfolio_adjustment_mode` inputs
   - Strategy-facing `Context` price/bar accessors require an explicit basis, making `raw` versus `adjusted` behavior truthful and testable
   - Reporting metadata and audit-export summaries now emit `price_basis`, while scaffold strategies and experiment templates demonstrate the explicit-basis API
+
+- **Effective execution provenance**: Persisted run metadata now separates operator-submitted intent from the fully resolved execution contract
+
+  - Filesystem `metadata.json` version `1.1` stores both `submitted_config` and `effective_execution_spec`
+  - PostgreSQL-backed runs now persist `config_snapshot_json` separately from `effective_execution_spec_json`, making inherited defaults and resolved runtime behavior auditable
 
 - **Canonical ClickHouse runtime volume fallback**: Strategy-facing runtime volume now falls back to raw `dailyvolume` when `dailyvolumeadj` is absent, instead of silently collapsing to zero
 

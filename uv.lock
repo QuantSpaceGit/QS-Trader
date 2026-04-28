@@ -1075,7 +1075,7 @@ wheels = [
 
 [[package]]
 name = "qs-trader"
-version = "0.2.0b9"
+version = "0.2.0b10"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
