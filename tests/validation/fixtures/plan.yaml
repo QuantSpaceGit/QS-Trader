@@ -1,0 +1,22 @@
+validation_id: test_plan
+strategy_experiment: test_strategy
+base_config: base_config.yaml
+mode: static_is_oos
+
+splits:
+  in_sample:
+    start_date: "2018-01-02"
+    end_date: "2021-12-31"
+  out_of_sample:
+    start_date: "2022-01-03"
+    end_date: "2024-12-31"
+
+decision:
+  rules:
+    oos_sharpe_min: 0.8
+    oos_max_drawdown_max: 0.25
+    is_to_oos_sharpe_decay_max: 0.5
+    min_oos_trades: 30
+    require_positive_oos_total_return: true
+  on_review_required:
+    - is_to_oos_sharpe_decay_warn: 0.3
