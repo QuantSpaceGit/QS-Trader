@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ tr:hover td { background: #1e293b; }
 
 def _outcome_badge(outcome: str) -> str:
     color = _OUTCOME_COLORS.get(outcome, "#64748b")
-    return f'<span class="badge" style="background:{color}">{outcome}</span>'
+    return f'<span class="badge" style="background:{color}">{_html.escape(outcome)}</span>'
 
 
 def _bool_icon(passed: bool) -> str:
@@ -82,20 +83,25 @@ class ValidationHTMLReporter:
         decision: dict[str, Any] = summary.get("decision", {})
         rule_results: list[dict[str, Any]] = decision.get("rule_results", [])
 
+        vid_e = _html.escape(validation_id)
+        started_e = _html.escape(started_at)
+        finished_e = _html.escape(finished_at)
+        sha_e = _html.escape(sha_short)
+
         # ── Summary table ────────────────────────────────────────────────
         summary_table = f"""
 <table>
   <tr><th>Field</th><th>Value</th></tr>
-  <tr><td>validation_id</td><td>{validation_id}</td></tr>
+  <tr><td>validation_id</td><td>{vid_e}</td></tr>
   <tr><td>outcome</td><td>{_outcome_badge(outcome)}</td></tr>
-  <tr><td>started_at</td><td>{started_at}</td></tr>
-  <tr><td>finished_at</td><td>{finished_at}</td></tr>
-  <tr><td>plan_sha256</td><td><code>{sha_short}</code></td></tr>
+  <tr><td>started_at</td><td>{started_e}</td></tr>
+  <tr><td>finished_at</td><td>{finished_e}</td></tr>
+  <tr><td>plan_sha256</td><td><code>{sha_e}</code></td></tr>
 </table>"""
 
         # ── Decision table ───────────────────────────────────────────────
         decision_rows = "".join(
-            f"<tr><td>{rr['rule']}</td><td>{_fmt_val(rr.get('threshold'))}</td>"
+            f"<tr><td>{_html.escape(rr['rule'])}</td><td>{_fmt_val(rr.get('threshold'))}</td>"
             f"<td>{_fmt_val(rr.get('actual'))}</td>"
             f"<td>{_bool_icon(bool(rr.get('passed')))}</td></tr>"
             for rr in rule_results
@@ -108,7 +114,7 @@ class ValidationHTMLReporter:
 
         # ── Comparison table ─────────────────────────────────────────────
         comparison_rows = "".join(
-            f"<tr><td>{metric}</td><td>{_fmt_val(vals.get('is'))}</td>"
+            f"<tr><td>{_html.escape(metric)}</td><td>{_fmt_val(vals.get('is'))}</td>"
             f"<td>{_fmt_val(vals.get('oos'))}</td><td>{_fmt_val(vals.get('decay'))}</td></tr>"
             for metric, vals in comparison.items()
         )
@@ -126,11 +132,11 @@ class ValidationHTMLReporter:
             metric_cells = " ".join(
                 f"<td>{_fmt_val(metrics.get(m))}</td>" for m in _top_metrics
             )
-            error_cell = f"<td>{fold.get('error') or ''}</td>"
+            error_cell = f"<td>{_html.escape(fold.get('error') or '')}</td>"
             fold_rows += (
-                f"<tr><td>{fold.get('fold_id','')}</td>"
-                f"<td>{fold.get('role','')}</td>"
-                f"<td>{fold.get('status','')}</td>"
+                f"<tr><td>{_html.escape(fold.get('fold_id',''))}</td>"
+                f"<td>{_html.escape(fold.get('role',''))}</td>"
+                f"<td>{_html.escape(fold.get('status',''))}</td>"
                 f"{error_cell}"
                 f"{metric_cells}</tr>"
             )
@@ -146,11 +152,11 @@ class ValidationHTMLReporter:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Validation Report: {validation_id}</title>
+<title>Validation Report: {_html.escape(validation_id)}</title>
 <style>{_CSS}</style>
 </head>
 <body>
-<h1>Validation Report: {validation_id}</h1>
+<h1>Validation Report: {vid_e}</h1>
 <div class="section">
   <h2>Summary</h2>
   {summary_table}
