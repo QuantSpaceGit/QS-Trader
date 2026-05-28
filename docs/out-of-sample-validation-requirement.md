@@ -32,9 +32,9 @@ The new functionality should sit above the engine as a validation orchestration 
 
 The distinction should be:
 
-| Layer | Responsibility |
-| --- | --- |
-| Backtest Engine | Execute one strategy over one fixed configuration and date range |
+| Layer                | Responsibility                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Backtest Engine      | Execute one strategy over one fixed configuration and date range                                                          |
 | Validation Framework | Define validation methodology, generate multiple runs, compare results, and decide whether the strategy passes validation |
 
 This avoids overloading the current engine and keeps the architecture clean.
@@ -66,10 +66,10 @@ This mode should remain supported.
 
 The user should be able to divide a historical dataset into:
 
-| Period | Purpose |
-| --- | --- |
-| In-sample | Strategy design, calibration, parameter selection |
-| Out-of-sample | Independent validation period |
+| Period        | Purpose                                           |
+| ------------- | ------------------------------------------------- |
+| In-sample     | Strategy design, calibration, parameter selection |
+| Out-of-sample | Independent validation period                     |
 
 The report must clearly separate the two periods.
 
@@ -83,10 +83,10 @@ This means the strategy is tested across multiple sequential periods, where each
 
 The system should support at least two styles:
 
-| Type | Description |
-| --- | --- |
-| Anchored walk-forward | Training period expands over time; test period rolls forward |
-| Rolling walk-forward | Training period has fixed length; both training and test windows roll forward |
+| Type                  | Description                                                                   |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Anchored walk-forward | Training period expands over time; test period rolls forward                  |
+| Rolling walk-forward  | Training period has fixed length; both training and test windows roll forward |
 
 This is important because one out-of-sample period may not be enough to determine whether a strategy is robust.
 
@@ -159,18 +159,18 @@ The system must report in-sample and out-of-sample results separately.
 
 At minimum, the report should show:
 
-| Metric | In-Sample | Out-of-Sample | Difference / Decay |
-| --- | --- | --- | --- |
-| Total return | Required | Required | Required |
-| CAGR | Required | Required | Required |
-| Sharpe ratio | Required | Required | Required |
-| Sortino ratio | Recommended | Recommended | Recommended |
-| Max drawdown | Required | Required | Required |
-| Volatility | Required | Required | Required |
-| Win rate | Recommended | Recommended | Recommended |
-| Number of trades | Required | Required | Required |
-| Turnover | Recommended | Recommended | Recommended |
-| Net exposure | Recommended | Recommended | Recommended |
+| Metric           | In-Sample   | Out-of-Sample | Difference / Decay |
+| ---------------- | ----------- | ------------- | ------------------ |
+| Total return     | Required    | Required      | Required           |
+| CAGR             | Required    | Required      | Required           |
+| Sharpe ratio     | Required    | Required      | Required           |
+| Sortino ratio    | Recommended | Recommended   | Recommended        |
+| Max drawdown     | Required    | Required      | Required           |
+| Volatility       | Required    | Required      | Required           |
+| Win rate         | Recommended | Recommended   | Recommended        |
+| Number of trades | Required    | Required      | Required           |
+| Turnover         | Recommended | Recommended   | Recommended        |
+| Net exposure     | Recommended | Recommended   | Recommended        |
 
 The system should highlight cases where out-of-sample performance is materially worse than in-sample performance.
 
@@ -238,9 +238,9 @@ A warmup period allows indicators or features to initialize before the official 
 
 The report should clearly distinguish between:
 
-| Period | Purpose |
-| --- | --- |
-| Warmup | Used to initialize indicators/features |
+| Period      | Purpose                                |
+| ----------- | -------------------------------------- |
+| Warmup      | Used to initialize indicators/features |
 | Test period | Used to calculate official performance |
 
 Warmup returns should not be included in official performance metrics unless explicitly requested.
@@ -286,12 +286,12 @@ The validation framework should produce a clear final decision.
 
 Possible outcomes:
 
-| Decision | Meaning |
-| --- | --- |
-| Pass | Strategy satisfies all required validation criteria |
-| Fail | Strategy does not satisfy required validation criteria |
-| Review Required | Strategy has mixed results or requires manual review |
-| Invalid | Validation could not be completed due to data/configuration issue |
+| Decision        | Meaning                                                           |
+| --------------- | ----------------------------------------------------------------- |
+| Pass            | Strategy satisfies all required validation criteria               |
+| Fail            | Strategy does not satisfy required validation criteria            |
+| Review Required | Strategy has mixed results or requires manual review              |
+| Invalid         | Validation could not be completed due to data/configuration issue |
 
 The decision should be based on explicit criteria, not subjective interpretation.
 
@@ -451,14 +451,14 @@ The system should not silently produce incomplete validation results.
 The intended user workflow should be:
 
 1. User develops a strategy using normal QS-Trader backtests.
-2. User defines a validation plan.
-3. QS-Trader generates the required validation runs.
-4. QS-Trader executes each run.
-5. QS-Trader aggregates results.
-6. QS-Trader compares in-sample and out-of-sample performance.
-7. QS-Trader applies pass/fail criteria.
-8. QS-Trader produces a validation report.
-9. User reviews whether the strategy is suitable for further research, paper trading, or production.
+1. User defines a validation plan.
+1. QS-Trader generates the required validation runs.
+1. QS-Trader executes each run.
+1. QS-Trader aggregates results.
+1. QS-Trader compares in-sample and out-of-sample performance.
+1. QS-Trader applies pass/fail criteria.
+1. QS-Trader produces a validation report.
+1. User reviews whether the strategy is suitable for further research, paper trading, or production.
 
 ## 10. Suggested Development Phases
 

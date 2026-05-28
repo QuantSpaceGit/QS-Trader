@@ -38,10 +38,7 @@ class StaticSplitGenerator:
             ValueError: If ``plan.mode`` is not ``'static_is_oos'``.
         """
         if plan.mode != "static_is_oos":
-            raise ValueError(
-                f"StaticSplitGenerator only supports mode='static_is_oos'; "
-                f"got '{plan.mode}'"
-            )
+            raise ValueError(f"StaticSplitGenerator only supports mode='static_is_oos'; got '{plan.mode}'")
 
         is_split = ValidationSplit(
             fold_index=0,

@@ -51,9 +51,7 @@ class DateRange(BaseModel):
     def validate_range(self) -> "DateRange":
         """Reject date ranges where end_date is not strictly after start_date."""
         if self.end_date <= self.start_date:
-            raise ValueError(
-                f"end_date ({self.end_date}) must be strictly after start_date ({self.start_date})"
-            )
+            raise ValueError(f"end_date ({self.end_date}) must be strictly after start_date ({self.start_date})")
         return self
 
 
@@ -88,9 +86,7 @@ class HoldoutSpec(BaseModel):
     def validate_range(self) -> "HoldoutSpec":
         """Reject holdout ranges where end_date is not strictly after start_date."""
         if self.end_date <= self.start_date:
-            raise ValueError(
-                f"end_date ({self.end_date}) must be strictly after start_date ({self.start_date})"
-            )
+            raise ValueError(f"end_date ({self.end_date}) must be strictly after start_date ({self.start_date})")
         return self
 
 
@@ -232,9 +228,7 @@ def _normalize_raw_plan(raw: dict[str, Any]) -> dict[str, Any]:
     if "rules" in decision:
         rules = decision.pop("rules")
         if not isinstance(rules, dict):
-            raise ValueError(
-                f"decision.rules must be a mapping, got {type(rules).__name__}"
-            )
+            raise ValueError(f"decision.rules must be a mapping, got {type(rules).__name__}")
         decision.update(rules)
 
     # Normalize on_review_required from [{name: value}] to [{rule: name, threshold: value}]
@@ -282,8 +276,7 @@ def load_validation_plan(path: Path) -> ValidationPlan:
         yaml_path = path / f"{path.name}.yaml"
         if not yaml_path.exists():
             raise ValueError(
-                f"Validation plan directory '{path}' must contain '{path.name}.yaml'. "
-                f"File not found: {yaml_path}"
+                f"Validation plan directory '{path}' must contain '{path.name}.yaml'. File not found: {yaml_path}"
             )
         path = yaml_path
 
@@ -300,9 +293,7 @@ def load_validation_plan(path: Path) -> ValidationPlan:
         raise ValueError(f"Invalid YAML in validation plan '{path}': {exc}") from exc
 
     if not isinstance(raw, dict):
-        raise ValueError(
-            f"Validation plan must be a YAML mapping; got {type(raw).__name__}: {path}"
-        )
+        raise ValueError(f"Validation plan must be a YAML mapping; got {type(raw).__name__}: {path}")
 
     # Normalize YAML structure (flatten decision.rules, convert on_review_required)
     raw = _normalize_raw_plan(raw)
