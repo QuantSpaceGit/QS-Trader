@@ -551,3 +551,38 @@ QS-Trader should be extended from a single-run backtesting engine into a validat
 The required capability is not just to run a strategy over multiple date ranges. The required capability is to support a disciplined research workflow where in-sample development, out-of-sample validation, walk-forward robustness, benchmark comparison, cost sensitivity, and auditability are treated as first-class parts of the backtesting process.
 
 The expected outcome is a validation framework that helps users determine whether a strategy is genuinely robust or simply overfit to a selected historical period.
+
+## Phase 1 Implementation
+
+Phase 1 (static IS/OOS validation) is **implemented and committed** in QS-Trader.
+
+### What Phase 1 delivers
+
+- `qs-trader validate <plan>` CLI command with exit codes 0–4 (Pass / Fail / ReviewRequired / Invalid / Exception).
+- `ValidationPlan` YAML format: `validation_id`, `strategy_experiment`, `base_config`, `mode: static_is_oos`, `splits` (IS + OOS), optional `holdout`, `decision` rules, `execution`, and `reporting` blocks.
+- Declarative pass/fail rule catalog: `oos_sharpe_min`, `oos_max_drawdown_max`, `is_to_oos_sharpe_decay_max`, `min_oos_trades`, `require_positive_oos_total_return`, plus `on_review_required` for downgrade-only rules.
+- Self-contained evidence pack per validation run: `summary.json`, `effective_plan.yaml`, `report.html`, and `audit/` (environment, git commit, plan SHA-256, holdout state).
+- Child run failure handling: configurable `fail_fast` (default) or `continue` per plan.
+- Full backward compatibility: `qs-trader backtest` and all single-run artifacts unchanged.
+
+### What Phase 1 explicitly defers
+
+- Walk-forward validation (anchored or rolling) — Phase 2.
+- Cost-sensitivity scenarios — Phase 2.
+- Full benchmark overlay charts — Phase 2.
+- Holdout enforcement (blocking re-runs, justification gate) — Phase 4.
+- Postgres parent/children validation tables — Phase 4.
+- Purged CV, CPCV, deflated Sharpe, PBO, embargo execution — Phase 5+.
+
+### Quality gate state at Phase 1 commit
+
+- Tests: **241 passing** (`uv run pytest tests/validation/ -q`)
+- Linting: **ruff clean**
+- Type checking: **mypy clean**
+- Formatting: **mdformat clean** on all documentation files
+
+### Documentation
+
+- Implementation spec: [QS-Infra/docs/qs-trader-oos-validation-framework.md](../../QS-Infra/docs/qs-trader-oos-validation-framework.md)
+- Architecture and plan YAML reference: [docs/validation-framework.md](validation-framework.md)
+- CLI reference: [docs/cli/validate.md](cli/validate.md)

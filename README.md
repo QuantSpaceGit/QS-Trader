@@ -448,10 +448,42 @@ qs-trader backtest experiments/sma_crossover --interactive --break-on signal:BUY
 qs-trader backtest experiments/sma_crossover --interactive --break-at 2020-06-15 --break-on signal
 ```
 
+### Validation
+
+Run out-of-sample validation from a `ValidationPlan` YAML file:
+
+```bash
+qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml
+```
+
+| Option                           | Purpose                                                |
+| -------------------------------- | ------------------------------------------------------ |
+| `--silent` / `-s`                | Suppress per-bar output (fastest execution)            |
+| `--dry-run`                      | Print effective plan and splits; no execution          |
+| `--force`                        | Overwrite existing output directory                    |
+| `--on-child-failure MODE`        | Override plan: `fail_fast` (default) or `continue`     |
+| `--html-report/--no-html-report` | Toggle HTML report (default: on)                       |
+| `--log-level LEVEL`              | `DEBUG` / `INFO` / `WARNING` / `ERROR` (default: INFO) |
+
+**Exit codes:** `0` = Pass, `1` = Fail, `2` = ReviewRequired, `3` = Invalid, `4` = unhandled exception.
+
+**Example:**
+
+```bash
+# Dry run — preview the plan and generated splits without executing
+qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
+```
+
+See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference,
+decision rule catalog, output layout, and audit pack contents.
+Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
+
 ### Documentation References
 
 - **Backtest Command**: [docs/packages/cli/backtest.md](docs/packages/cli/backtest.md)
 - **Interactive Debugging**: [docs/cli/interactive.md](docs/cli/interactive.md)
+- **Validation Framework**: [docs/validation-framework.md](docs/validation-framework.md)
+- **Validate CLI**: [docs/cli/validate.md](docs/cli/validate.md)
 - **Strategy Development**: [docs/packages/strategy.md](docs/packages/strategy.md)
 - **Indicators**: [docs/packages/indicators/indicators.md](docs/packages/indicators/indicators.md)
 

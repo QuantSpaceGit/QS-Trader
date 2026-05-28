@@ -6,7 +6,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
-## [0.2.0-beta.10] - 2026-04-28
+### Added
+
+- **OOS Validation Framework (Phase 1)**: New `qs-trader validate <plan>` command for
+  static in-sample / out-of-sample strategy validation
+
+  - `ValidationPlan` YAML format: `validation_id`, `strategy_experiment`, `base_config`,
+    `mode: static_is_oos`, `splits` (IS + OOS date ranges), optional `holdout` period,
+    declarative `decision` rules, `execution` settings, and `reporting` toggles
+  - Declarative pass/fail rule catalog: `oos_sharpe_min`, `oos_max_drawdown_max`,
+    `is_to_oos_sharpe_decay_max`, `min_oos_trades`, `require_positive_oos_total_return`;
+    `on_review_required` rules downgrade Pass → ReviewRequired without triggering Fail
+  - Exit codes: `0` = Pass, `1` = Fail, `2` = ReviewRequired, `3` = Invalid
+    (configuration error or child run failure), `4` = unhandled exception
+  - Self-contained evidence pack written to
+    `experiments/<exp>/validations/<validation_id>/`: `summary.json`,
+    `effective_plan.yaml`, `report.html`, and `audit/` directory containing
+    `environment.json`, `git.json`, `plan_sha256.txt`, `base_config_sha256.txt`,
+    `holdout.json`
+  - Child-run failure handling configurable per plan: `on_child_failure: fail_fast`
+    (default) or `continue`; `--force` flag allows overwriting existing output
+  - Full backward compatibility: `qs-trader backtest` and all single-run artifacts
+    unchanged; validation framework is entirely additive
+  - Documentation: [docs/validation-framework.md](docs/validation-framework.md) and
+    [docs/cli/validate.md](docs/cli/validate.md)
 
 ### Added
 
