@@ -28,7 +28,10 @@ src/qs_trader/validation/
 ├── cli.py              # qs-trader validate command implementation
 ├── decision.py         # DecisionEngine — declarative rule evaluation
 ├── plan.py             # ValidationPlan model, YAML loader, plan hash
-├── reporting.py        # SummaryWriter, ValidationHTMLReporter, console summary
+├── reporting/
+│   ├── __init__.py     # exports SummaryWriter, ValidationHTMLReporter
+│   ├── html.py         # ValidationHTMLReporter — standalone HTML
+│   └── summary.py      # SummaryWriter — summary.json + effective_plan.yaml
 ├── runner.py           # SequentialValidationRunner, ChildRunRef, ChildRunFailedError
 └── splits/
     ├── __init__.py
@@ -179,7 +182,7 @@ Breach of any enabled fail rule sets the outcome to `Fail`.
 | `require_positive_oos_total_return` | OOS total return | `actual > 0`          |
 
 **Sharpe decay formula:** `decay = (is_sharpe - oos_sharpe) / max(|is_sharpe|, ε)`
-where `ε = 1e-9`. A value of `0.5` means OOS Sharpe fell by more than 50% relative to IS.
+where `ε = 1e-6`. A value of `0.5` means OOS Sharpe fell by more than 50% relative to IS.
 
 `oos_max_drawdown_max` uses a positive-loss convention (`0.25` = 25% drawdown).
 

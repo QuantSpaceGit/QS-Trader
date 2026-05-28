@@ -31,8 +31,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - Documentation: [docs/validation-framework.md](docs/validation-framework.md) and
     [docs/cli/validate.md](docs/cli/validate.md)
 
-### Added
-
 - **Backtest audit export**: QS-Trader can now emit a database-backed audit export bundle that packages summary metadata, runtime bars, and derived observability rows for persisted runs
 
   - Audit export v3 sources `indicator_*` columns from `run_observability_bars` instead of reconstructing them from ad-hoc run artifacts
