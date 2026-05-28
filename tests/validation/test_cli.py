@@ -246,3 +246,102 @@ class TestValidateForceFlag:
 
         assert captured_kwargs, "Runner was not instantiated"
         assert captured_kwargs[0]["force"] is True
+
+
+# ---------------------------------------------------------------------------
+# T10.1: --no-html-report gate (WARNING-4 regression guard)
+# ---------------------------------------------------------------------------
+
+
+class TestNoHtmlReport:
+    def test_no_html_report_skips_render(self, tmp_path: Path) -> None:
+        """--no-html-report must prevent ValidationHTMLReporter.render() call."""
+        plan_yaml = _make_plan_yaml(tmp_path)
+        child_refs = _make_child_refs(tmp_path)
+        mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
+
+        with (
+            patch("qs_trader.validation.cli.SequentialValidationRunner") as mock_runner_cls,
+            patch("qs_trader.validation.cli.MetricsAggregator") as mock_agg_cls,
+            patch("qs_trader.validation.cli.DecisionEngine") as mock_engine_cls,
+            patch("qs_trader.validation.cli.AuditWriter") as mock_audit_cls,
+            patch("qs_trader.validation.cli.SummaryWriter") as mock_summary_cls,
+            patch("qs_trader.validation.cli.ValidationHTMLReporter") as mock_html_cls,
+            patch("qs_trader.validation.cli.load_backtest_config") as mock_load_cfg,
+            patch("qs_trader.validation.cli._sha256_file", return_value="fakehash"),
+        ):
+            mock_runner_cls.return_value.run.return_value = child_refs
+            mock_agg_cls.return_value.aggregate.return_value = {}
+            mock_engine_cls.return_value.evaluate.return_value = mock_decision
+            mock_audit_cls.return_value.write_audit.return_value = {}
+            mock_summary_cls.return_value.write_summary.return_value = {
+                "outcome": "Pass",
+                "decision": {"outcome": "Pass", "reason_codes": [], "rule_results": []},
+                "reason_codes": [],
+                "validation_id": "cli_test",
+            }
+            mock_load_cfg.return_value = MagicMock()
+
+            runner = CliRunner()
+            result = runner.invoke(validate_command, [str(plan_yaml), "--no-html-report"])
+
+        assert result.exit_code == 0, result.output
+        mock_html_cls.return_value.render.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# T10.1: --silent forwards replay_speed=-1.0 to child configs (WARNING-5 guard)
+# ---------------------------------------------------------------------------
+
+
+class TestSilentForwarding:
+    def test_silent_sets_replay_speed_minus_one(self, tmp_path: Path) -> None:
+        """--silent must apply replay_speed=-1.0 to the base config passed to runner."""
+        plan_yaml = _make_plan_yaml(tmp_path)
+        child_refs = _make_child_refs(tmp_path)
+        mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
+        captured_base_configs: list = []
+
+        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+            captured_base_configs.append(base_config)
+            m = MagicMock()
+            m.run.return_value = child_refs
+            return m
+
+        mock_base_cfg = MagicMock()
+        # model_copy must return an object whose replay_speed we can check
+        silent_cfg = MagicMock()
+        silent_cfg.replay_speed = -1.0
+        mock_base_cfg.model_copy.return_value = silent_cfg
+
+        with (
+            patch("qs_trader.validation.cli.SequentialValidationRunner", side_effect=_capture_runner),
+            patch("qs_trader.validation.cli.MetricsAggregator") as mock_agg_cls,
+            patch("qs_trader.validation.cli.DecisionEngine") as mock_engine_cls,
+            patch("qs_trader.validation.cli.AuditWriter") as mock_audit_cls,
+            patch("qs_trader.validation.cli.SummaryWriter") as mock_summary_cls,
+            patch("qs_trader.validation.cli.ValidationHTMLReporter"),
+            patch("qs_trader.validation.cli.load_backtest_config", return_value=mock_base_cfg),
+            patch("qs_trader.validation.cli._sha256_file", return_value="fakehash"),
+        ):
+            mock_agg_cls.return_value.aggregate.return_value = {}
+            mock_engine_cls.return_value.evaluate.return_value = mock_decision
+            mock_audit_cls.return_value.write_audit.return_value = {}
+            mock_summary_cls.return_value.write_summary.return_value = {
+                "outcome": "Pass",
+                "decision": {"outcome": "Pass", "reason_codes": [], "rule_results": []},
+                "reason_codes": [],
+                "validation_id": "cli_test",
+            }
+
+            runner = CliRunner()
+            result = runner.invoke(validate_command, [str(plan_yaml), "--silent"])
+
+        assert result.exit_code == 0, result.output
+        # model_copy must have been called with replay_speed=-1.0
+        mock_base_cfg.model_copy.assert_called_once_with(
+            update={"replay_speed": -1.0, "display_events": None}
+        )
+        # The object passed to runner must be the silent config
+        assert captured_base_configs, "Runner was not instantiated"
+        assert captured_base_configs[0].replay_speed == -1.0
