@@ -63,9 +63,7 @@ def _load_fold_metrics(run_dir: Path) -> dict[str, Any]:
     return {}
 
 
-def _fold_date_range(
-    child_ref: ChildRunRef, plan: ValidationPlan
-) -> tuple[str | None, str | None]:
+def _fold_date_range(child_ref: ChildRunRef, plan: ValidationPlan) -> tuple[str | None, str | None]:
     """Return (start_date, end_date) ISO strings for a fold by role."""
     role = child_ref.role
     if role == "is":

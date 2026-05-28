@@ -116,7 +116,9 @@ def _run_validate(
 
     # Override on_child_failure if CLI option supplied
     if on_child_failure is not None:
-        plan = plan.model_copy(update={"execution": plan.execution.model_copy(update={"on_child_failure": on_child_failure})})
+        plan = plan.model_copy(
+            update={"execution": plan.execution.model_copy(update={"on_child_failure": on_child_failure})}
+        )
 
     # ── Generate splits ────────────────────────────────────────────────────
     splits = StaticSplitGenerator().generate(plan)
@@ -129,10 +131,7 @@ def _run_validate(
         click.echo(json.dumps(plan_dict, indent=2, default=str))
         click.echo("\nSplits:")
         for s in splits:
-            click.echo(
-                f"  fold={s.fold_index} role={s.role} "
-                f"{s.test_range.start_date} → {s.test_range.end_date}"
-            )
+            click.echo(f"  fold={s.fold_index} role={s.role} {s.test_range.start_date} → {s.test_range.end_date}")
         return  # exit 0
 
     # ── Resolve output directory ───────────────────────────────────────────
@@ -190,9 +189,7 @@ def _run_validate(
     decision = DecisionEngine(plan.metrics).evaluate(comparison, plan.decision, child_refs)
 
     # ── Write audit pack ───────────────────────────────────────────────────
-    audit_summary = AuditWriter().write_audit(
-        plan, plan_sha256, base_config_sha256, started_at, finished_at, out_dir
-    )
+    audit_summary = AuditWriter().write_audit(plan, plan_sha256, base_config_sha256, started_at, finished_at, out_dir)
 
     # ── Write summary.json + effective_plan.yaml ───────────────────────────
     summary_writer = SummaryWriter()

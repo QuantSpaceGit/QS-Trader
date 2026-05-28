@@ -129,14 +129,12 @@ class ValidationHTMLReporter:
         fold_rows = ""
         for fold in folds:
             metrics: dict[str, Any] = fold.get("metrics", {})
-            metric_cells = " ".join(
-                f"<td>{_fmt_val(metrics.get(m))}</td>" for m in _top_metrics
-            )
+            metric_cells = " ".join(f"<td>{_fmt_val(metrics.get(m))}</td>" for m in _top_metrics)
             error_cell = f"<td>{_html.escape(fold.get('error') or '')}</td>"
             fold_rows += (
-                f"<tr><td>{_html.escape(fold.get('fold_id',''))}</td>"
-                f"<td>{_html.escape(fold.get('role',''))}</td>"
-                f"<td>{_html.escape(fold.get('status',''))}</td>"
+                f"<tr><td>{_html.escape(fold.get('fold_id', ''))}</td>"
+                f"<td>{_html.escape(fold.get('role', ''))}</td>"
+                f"<td>{_html.escape(fold.get('status', ''))}</td>"
                 f"{error_cell}"
                 f"{metric_cells}</tr>"
             )
