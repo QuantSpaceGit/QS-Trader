@@ -2,10 +2,7 @@
 
 ## Overview
 
-The validation framework extends QS-Trader from a single-run backtesting tool into a
-validation-aware research platform. It sits **above** the existing `BacktestEngine` as
-an orchestration layer that runs multiple child backtests, aggregates results, and
-produces a structured pass/fail decision.
+The validation framework extends QS-Trader from a single-run backtesting tool into a validation-aware research platform. It sits **above** the existing `BacktestEngine` as an orchestration layer that runs multiple child backtests, aggregates results, and produces a structured pass/fail decision.
 
 The framework answers institutional-grade questions that a single backtest cannot:
 
@@ -14,8 +11,7 @@ The framework answers institutional-grade questions that a single backtest canno
 - Does the strategy meet explicit, auditable pass/fail criteria?
 - Is there a complete evidence pack for reproducibility review?
 
-The full requirement narrative is in
-[docs/out-of-sample-validation-requirement.md](out-of-sample-validation-requirement.md).
+The full requirement narrative is in [docs/out-of-sample-validation-requirement.md](out-of-sample-validation-requirement.md).
 
 ## Package Layout
 
@@ -39,8 +35,7 @@ src/qs_trader/validation/
     └── static.py       # StaticSplitGenerator — Phase 1 IS/OOS split
 ```
 
-The package is entirely additive. No files under `src/qs_trader/engine/`,
-`src/qs_trader/services/`, or `src/qs_trader/cli/` were modified to land Phase 1.
+The package is entirely additive. No files under `src/qs_trader/engine/` or `src/qs_trader/services/` were modified to land Phase 1. The CLI entry point (`src/qs_trader/cli/main.py` and `cli/commands/__init__.py`) was extended to register `validate_command`, but the existing `backtest_command` behavior is unchanged.
 
 ## Plan YAML Reference
 
@@ -76,8 +71,7 @@ splits:
     end_date:   "2024-12-31"
 ```
 
-Both `DateRange` objects require `end_date` strictly after `start_date`.
-`out_of_sample.start_date` must be strictly after `in_sample.end_date`.
+Both `DateRange` objects require `end_date` strictly after `start_date`. `out_of_sample.start_date` must be strictly after `in_sample.end_date`.
 
 ### Optional fields
 
@@ -98,8 +92,7 @@ holdout:
   end_date:   "2025-12-31"
 ```
 
-When declared, the holdout period is recorded in `audit/holdout.json` but not executed.
-Holdout enforcement (blocking re-runs) is Phase 4.
+When declared, the holdout period is recorded in `audit/holdout.json` but not executed. Holdout enforcement (blocking re-runs) is Phase 4.
 
 ### `benchmark` block
 
@@ -109,8 +102,7 @@ benchmark:
   data_source: "yahoo-us-equity-1d-csv"
 ```
 
-Rendered in `summary.json` if the data-source resolves at runtime. Full overlay charts
-are deferred to Phase 2.
+Rendered in `summary.json` if the data-source resolves at runtime. Full overlay charts are deferred to Phase 2.
 
 ### `metrics` block
 
@@ -129,8 +121,7 @@ metrics:
     - turnover
 ```
 
-These are the defaults. Override only when the experiment's strategy does not produce
-the standard metric set.
+These are the defaults. Override only when the experiment's strategy does not produce the standard metric set.
 
 ### `decision` block
 
@@ -146,8 +137,7 @@ decision:
     - is_to_oos_sharpe_decay_warn: 0.3       # decay > 0.3 → ReviewRequired (not Fail)
 ```
 
-All rules are optional. A rule with a `null` value (or omitted entirely) is disabled.
-`DecisionRulesSpec` uses `extra="forbid"`, so unknown rule keys cause a load-time error.
+All rules are optional. A rule with a `null` value (or omitted entirely) is disabled. `DecisionRulesSpec` uses `extra="forbid"`, so unknown rule keys cause a load-time error.
 
 ### `execution` block
 
@@ -156,8 +146,7 @@ execution:
   on_child_failure: fail_fast   # fail_fast (default) | continue
 ```
 
-`fail_fast` aborts after the first failing child run and writes an `Invalid` evidence
-pack. `continue` collects partial artifacts and still evaluates available metrics.
+`fail_fast` aborts after the first failing child run and writes an `Invalid` evidence pack. `continue` collects partial artifacts and still evaluates available metrics.
 
 ### `reporting` block
 
@@ -181,22 +170,19 @@ Breach of any enabled fail rule sets the outcome to `Fail`.
 | `min_oos_trades`                    | OOS trade count  | `actual >= threshold` |
 | `require_positive_oos_total_return` | OOS total return | `actual > 0`          |
 
-**Sharpe decay formula:** `decay = (is_sharpe - oos_sharpe) / max(|is_sharpe|, ε)`
-where `ε = 1e-6`. A value of `0.5` means OOS Sharpe fell by more than 50% relative to IS.
+**Sharpe decay formula:** `decay = (is_sharpe - oos_sharpe) / max(|is_sharpe|, ε)` where `ε = 1e-6`. A value of `0.5` means OOS Sharpe fell by more than 50% relative to IS.
 
 `oos_max_drawdown_max` uses a positive-loss convention (`0.25` = 25% drawdown).
 
 ### Review-required rules
 
-Breach downgrades the outcome from `Pass` to `ReviewRequired` (never to `Fail`).
-These live under `decision.on_review_required`.
+Breach downgrades the outcome from `Pass` to `ReviewRequired` (never to `Fail`). These live under `decision.on_review_required`.
 
 | Rule key                      | Field compared | Condition             |
 | ----------------------------- | -------------- | --------------------- |
 | `is_to_oos_sharpe_decay_warn` | Sharpe decay   | `actual <= threshold` |
 
-Example: set `is_to_oos_sharpe_decay_warn: 0.3` to flag decays > 30% for manual review
-while allowing them to pass if the harder `is_to_oos_sharpe_decay_max` threshold is met.
+Example: set `is_to_oos_sharpe_decay_warn: 0.3` to flag decays > 30% for manual review while allowing them to pass if the harder `is_to_oos_sharpe_decay_max` threshold is met.
 
 ## Output Directory Layout
 
@@ -221,8 +207,7 @@ experiments/<experiment>/
           …
 ```
 
-Each `folds/<fold_id>/` directory is a standard QS-Trader filesystem artifact output
-(the same structure produced by `qs-trader backtest` with `artifact_policy.mode=filesystem`).
+Each `folds/<fold_id>/` directory is a standard QS-Trader filesystem artifact output (the same structure produced by `qs-trader backtest` with `artifact_policy.mode=filesystem`).
 
 ## Audit Pack Contents
 
@@ -236,8 +221,7 @@ The `audit/` directory provides a self-contained evidence pack for reproducibili
 | `base_config_sha256.txt` | SHA-256 of the raw base config YAML bytes                                                                         |
 | `holdout.json`           | `declared`, `start_date`, `end_date`, `consumed`, `consumed_at`, `consumed_by_plan_id`, `consumed_at_code_commit` |
 
-`environment.json` deliberately omits raw environment variables to prevent accidental
-secret leakage (OWASP A02).
+`environment.json` deliberately omits raw environment variables to prevent accidental secret leakage (OWASP A02).
 
 ## Exit Codes
 
@@ -249,44 +233,30 @@ secret leakage (OWASP A02).
 | `3`  | Invalid        | Configuration error, missing data, or child run failed in `fail_fast` mode |
 | `4`  | Exception      | Unhandled runtime exception                                                |
 
-> **Note:** Click's built-in argument-validation errors (missing or invalid flags)
-> also return exit code `2`. The error message on stderr identifies which case applies.
+> **Note:** Click's built-in argument-validation errors (missing or invalid flags) also return exit code `2`. The error message on stderr identifies which case applies.
 
 ## Troubleshooting
 
 ### `ValueError: end_date must be strictly after start_date`
 
-Check the `splits` block. Both `in_sample` and `out_of_sample` require
-`end_date > start_date`. Also verify `out_of_sample.start_date > in_sample.end_date`.
+Check the `splits` block. Both `in_sample` and `out_of_sample` require `end_date > start_date`. Also verify `out_of_sample.start_date > in_sample.end_date`.
 
 ### `ValueError: Validation plan directory … must contain '<name>.yaml'`
 
-When passing a directory as `PLAN_PATH`, the loader expects a file named
-`<directory_name>.yaml` inside it. Rename the YAML file or pass the file path directly.
+When passing a directory as `PLAN_PATH`, the loader expects a file named `<directory_name>.yaml` inside it. Rename the YAML file or pass the file path directly.
 
 ### `ValidationError: … extra inputs are not permitted` (inside `decision`)
 
-`DecisionRulesSpec` uses `extra="forbid"`. Check that all rule keys under
-`decision.rules` are from the known catalog:
-`oos_sharpe_min`, `oos_max_drawdown_max`, `is_to_oos_sharpe_decay_max`,
-`min_oos_trades`, `require_positive_oos_total_return`.
-`on_review_required` accepts only `is_to_oos_sharpe_decay_warn`.
+`DecisionRulesSpec` uses `extra="forbid"`. Check that all rule keys under `decision.rules` are from the known catalog: `oos_sharpe_min`, `oos_max_drawdown_max`, `is_to_oos_sharpe_decay_max`, `min_oos_trades`, `require_positive_oos_total_return`. `on_review_required` accepts only `is_to_oos_sharpe_decay_warn`.
 
 ### Exit code `3` with `ChildRunFailedError`
 
-A child backtest raised an exception. Check the per-fold log output for the root cause.
-Common causes: data source not available for the date range, missing symbol in universe,
-base config paths incorrect relative to the working directory.
-Pass `--on-child-failure continue` to collect partial results from the other fold before
-diagnosing.
+A child backtest raised an exception. Check the per-fold log output for the root cause. Common causes: data source not available for the date range, missing symbol in universe, base config paths incorrect relative to the working directory. Pass `--on-child-failure continue` to collect partial results from the other fold before diagnosing.
 
 ### `FileExistsError: output directory already exists`
 
-The `validations/<validation_id>/` directory from a previous run already exists.
-Pass `--force` to overwrite, or delete the directory manually.
+The `validations/<validation_id>/` directory from a previous run already exists. Pass `--force` to overwrite, or delete the directory manually.
 
 ### `outcome: Invalid` with empty `rule_results`
 
-At least one child run failed in `fail_fast` mode (or both failed in `continue` mode).
-The decision engine produces `Invalid` when required metrics are unavailable.
-Inspect `summary.json → folds[*].status` and the fold artifact directories for details.
+At least one child run failed in `fail_fast` mode (or both failed in `continue` mode). The decision engine produces `Invalid` when required metrics are unavailable. Inspect `summary.json → folds[*].status` and the fold artifact directories for details.

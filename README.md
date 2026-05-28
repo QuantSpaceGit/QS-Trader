@@ -321,7 +321,7 @@ output:
     mode: "filesystem" # use "database_only" for service-owned Research jobs
 ```
 
-For the archived DuckDB-era design note and the current storage-boundary context, see [docs/dev/duckdb-clickhouse-boundary-plan.md](docs/dev/duckdb-clickhouse-boundary-plan.md) and `QS-Infra/docs/archive/research-operational-postgres-migration.md`.
+For the current storage-boundary context, see `QS-Infra/docs/archive/research-operational-postgres-migration.md`.
 
 ### Audit Fidelity
 
@@ -474,9 +474,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
 ```
 
-See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference,
-decision rule catalog, output layout, and audit pack contents.
-Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
+See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference, decision rule catalog, output layout, and audit pack contents. Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
 
 ### Documentation References
 

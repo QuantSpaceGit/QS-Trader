@@ -12,8 +12,7 @@ qs-trader validate PLAN_PATH [OPTIONS]
 
 ### `PLAN_PATH`
 
-Path to a validation plan YAML file, **or** a directory that contains a YAML file
-named `<directory_name>.yaml`.
+Path to a validation plan YAML file, **or** a directory that contains a YAML file named `<directory_name>.yaml`.
 
 Examples:
 
@@ -29,9 +28,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024/
 
 ### `--silent` / `-s`
 
-Suppress per-bar event display during each child backtest run. Has the same effect as
-setting `replay_speed: -1` in the base config. Significantly speeds up wall-clock time
-when the strategy emits verbose bar-level output.
+Suppress per-bar event display during each child backtest run. Has the same effect as setting `replay_speed: -1` in the base config. Significantly speeds up wall-clock time when the strategy emits verbose bar-level output.
 
 ```bash
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --silent
@@ -47,8 +44,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --log
 
 ### `--html-report` / `--no-html-report`
 
-Generate (or suppress) the HTML validation report at
-`validations/<validation_id>/report.html`. Default: `--html-report` (enabled).
+Generate (or suppress) the HTML validation report at `validations/<validation_id>/report.html`. Default: `--html-report` (enabled).
 
 ```bash
 # Skip HTML generation for a quick check
@@ -57,11 +53,9 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --no-
 
 ### `--on-child-failure MODE`
 
-Override the `execution.on_child_failure` value from the plan YAML.
-Choices: `fail_fast`, `continue`.
+Override the `execution.on_child_failure` value from the plan YAML. Choices: `fail_fast`, `continue`.
 
-- `fail_fast` (plan default): abort immediately when a child run fails; write an
-  `Invalid` evidence pack.
+- `fail_fast` (plan default): abort immediately when a child run fails; write an `Invalid` evidence pack.
 - `continue`: proceed to remaining folds even if one fails; evaluate available metrics.
 
 ```bash
@@ -71,8 +65,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml \
 
 ### `--dry-run`
 
-Resolve and print the effective plan and generated splits as JSON; do not execute any
-child backtest and do not write any output files. Exit code is always `0` on success.
+Resolve and print the effective plan as JSON followed by a human-readable Splits summary; do not execute any child backtest and do not write any output files. Exit code is always `0` on success.
 
 ```bash
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
@@ -80,8 +73,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry
 
 ### `--force`
 
-Allow overwriting an existing `validations/<validation_id>/` output directory.
-Without this flag the command exits with an error if the directory already exists.
+Allow overwriting an existing `validations/<validation_id>/` output directory. Without this flag the command exits with an error if the directory already exists.
 
 ```bash
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --force
@@ -97,8 +89,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --for
 | `3`  | Invalid        | Configuration error, missing data, or child run failure     |
 | `4`  | Exception      | Unhandled runtime exception during execution                |
 
-> **Note:** Click's built-in argument-validation errors (missing or invalid flags) also
-> return exit code `2`. The error message on `stderr` identifies which case applies.
+> **Note:** Click's built-in argument-validation errors (missing or invalid flags) also return exit code `2`. The error message on `stderr` identifies which case applies.
 
 ## Examples
 
@@ -136,8 +127,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml \
 
 ## Output
 
-On a successful run the following are written under
-`experiments/<experiment>/validations/<validation_id>/`:
+On a successful run the following are written under `experiments/<experiment>/validations/<validation_id>/`:
 
 ```text
 plan.yaml
