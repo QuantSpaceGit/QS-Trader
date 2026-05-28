@@ -1,0 +1,22 @@
+backtest_id: test_strategy
+start_date: "2020-01-01"
+end_date: "2020-12-31"
+initial_equity: 100000
+
+data:
+  sources:
+    - name: yahoo-us-equity-1d-csv
+      universe:
+        - AAPL
+
+strategies:
+  - strategy_id: buy_and_hold
+    universe:
+      - AAPL
+    data_sources:
+      - yahoo-us-equity-1d-csv
+    config: {}
+
+risk_policy:
+  name: naive
+  config: {}
