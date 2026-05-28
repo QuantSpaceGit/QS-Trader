@@ -3,7 +3,9 @@
 Public API for the ``qs_trader.validation`` package.
 """
 
+from qs_trader.validation.aggregation import MetricComparison, MetricsAggregator
 from qs_trader.validation.child_config import derive_child_config
+from qs_trader.validation.decision import DecisionEngine, DecisionRule, RuleResult, ValidationDecision
 from qs_trader.validation.plan import (
     KNOWN_FAIL_RULES,
     KNOWN_REVIEW_RULES,
@@ -27,15 +29,21 @@ __all__ = [
     "BenchmarkRef",
     "ChildRunRef",
     "DateRange",
+    "DecisionEngine",
+    "DecisionRule",
     "DecisionRulesSpec",
     "ExecutionSpec",
     "HoldoutSpec",
     "KNOWN_FAIL_RULES",
     "KNOWN_REVIEW_RULES",
+    "MetricComparison",
     "MetricsCatalog",
+    "MetricsAggregator",
     "ReportingSpec",
+    "RuleResult",
     "SequentialValidationRunner",
     "StaticSplitSpec",
+    "ValidationDecision",
     "ValidationPlan",
     "compute_plan_sha256",
     "load_validation_plan",
