@@ -144,7 +144,6 @@ class TestEndToEnd:
         decision = DecisionEngine(plan.metrics).evaluate(comparison, plan.decision, child_refs)
 
         plan_sha256 = compute_plan_sha256(plan, plan.base_config)
-        base_config_sha256 = plan.base_config.read_bytes().__hash__.__class__  # just use a placeholder
         base_config_sha256 = "e2e_fake_sha256"
 
         audit_summary = AuditWriter().write_audit(

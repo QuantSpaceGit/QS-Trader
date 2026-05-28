@@ -18,7 +18,7 @@ from qs_trader.validation.audit import AuditWriter
 from qs_trader.validation.decision import DecisionEngine
 from qs_trader.validation.plan import compute_plan_sha256, load_validation_plan
 from qs_trader.validation.reporting import SummaryWriter, ValidationHTMLReporter
-from qs_trader.validation.runner import SequentialValidationRunner
+from qs_trader.validation.runner import ChildRunFailedError, SequentialValidationRunner
 from qs_trader.validation.splits.static import StaticSplitGenerator
 
 logger = structlog.get_logger(__name__)
@@ -136,12 +136,13 @@ def _run_validate(
         return  # exit 0
 
     # ── Resolve output directory ───────────────────────────────────────────
-    # Layout: experiments/<exp>/validations/<plan>.yaml
-    # out_dir = plan_path.parent  (= experiments/<exp>/validations/<vid>/)
+    # Layout: experiments/<exp>/validations/<vid>.yaml  (file-form)
+    #      or experiments/<exp>/validations/<vid>/       (dir-form)
+    # out_dir must always be:  experiments/<exp>/validations/<vid>/
     if plan_path.is_dir():
         out_dir = plan_path.resolve()
     else:
-        out_dir = plan_path.parent.resolve()
+        out_dir = (plan_path.parent / plan.validation_id).resolve()
 
     # ── Load base config and compute sha256s ───────────────────────────────
     base_config = load_backtest_config(plan.base_config)
@@ -156,7 +157,14 @@ def _run_validate(
 
     # ── Run folds ──────────────────────────────────────────────────────────
     runner = SequentialValidationRunner(plan, splits, base_config, out_dir, force=force)
-    child_refs = runner.run()
+    try:
+        child_refs = runner.run()
+    except ChildRunFailedError as e:
+        # fail_fast mode: write Invalid evidence pack then exit 3.
+        # The exception carries all refs collected so far (including the failed
+        # fold), so the decision engine will correctly produce Invalid.
+        child_refs = e.partial_refs
+        logger.error("validation_runner_fail_fast", fold_id=e.fold_id, error=str(e.cause))
 
     finished_at = _now_iso()
 
@@ -210,7 +218,7 @@ def _run_validate(
         ValidationHTMLReporter().render(summary_dict, out_dir / "report.html")
 
     # ── Rich console summary ───────────────────────────────────────────────
-    if plan.reporting.console_summary and not silent:
+    if plan.reporting.console_summary:
         _print_rich_summary(summary_dict, decision)
 
     # ── Exit code ──────────────────────────────────────────────────────────

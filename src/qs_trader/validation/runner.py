@@ -25,6 +25,23 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class ChildRunFailedError(Exception):
+    """Raised by :class:`SequentialValidationRunner` on fail-fast child failure.
+
+    Attributes:
+        partial_refs: All :class:`ChildRunRef` objects collected before the
+            failure, including the failed fold itself.
+        fold_id: The fold identifier that triggered the failure.
+        cause: The original exception that caused the fold to fail.
+    """
+
+    def __init__(self, partial_refs: list["ChildRunRef"], fold_id: str, cause: BaseException) -> None:
+        super().__init__(f"Fold {fold_id!r} failed: {cause}")
+        self.partial_refs = partial_refs
+        self.fold_id = fold_id
+        self.cause = cause
+
+
 @dataclass(frozen=True)
 class ChildRunRef:
     """Reference to the output of a single fold execution.
@@ -87,8 +104,10 @@ class SequentialValidationRunner:
         Raises:
             FileExistsError: If ``validations_dir`` already exists and
                              ``force=False``.
-            Exception: Re-raises any fold exception when
-                       ``plan.execution.on_child_failure == 'fail_fast'``.
+            ChildRunFailedError: When ``plan.execution.on_child_failure == 'fail_fast'``
+                and a fold fails.  The exception carries ``partial_refs`` with
+                all :class:`ChildRunRef` objects collected up to and including
+                the failed fold.
         """
         # Lazy import to avoid circular dependency with the engine package.
         from qs_trader.engine.engine import BacktestEngine  # noqa: PLC0415
@@ -214,6 +233,6 @@ class SequentialValidationRunner:
                 )
 
                 if on_child_failure == "fail_fast":
-                    raise
+                    raise ChildRunFailedError(refs, fold_id, exc) from exc
 
         return refs

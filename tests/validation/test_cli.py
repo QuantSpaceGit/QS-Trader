@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from click.testing import CliRunner
 
 from qs_trader.validation.cli import validate_command
 from qs_trader.validation.decision import ValidationDecision
-from qs_trader.validation.runner import ChildRunRef
+from qs_trader.validation.runner import ChildRunFailedError, ChildRunRef
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -120,8 +121,9 @@ class TestValidateExitCodes:
     def test_exit_code_matches_outcome(self, outcome: str, expected_code: int, tmp_path: Path) -> None:
         plan_yaml = _make_plan_yaml(tmp_path)
         child_refs = _make_child_refs(tmp_path)
+        outcome_lit = cast(Literal["Pass", "Fail", "ReviewRequired", "Invalid"], outcome)
         mock_decision = ValidationDecision(
-            outcome=outcome,
+            outcome=outcome_lit,
             reason_codes=[] if outcome == "Pass" else ["some_reason"],
             rule_results=[],
         )
@@ -345,3 +347,122 @@ class TestSilentForwarding:
         # The object passed to runner must be the silent config
         assert captured_base_configs, "Runner was not instantiated"
         assert captured_base_configs[0].replay_speed == -1.0
+
+
+# ---------------------------------------------------------------------------
+# BLOCKER-1 regression: file-form out_dir must include validation_id
+# ---------------------------------------------------------------------------
+
+
+class TestOutDirResolution:
+    def _mock_and_run(self, plan_yaml: Path, child_refs: list[ChildRunRef], tmp_path: Path) -> list:
+        """Run CLI with mocked pipeline and return captured out_dir values."""
+        captured_out_dirs: list = []
+        mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
+
+        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+            captured_out_dirs.append(out_dir)
+            m = MagicMock()
+            m.run.return_value = child_refs
+            return m
+
+        with (
+            patch("qs_trader.validation.cli.SequentialValidationRunner", side_effect=_capture_runner),
+            patch("qs_trader.validation.cli.MetricsAggregator") as mock_agg_cls,
+            patch("qs_trader.validation.cli.DecisionEngine") as mock_engine_cls,
+            patch("qs_trader.validation.cli.AuditWriter") as mock_audit_cls,
+            patch("qs_trader.validation.cli.SummaryWriter") as mock_summary_cls,
+            patch("qs_trader.validation.cli.ValidationHTMLReporter"),
+            patch("qs_trader.validation.cli.load_backtest_config") as mock_load_cfg,
+            patch("qs_trader.validation.cli._sha256_file", return_value="fakehash"),
+        ):
+            mock_agg_cls.return_value.aggregate.return_value = {}
+            mock_engine_cls.return_value.evaluate.return_value = mock_decision
+            mock_audit_cls.return_value.write_audit.return_value = {}
+            mock_summary_cls.return_value.write_summary.return_value = {
+                "outcome": "Pass",
+                "decision": {"outcome": "Pass", "reason_codes": [], "rule_results": []},
+                "reason_codes": [],
+                "validation_id": "cli_test",
+            }
+            mock_load_cfg.return_value = MagicMock()
+            CliRunner().invoke(validate_command, [str(plan_yaml)])
+        return captured_out_dirs
+
+    def test_file_form_out_dir_includes_validation_id(self, tmp_path: Path) -> None:
+        """File-form plan_path must yield out_dir = parent/<validation_id>/."""
+        plan_yaml = _make_plan_yaml(tmp_path)
+        child_refs = _make_child_refs(tmp_path / "cli_test")
+        captured = self._mock_and_run(plan_yaml, child_refs, tmp_path)
+        assert captured, "Runner was never instantiated"
+        assert captured[0] == (plan_yaml.parent / "cli_test").resolve()
+
+    def test_file_form_out_dir_is_not_parent_alone(self, tmp_path: Path) -> None:
+        """Regression: out_dir must not be plan_path.parent without validation_id."""
+        plan_yaml = _make_plan_yaml(tmp_path)
+        child_refs = _make_child_refs(tmp_path / "cli_test")
+        captured = self._mock_and_run(plan_yaml, child_refs, tmp_path)
+        assert captured, "Runner was never instantiated"
+        assert captured[0] != plan_yaml.parent.resolve()
+
+
+# ---------------------------------------------------------------------------
+# BLOCKER-2 regression: fail_fast ChildRunFailedError produces Invalid evidence
+# ---------------------------------------------------------------------------
+
+
+class TestFailFastInvalidEvidence:
+    def test_child_run_failed_error_produces_invalid_evidence(self, tmp_path: Path) -> None:
+        """ChildRunFailedError must not propagate; CLI must write evidence and exit 3."""
+        plan_yaml = _make_plan_yaml(tmp_path)
+
+        # Partial refs the runner would have collected before failure
+        fold0_dir = tmp_path / "cli_test" / "folds" / "f0__is"
+        fold0_dir.mkdir(parents=True, exist_ok=True)
+        failed_ref = ChildRunRef(
+            fold_id="f0__is",
+            run_id="val_cli_test__f0__is",
+            experiment_id="test_exp",
+            role="is",
+            run_dir=fold0_dir,
+            status="failed",
+            error="BacktestError: no data",
+        )
+        partial_refs = [failed_ref]
+
+        def _failing_runner(plan, splits, base_config, out_dir, force=False):
+            m = MagicMock()
+            m.run.side_effect = ChildRunFailedError(partial_refs, "f0__is", RuntimeError("no data"))
+            return m
+
+        with (
+            patch("qs_trader.validation.cli.SequentialValidationRunner", side_effect=_failing_runner),
+            patch("qs_trader.validation.cli.AuditWriter") as mock_audit_cls,
+            patch("qs_trader.validation.cli.SummaryWriter") as mock_summary_cls,
+            patch("qs_trader.validation.cli.ValidationHTMLReporter"),
+            patch("qs_trader.validation.cli.load_backtest_config") as mock_load_cfg,
+            patch("qs_trader.validation.cli._sha256_file", return_value="fakehash"),
+            # Let real MetricsAggregator + DecisionEngine run so we get Invalid naturally
+        ):
+            mock_audit_cls.return_value.write_audit.return_value = {}
+            written_summaries: list = []
+
+            def _capture_write_summary(**kwargs):
+                written_summaries.append(kwargs)
+                return {
+                    "outcome": "Invalid",
+                    "decision": {"outcome": "Invalid", "reason_codes": ["child_fold_failed"], "rule_results": []},
+                    "reason_codes": ["child_fold_failed"],
+                    "validation_id": "cli_test",
+                }
+
+            mock_summary_cls.return_value.write_summary.side_effect = _capture_write_summary
+            mock_load_cfg.return_value = MagicMock()
+
+            runner = CliRunner()
+            result = runner.invoke(validate_command, [str(plan_yaml)])
+
+        # Must exit 3 (Invalid), not 4 (unhandled exception)
+        assert result.exit_code == 3, f"Expected 3, got {result.exit_code}.  Output:\n{result.output}"
+        # write_summary must have been called (evidence written)
+        assert written_summaries, "write_summary was never called; evidence pack missing"

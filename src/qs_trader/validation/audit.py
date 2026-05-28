@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,52 +15,15 @@ from typing import Any
 import structlog
 
 import qs_trader
+from qs_trader.engine.experiment import ExperimentMetadata
 
 logger = structlog.get_logger(__name__)
 
 __all__ = ["AuditWriter"]
 
-
-def _collect_git_info() -> dict[str, Any]:
-    """Collect git metadata via subprocess, returning null fields on failure."""
-    commit: str | None = None
-    branch: str | None = None
-    dirty: bool = False
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        commit = result.stdout.strip() or None
-    except subprocess.CalledProcessError:
-        pass
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        branch = result.stdout.strip() or None
-    except subprocess.CalledProcessError:
-        pass
-
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        dirty = bool(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        pass
-
-    return {"commit": commit, "branch": branch, "dirty": dirty}
+# Derive the project repo root from this file's location:
+#   src/qs_trader/validation/audit.py → parents[3] = QS-Trader/
+_REPO_ROOT: Path = Path(__file__).resolve().parents[3]
 
 
 class AuditWriter:
@@ -82,7 +44,8 @@ class AuditWriter:
         - ``audit/environment.json`` — allow-list only (no ``os.environ`` dump).
         - ``audit/git.json`` — commit, branch, dirty flag.
         - ``audit/holdout.json`` — holdout declared/consumed record.
-        - ``audit/plan_meta.json`` — plan sha256s and identifiers.
+        - ``audit/plan_sha256.txt`` — SHA-256 of the effective plan + base config.
+        - ``audit/base_config_sha256.txt`` — SHA-256 of the base config YAML bytes.
 
         Args:
             plan: The :class:`~qs_trader.validation.plan.ValidationPlan`.
@@ -107,8 +70,14 @@ class AuditWriter:
         }
         _write_json(audit_dir / "environment.json", env_data)
 
-        # git.json
-        git_data = _collect_git_info()
+        # git.json — use ExperimentMetadata to ensure cwd is always the
+        # QS-Trader repo root, not the caller's working directory (BLOCKER-4).
+        git_info = ExperimentMetadata.capture_git_info(repo_path=_REPO_ROOT)
+        git_data: dict[str, Any] = {
+            "commit": git_info.commit if git_info else None,
+            "branch": git_info.branch if git_info else None,
+            "dirty": git_info.dirty if git_info else False,
+        }
         _write_json(audit_dir / "git.json", git_data)
 
         # holdout.json
@@ -118,6 +87,9 @@ class AuditWriter:
             "start_date": str(holdout.start_date) if holdout else None,
             "end_date": str(holdout.end_date) if holdout else None,
             "consumed": False,
+            "consumed_at": None,
+            "consumed_by_plan_id": None,
+            "consumed_at_code_commit": None,
         }
         _write_json(audit_dir / "holdout.json", holdout_data)
 

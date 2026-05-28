@@ -92,6 +92,7 @@ def _serialize_folds(child_refs: list[ChildRunRef], plan: ValidationPlan) -> lis
                 "start_date": start_date,
                 "end_date": end_date,
                 "status": ref.status,
+                "error": ref.error,
                 "metrics": metrics,
             }
         )

@@ -126,15 +126,17 @@ class ValidationHTMLReporter:
             metric_cells = " ".join(
                 f"<td>{_fmt_val(metrics.get(m))}</td>" for m in _top_metrics
             )
+            error_cell = f"<td>{fold.get('error') or ''}</td>"
             fold_rows += (
                 f"<tr><td>{fold.get('fold_id','')}</td>"
                 f"<td>{fold.get('role','')}</td>"
                 f"<td>{fold.get('status','')}</td>"
+                f"{error_cell}"
                 f"{metric_cells}</tr>"
             )
         folds_table = f"""
 <table>
-  <tr><th>fold_id</th><th>role</th><th>status</th>
+  <tr><th>fold_id</th><th>role</th><th>status</th><th>error</th>
       <th>sharpe_ratio</th><th>total_return</th><th>max_drawdown</th></tr>
   {fold_rows}
 </table>"""

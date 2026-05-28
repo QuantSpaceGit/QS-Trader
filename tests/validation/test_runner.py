@@ -32,7 +32,7 @@ from qs_trader.validation.plan import (
     ValidationPlan,
     load_validation_plan,
 )
-from qs_trader.validation.runner import ChildRunRef, SequentialValidationRunner
+from qs_trader.validation.runner import ChildRunFailedError, ChildRunRef, SequentialValidationRunner
 from qs_trader.validation.splits.base import ValidationSplit
 from qs_trader.validation.splits.static import StaticSplitGenerator
 
@@ -452,7 +452,7 @@ class TestOnChildFailure:
         )
 
     def test_fail_fast_propagates_exception(self, tmp_path: Path) -> None:
-        """fail_fast mode must re-raise the fold exception."""
+        """fail_fast mode must raise ChildRunFailedError carrying the original cause."""
         plan = self._make_plan_with_failure_mode("fail_fast")
         splits = self._make_splits()
         base_config = self._make_base_config()
@@ -468,8 +468,11 @@ class TestOnChildFailure:
                 base_config=base_config,
                 validations_dir=validations_dir,
             )
-            with pytest.raises(RuntimeError, match="simulated fold failure"):
+            with pytest.raises(ChildRunFailedError) as exc_info:
                 runner.run()
+        # The original RuntimeError must be carried as .cause
+        assert isinstance(exc_info.value.cause, RuntimeError)
+        assert "simulated fold failure" in str(exc_info.value.cause)
 
     def test_fail_fast_stops_on_first_failure(self, tmp_path: Path) -> None:
         """fail_fast must stop after the first failure — only one fold dir created."""
@@ -488,7 +491,7 @@ class TestOnChildFailure:
                 base_config=base_config,
                 validations_dir=validations_dir,
             )
-            with pytest.raises(RuntimeError):
+            with pytest.raises(ChildRunFailedError):
                 runner.run()
 
         folds_dir = validations_dir / "folds"
@@ -497,7 +500,7 @@ class TestOnChildFailure:
         assert not (folds_dir / "f1__oos").is_dir()
 
     def test_fail_fast_manifest_written_with_failed_status(self, tmp_path: Path) -> None:
-        """fail_fast must write manifest.json with status=failed before re-raising."""
+        """fail_fast must write manifest.json with status=failed before raising."""
         plan = self._make_plan_with_failure_mode("fail_fast")
         splits = self._make_splits()
         base_config = self._make_base_config()
@@ -513,7 +516,7 @@ class TestOnChildFailure:
                 base_config=base_config,
                 validations_dir=validations_dir,
             )
-            with pytest.raises(RuntimeError):
+            with pytest.raises(ChildRunFailedError):
                 runner.run()
 
         manifest_path = validations_dir / "folds" / "f0__is" / "manifest.json"

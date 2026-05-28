@@ -421,3 +421,162 @@ class TestHTMLReporterOutput:
         ValidationHTMLReporter().render(summary, out_path)
         html = out_path.read_text()
         assert "Pass" in html
+
+
+# ---------------------------------------------------------------------------
+# BLOCKER-3 regression: error field in serialised folds (summary + HTML)
+# ---------------------------------------------------------------------------
+
+
+class TestFoldErrorSerialization:
+    def test_failed_fold_error_in_summary_json(self, tmp_path: Path) -> None:
+        """ChildRunRef.error must appear in the serialised folds array."""
+        plan = _make_plan(tmp_path)
+        fold0_dir = tmp_path / "folds" / "f0__is"
+        fold0_dir.mkdir(parents=True, exist_ok=True)
+        fold1_dir = tmp_path / "folds" / "f1__oos"
+        fold1_dir.mkdir(parents=True, exist_ok=True)
+
+        refs = [
+            ChildRunRef(
+                fold_id="f0__is",
+                run_id="val_test_vid__f0__is",
+                experiment_id="test_exp",
+                role="is",
+                run_dir=fold0_dir,
+                status="failed",
+                error="BacktestError: insufficient data",
+            ),
+            ChildRunRef(
+                fold_id="f1__oos",
+                run_id="val_test_vid__f1__oos",
+                experiment_id="test_exp",
+                role="oos",
+                run_dir=fold1_dir,
+                status="success",
+                error=None,
+            ),
+        ]
+
+        writer = SummaryWriter()
+        result = writer.write_summary(
+            validation_id="test_vid",
+            plan=plan,
+            plan_sha256="sha_abc",
+            base_config_sha256="sha_xyz",
+            outcome="Invalid",
+            reason_codes=["child_fold_failed"],
+            folds=refs,
+            comparison={},
+            decision=_make_decision(),
+            audit={},
+            started_at="2026-01-01T00:00:00+00:00",
+            finished_at="2026-01-01T00:05:00+00:00",
+            out_dir=tmp_path,
+        )
+
+        folds = result["folds"]
+        failed = next((f for f in folds if f["fold_id"] == "f0__is"), None)
+        assert failed is not None
+        assert "error" in failed, "'error' key missing from failed fold dict"
+        assert failed["error"] == "BacktestError: insufficient data"
+
+        success = next((f for f in folds if f["fold_id"] == "f1__oos"), None)
+        assert success is not None
+        assert "error" in success, "'error' key missing from success fold dict"
+        assert success["error"] is None
+
+    def test_failed_fold_error_in_html(self, tmp_path: Path) -> None:
+        """Failed fold error message must appear in the HTML error column."""
+        summary = {
+            "validation_id": "html_err_test",
+            "plan_sha256": "abc123",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "finished_at": "2026-01-01T00:05:00+00:00",
+            "outcome": "Invalid",
+            "reason_codes": ["child_fold_failed"],
+            "folds": [
+                {
+                    "fold_id": "f0__is",
+                    "role": "is",
+                    "status": "failed",
+                    "error": "BacktestError: insufficient data",
+                    "metrics": {},
+                }
+            ],
+            "comparison": {},
+            "decision": {"outcome": "Invalid", "reason_codes": [], "rule_results": []},
+            "audit": {},
+        }
+        out_path = tmp_path / "report.html"
+        ValidationHTMLReporter().render(summary, out_path)
+        html = out_path.read_text()
+        assert "BacktestError: insufficient data" in html
+        assert "<th>error</th>" in html.lower()
+
+    def test_html_folds_table_has_error_column_header(self, tmp_path: Path) -> None:
+        """Folds table must always include an 'error' <th> header."""
+        summary = {
+            "validation_id": "header_test",
+            "plan_sha256": "abc",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "finished_at": "2026-01-01T00:05:00+00:00",
+            "outcome": "Pass",
+            "reason_codes": [],
+            "folds": [],
+            "comparison": {},
+            "decision": {"outcome": "Pass", "reason_codes": [], "rule_results": []},
+            "audit": {},
+        }
+        out_path = tmp_path / "report.html"
+        ValidationHTMLReporter().render(summary, out_path)
+        html = out_path.read_text()
+        assert "<th>error</th>" in html.lower()
+
+
+# ---------------------------------------------------------------------------
+# WARNING-2 regression: holdout.json must include null timestamp fields
+# ---------------------------------------------------------------------------
+
+
+class TestHoldoutTimestampFields:
+    def test_holdout_json_has_null_timestamp_fields(self, tmp_path: Path) -> None:
+        """holdout.json must include consumed_at, consumed_by_plan_id, consumed_at_code_commit."""
+        plan = _make_plan(tmp_path)
+        AuditWriter().write_audit(plan, "sha_plan", "sha_base", "t1", "t2", tmp_path)
+        with (tmp_path / "audit" / "holdout.json").open() as f:
+            data = json.load(f)
+        assert "consumed_at" in data, "consumed_at missing from holdout.json"
+        assert "consumed_by_plan_id" in data, "consumed_by_plan_id missing"
+        assert "consumed_at_code_commit" in data, "consumed_at_code_commit missing"
+        assert data["consumed_at"] is None
+        assert data["consumed_by_plan_id"] is None
+        assert data["consumed_at_code_commit"] is None
+
+
+# ---------------------------------------------------------------------------
+# BLOCKER-4 regression: audit git uses QS-Trader repo root, not caller CWD
+# ---------------------------------------------------------------------------
+
+
+class TestAuditGitCwd:
+    def test_capture_git_info_called_with_package_repo_root(self, tmp_path: Path) -> None:
+        """AuditWriter must call ExperimentMetadata.capture_git_info with the
+        QS-Trader package root, not os.getcwd()."""
+        from unittest.mock import patch
+
+        from qs_trader.validation.audit import _REPO_ROOT
+
+        plan = _make_plan(tmp_path)
+        with patch(
+            "qs_trader.validation.audit.ExperimentMetadata.capture_git_info", return_value=None
+        ) as mock_cgi:
+            AuditWriter().write_audit(plan, "sha_plan", "sha_base", "t1", "t2", tmp_path)
+
+        mock_cgi.assert_called_once_with(repo_path=_REPO_ROOT)
+        # _REPO_ROOT must be an absolute path ending with the project root dir
+        assert _REPO_ROOT.is_absolute()
+        # It should point to the QS-Trader checkout (contains pyproject.toml)
+        assert (_REPO_ROOT / "pyproject.toml").exists(), (
+            f"_REPO_ROOT={_REPO_ROOT} does not contain pyproject.toml; path derivation is wrong"
+        )
