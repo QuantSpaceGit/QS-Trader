@@ -474,6 +474,8 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
 ```
 
+**Walk-forward (Phase 2A.1):** `ValidationPlan.mode` also accepts `walk_forward` for anchored or rolling split previews via `--dry-run`. Non-dry-run execution of a `walk_forward` plan currently exits `Invalid` (code 3) until Phase 2A.2 runner support lands.
+
 See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference, decision rule catalog, output layout, and audit pack contents. Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
 
 ### Documentation References

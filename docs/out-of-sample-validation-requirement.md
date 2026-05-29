@@ -578,6 +578,36 @@ Phase 1 (static IS/OOS validation) is **implemented and committed** in QS-Trader
 
 - Tests: **241 passing** (`uv run pytest tests/validation/ -q`)
 - Linting: **ruff clean**
+
+## Phase 2A.1 Implementation
+
+Phase 2A.1 (walk-forward split generation — preview only) is **implemented and committed** in QS-Trader. Live execution of walk-forward plans is phase-gated until Phase 2A.2.
+
+### What Phase 2A.1 delivers
+
+- `ValidationPlan.mode` accepts `walk_forward` in addition to `static_is_oos`.
+- New `WalkForwardSplitsSpec` schema: `style` (`anchored` | `rolling`), `train`, `test`, `step`, `embargo`, `total_range`, and optional `min_fold_bars`. Duration strings accept `Ny`, `Nmo`, `Nd`; combined units (e.g. `1y2mo`) are rejected; `train`/`test`/`step` must be strictly positive; `embargo` may be zero; `step` must be `>= test`.
+- `WalkForwardSplitGenerator` produces alternating `train`/`oos` splits for each fold under both anchored and rolling styles, honoring `embargo` and stopping when the test window would exceed `total_range`.
+- `min_fold_bars` enforcement marks short test windows with `status='invalid'` and `reason='insufficient_history_for_fold:<n>'` instead of raising.
+- `qs-trader validate <plan> --dry-run` prints generated splits with `[INVALID: <reason>]` tags for invalid folds.
+- `qs-trader validate <plan>` (non-dry-run) on a `walk_forward` plan exits with code `3` (`Invalid`) and an explanatory message until Phase 2A.2 runner support lands.
+- `ValidationPlan` is now strict: `extra="forbid"` at the root rejects unknown top-level keys (e.g. Phase 2 fields on a `static_is_oos` plan).
+- `description` is an accepted optional root field (human-readable label); it is excluded from the plan SHA-256 so existing static plan hashes are preserved, and is omitted from `effective_plan.yaml` when not set.
+- `python-dateutil` is now a direct runtime dependency.
+
+### What Phase 2A.1 explicitly defers
+
+- Walk-forward non-dry-run execution and per-fold runner integration — Phase 2A.2.
+- Cost-sensitivity scenarios — Phase 2A.2.
+- Benchmark overlay (synthetic child run, equity overlay chart) — Phase 2A.3.
+- Walk-forward aggregation (median, IQR, `count_pass_folds`) and new decision rules (`min_pass_folds_fraction`, `median_oos_sharpe_min`, `worst_oos_max_drawdown_max`) — Phase 2A.4.
+- Walk-forward HTML reporter and equity overlay PNG — Phase 2A.5.
+- Reference walk-forward validation plan in QS-Research — Phase 2A.7.
+
+### Quality gate state at Phase 2A.1 commit
+
+- Tests: **347 passing** (`uv run pytest tests/validation/ -q`)
+- Linting: **ruff clean**; **ruff format --check** clean; **mypy** clean (15 source files)
 - Type checking: **mypy clean**
 - Formatting: **mdformat clean** on all documentation files
 

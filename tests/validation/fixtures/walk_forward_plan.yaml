@@ -1,0 +1,18 @@
+validation_id: wf_test
+strategy_experiment: test_strategy
+base_config: base_config.yaml
+mode: walk_forward
+
+splits:
+  style: rolling
+  train: 2y
+  test: 1y
+  step: 1y
+  embargo: 0d
+  total_range:
+    start_date: "2010-01-01"
+    end_date: "2016-12-31"
+
+decision:
+  rules:
+    oos_sharpe_min: 0.5

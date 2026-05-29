@@ -71,6 +71,26 @@ Resolve and print the effective plan as JSON followed by a human-readable Splits
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
 ```
 
+**Walk-forward dry-run output** shows one line per generated split (train + OOS pairs per fold). Splits that fail the `min_fold_bars` threshold are tagged `[INVALID: insufficient_history_for_fold:<n>]`:
+
+```bash
+qs-trader validate experiments/buy_hold/validations/buy_hold_walkforward_2015_2024.yaml --dry-run
+```
+
+Example fold listing:
+
+```
+Splits:
+  fold=0 role=train 2010-01-01 → 2011-12-31
+  fold=0 role=oos   2012-01-01 → 2012-12-31
+  fold=1 role=train 2011-01-01 → 2012-12-31
+  fold=1 role=oos   2013-01-01 → 2013-12-31
+  fold=2 role=train 2012-01-01 → 2013-12-31  [INVALID: insufficient_history_for_fold:2]
+  fold=2 role=oos   2014-01-01 → 2014-12-31  [INVALID: insufficient_history_for_fold:2]
+```
+
+> **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of a `walk_forward` plan exits with code `3` (`Invalid`) until Phase 2A.2 runner support is available.
+
 ### `--force`
 
 Allow overwriting an existing `validations/<validation_id>/` output directory. Without this flag the command exits with an error if the directory already exists.

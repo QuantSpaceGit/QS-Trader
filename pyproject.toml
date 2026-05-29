@@ -45,6 +45,7 @@ dependencies = [
     "pydantic>=2.11.9",
     "pyyaml>=6.0",
     "jsonschema>=4.25.1",
+    "python-dateutil>=2.8.2",
     # Logging
     "structlog>=24.4.0",
     # Visualization
@@ -155,6 +156,10 @@ show_error_codes = true
 # Per-module options for third-party libraries without stubs
 [[tool.mypy.overrides]]
 module = "pyarrow.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "dateutil.*"
 ignore_missing_imports = true
 
 ################################################################################

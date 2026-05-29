@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+import re
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 import yaml
+from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel, ConfigDict, model_validator
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,48 @@ KNOWN_REVIEW_RULES: frozenset[str] = frozenset(
 KNOWN_DECISION_RULES: frozenset[str] = KNOWN_FAIL_RULES
 
 # ---------------------------------------------------------------------------
+# Duration-string parser (T1.1)
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"^(\d+)(y|mo|d)$")
+
+
+def parse_duration(s: str) -> relativedelta | timedelta:
+    """Parse a duration string into a ``relativedelta`` or ``timedelta``.
+
+    Accepted formats:
+    - ``Ny``  — N years   → ``relativedelta(years=N)``
+    - ``Nmo`` — N months  → ``relativedelta(months=N)``
+    - ``Nd``  — N days    → ``timedelta(days=N)``
+
+    Args:
+        s: Duration string, e.g. ``"3y"``, ``"6mo"``, ``"30d"``.
+
+    Returns:
+        A :class:`~dateutil.relativedelta.relativedelta` for year/month durations
+        or a :class:`~datetime.timedelta` for day durations.
+
+    Raises:
+        ValueError: If the string does not match any accepted format.
+    """
+    m = _DURATION_RE.match(s.strip())
+    if not m:
+        raise ValueError(
+            f"Invalid duration string {s!r}. "
+            "Expected format: Ny (years), Nmo (months), or Nd (days). "
+            f"Examples: '3y', '6mo', '30d'."
+        )
+    n = int(m.group(1))
+    unit = m.group(2)
+    if unit == "y":
+        return relativedelta(years=n)
+    if unit == "mo":
+        return relativedelta(months=n)
+    # unit == "d"
+    return timedelta(days=n)
+
+
+# ---------------------------------------------------------------------------
 # Nested spec models
 # ---------------------------------------------------------------------------
 
@@ -58,7 +102,7 @@ class DateRange(BaseModel):
 class StaticSplitSpec(BaseModel):
     """Static in-sample / out-of-sample split specification."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     in_sample: DateRange
     out_of_sample: DateRange
@@ -70,6 +114,62 @@ class StaticSplitSpec(BaseModel):
             raise ValueError(
                 f"out_of_sample.start_date ({self.out_of_sample.start_date}) must be strictly "
                 f"after in_sample.end_date ({self.in_sample.end_date})"
+            )
+        return self
+
+
+class WalkForwardSplitsSpec(BaseModel):
+    """Walk-forward split specification (anchored or rolling)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    style: Literal["anchored", "rolling"]
+    train: str
+    test: str
+    step: str
+    embargo: str = "0d"
+    total_range: DateRange
+    min_fold_bars: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_duration_strings(self) -> "WalkForwardSplitsSpec":
+        """Validate all duration strings are parseable, sign-correct, and step >= test."""
+        ref = date(2000, 1, 1)
+
+        # Parse all four duration fields up front (parseability check) and require
+        # train/test/step to be strictly positive; embargo may be zero but not negative.
+        # A duration is zero iff (ref + duration) == ref; we use this since
+        # relativedelta and timedelta do not share a common ``> 0`` comparison.
+        parsed: dict[str, relativedelta | timedelta] = {}
+        for field_name in ("train", "test", "step", "embargo"):
+            raw = getattr(self, field_name)
+            try:
+                parsed[field_name] = parse_duration(raw)
+            except ValueError as exc:
+                raise ValueError(f"Invalid duration for field '{field_name}': {exc}") from exc
+
+        for field_name in ("train", "test", "step"):
+            if ref + parsed[field_name] <= ref:
+                raise ValueError(
+                    f"Field '{field_name}' must be a strictly positive duration; got {getattr(self, field_name)!r}."
+                )
+        if ref + parsed["embargo"] < ref:
+            raise ValueError(f"Field 'embargo' must be a non-negative duration; got {self.embargo!r}.")
+
+        if self.min_fold_bars is not None and self.min_fold_bars <= 0:
+            raise ValueError(f"min_fold_bars must be strictly positive when set; got {self.min_fold_bars}.")
+
+        # Enforce step >= test using a fixed reference date.
+        # Known limitation (I2): mixing duration unit types (e.g., step="365d", test="1y") may
+        # produce unexpected rejections because relativedelta and timedelta are compared via
+        # calendar arithmetic from ref=date(2000, 1, 1). Use consistent units (all years,
+        # all months, or all days) to avoid this edge case.
+        step_end = ref + parsed["step"]
+        test_end = ref + parsed["test"]
+        if step_end < test_end:
+            raise ValueError(
+                f"step ({self.step!r}) must be >= test ({self.test!r}) duration; "
+                f"computed step_end={step_end}, test_end={test_end} from reference {ref}"
             )
         return self
 
@@ -168,21 +268,60 @@ class ValidationPlan(BaseModel):
 
     Loaded from YAML via :func:`load_validation_plan`.
     Immutable after construction (``frozen=True``).
+
+    The ``splits`` field holds either a :class:`StaticSplitSpec` (when
+    ``mode='static_is_oos'``) or a :class:`WalkForwardSplitsSpec` (when
+    ``mode='walk_forward'``).  Use ``isinstance`` to narrow the type before
+    accessing mode-specific attributes.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     validation_id: str
     strategy_experiment: str
     base_config: Path  # resolved to an absolute path by the loader
-    mode: Literal["static_is_oos"]
-    splits: StaticSplitSpec
+    description: Optional[str] = None  # human-readable plan description; ignored by the engine
+    mode: Literal["static_is_oos", "walk_forward"]
+    splits: Union[StaticSplitSpec, WalkForwardSplitsSpec]
     holdout: Optional[HoldoutSpec] = None
     benchmark: Optional[BenchmarkRef] = None
     metrics: MetricsCatalog = MetricsCatalog()
     decision: DecisionRulesSpec = DecisionRulesSpec()
     execution: ExecutionSpec = ExecutionSpec()
     reporting: ReportingSpec = ReportingSpec()
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_splits_by_mode(cls, data: Any) -> Any:
+        """Coerce and validate the ``splits`` field based on the plan ``mode``.
+
+        Rejects cross-contamination: ``static_is_oos`` plans cannot carry
+        walk-forward fields, and ``walk_forward`` plans cannot carry static
+        ``in_sample``/``out_of_sample`` fields.
+        """
+        if not isinstance(data, dict):
+            return data
+        mode = data.get("mode")
+        splits_raw = data.get("splits")
+        if not isinstance(splits_raw, dict):
+            return data
+
+        _WF_FIELDS = {"style", "train", "test", "step", "embargo", "total_range", "min_fold_bars"}
+        _STATIC_FIELDS = {"in_sample", "out_of_sample"}
+
+        if mode == "static_is_oos":
+            extra = set(splits_raw.keys()) & _WF_FIELDS
+            if extra:
+                raise ValueError(f"Walk-forward fields {sorted(extra)} are not allowed in mode='static_is_oos' splits.")
+            coerced: Union[StaticSplitSpec, WalkForwardSplitsSpec] = StaticSplitSpec(**splits_raw)
+            return {**data, "splits": coerced}
+        elif mode == "walk_forward":
+            extra = set(splits_raw.keys()) & _STATIC_FIELDS
+            if extra:
+                raise ValueError(f"Static fields {sorted(extra)} are not allowed in mode='walk_forward' splits.")
+            coerced = WalkForwardSplitsSpec(**splits_raw)
+            return {**data, "splits": coerced}
+        return data
 
     @model_validator(mode="after")
     def validate_decision_rule_names(self) -> "ValidationPlan":
@@ -321,10 +460,18 @@ def _plan_to_canonical_dict(plan: ValidationPlan) -> dict[str, Any]:
 
     Strips volatile fields (absolute filesystem paths are replaced with their
     base filename only) so that the hash is portable across machines.
+
+    ``description`` is intentionally excluded: it is non-execution metadata
+    (a human-readable label) and must not affect the plan hash.  Excluding it
+    preserves backward compatibility — plans that predated the ``description``
+    field continue to hash identically to their original values.
     """
     d: dict[str, Any] = plan.model_dump(mode="json")
     # Replace the absolute path with its basename to avoid machine-specific variance
     d["base_config"] = Path(str(d["base_config"])).name
+    # Non-execution metadata: excluded to preserve hash stability across schema
+    # extensions that add optional informational fields.
+    d.pop("description", None)
     return d
 
 

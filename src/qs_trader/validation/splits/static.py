@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from qs_trader.validation.plan import StaticSplitSpec
 from qs_trader.validation.splits.base import ValidationSplit
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ class StaticSplitGenerator:
         if plan.mode != "static_is_oos":
             raise ValueError(f"StaticSplitGenerator only supports mode='static_is_oos'; got '{plan.mode}'")
 
+        assert isinstance(plan.splits, StaticSplitSpec)
         is_split = ValidationSplit(
             fold_index=0,
             role="is",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 import yaml
 
 from qs_trader.validation.aggregation import MetricsAggregator
@@ -12,7 +13,6 @@ from qs_trader.validation.decision import DecisionEngine
 from qs_trader.validation.plan import compute_plan_sha256, load_validation_plan
 from qs_trader.validation.reporting import SummaryWriter, ValidationHTMLReporter
 from qs_trader.validation.runner import ChildRunRef
-
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -146,9 +146,7 @@ class TestEndToEnd:
         plan_sha256 = compute_plan_sha256(plan, plan.base_config)
         base_config_sha256 = "e2e_fake_sha256"
 
-        audit_summary = AuditWriter().write_audit(
-            plan, plan_sha256, base_config_sha256, "t1", "t2", out_dir
-        )
+        audit_summary = AuditWriter().write_audit(plan, plan_sha256, base_config_sha256, "t1", "t2", out_dir)
 
         writer = SummaryWriter()
         summary_dict = writer.write_summary(

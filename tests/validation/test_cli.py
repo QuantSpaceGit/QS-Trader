@@ -341,9 +341,7 @@ class TestSilentForwarding:
 
         assert result.exit_code == 0, result.output
         # model_copy must have been called with replay_speed=-1.0
-        mock_base_cfg.model_copy.assert_called_once_with(
-            update={"replay_speed": -1.0, "display_events": None}
-        )
+        mock_base_cfg.model_copy.assert_called_once_with(update={"replay_speed": -1.0, "display_events": None})
         # The object passed to runner must be the silent config
         assert captured_base_configs, "Runner was not instantiated"
         assert captured_base_configs[0].replay_speed == -1.0

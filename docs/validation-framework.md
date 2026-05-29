@@ -30,9 +30,10 @@ src/qs_trader/validation/
 │   └── summary.py      # SummaryWriter — summary.json + effective_plan.yaml
 ├── runner.py           # SequentialValidationRunner, ChildRunRef, ChildRunFailedError
 └── splits/
-    ├── __init__.py
+    ├── __init__.py     # get_split_generator dispatch
     ├── base.py         # ValidationSplit dataclass, SplitGenerator Protocol
-    └── static.py       # StaticSplitGenerator — Phase 1 IS/OOS split
+    ├── static.py       # StaticSplitGenerator — Phase 1 IS/OOS split
+    └── walk_forward.py # WalkForwardSplitGenerator — Phase 2A anchored/rolling
 ```
 
 The package is entirely additive. No files under `src/qs_trader/engine/` or `src/qs_trader/services/` were modified to land Phase 1. The CLI entry point (`src/qs_trader/cli/main.py` and `cli/commands/__init__.py`) was extended to register `validate_command`, but the existing `backtest_command` behavior is unchanged.
@@ -51,13 +52,13 @@ experiments/<experiment>/
 
 ### Required fields
 
-| Field                 | Type                  | Description                                          |
-| --------------------- | --------------------- | ---------------------------------------------------- |
-| `validation_id`       | `str`                 | Stable identifier; becomes the output directory name |
-| `strategy_experiment` | `str`                 | Parent experiment id (for provenance only)           |
-| `base_config`         | `str` (relative path) | Path to `BacktestConfig` YAML, relative to this file |
-| `mode`                | `"static_is_oos"`     | Validation mode — only `static_is_oos` in Phase 1    |
-| `splits`              | `StaticSplitSpec`     | IS and OOS date ranges (see below)                   |
+| Field                 | Type                                  | Description                                          |
+| --------------------- | ------------------------------------- | ---------------------------------------------------- |
+| `validation_id`       | `str`                                 | Stable identifier; becomes the output directory name |
+| `strategy_experiment` | `str`                                 | Parent experiment id (for provenance only)           |
+| `base_config`         | `str` (relative path)                 | Path to `BacktestConfig` YAML, relative to this file |
+| `mode`                | `"static_is_oos"` \| `"walk_forward"` | Validation mode (see below for walk-forward fields)  |
+| `splits`              | `StaticSplitSpec`                     | IS and OOS date ranges (see below)                   |
 
 ### `splits` block
 
@@ -73,16 +74,49 @@ splits:
 
 Both `DateRange` objects require `end_date` strictly after `start_date`. `out_of_sample.start_date` must be strictly after `in_sample.end_date`.
 
+### `splits` block — `mode: walk_forward`
+
+Walk-forward plans use duration-based window parameters instead of explicit date ranges:
+
+```yaml
+splits:
+  style: rolling        # rolling (fixed train length) | anchored (expanding train)
+  train: 2y             # training window duration (Ny | Nmo | Nd)
+  test: 1y              # test/OOS window duration
+  step: 1y              # how far the window advances each fold (must be >= test)
+  embargo: 0d           # gap between train end and test start (default 0d)
+  total_range:
+    start_date: "2010-01-01"   # earliest date for the first training window
+    end_date:   "2024-12-31"   # fold generation stops when test end exceeds this
+  min_fold_bars: null   # optional: minimum test-window days; shorter folds → Invalid
+```
+
+Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined units (e.g. `1y2mo`) are rejected.
+
+**Rolling vs anchored:**
+
+- `rolling`: the training window start advances by `step` each fold; train duration stays fixed.
+- `anchored`: the training window start is fixed at `total_range.start_date`; the train window expands by `step` each fold.
+
+**Embargo:** The calendar gap (in days) between `train_range.end_date` and the fold's test window `start_date`. Zero embargo means the test window starts the day after training ends.
+
+**`min_fold_bars`:** When set, any fold whose test window spans fewer calendar days than this value is marked `status=invalid` with `reason=insufficient_history_for_fold:<n>`. Invalid folds appear in `--dry-run` output tagged `[INVALID: …]` and are never executed.
+
+> **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of `walk_forward` plans requires Phase 2A.2 runner support and currently exits `Invalid` (code 3) with an explanatory message.
+
+> **Backward compatibility:** `static_is_oos` plans are unaffected by Phase 2A.1. All Phase 1 artifacts round-trip byte-identically. The static plan hash is pinned to prefix `428e27b2`; any intentional change requires updating the pin and getting reviewer sign-off.
+
 ### Optional fields
 
-| Field       | Type                | Default   | Description                                                      |
-| ----------- | ------------------- | --------- | ---------------------------------------------------------------- |
-| `holdout`   | `HoldoutSpec`       | `null`    | Optional holdout period (recorded only; not executed in Phase 1) |
-| `benchmark` | `BenchmarkRef`      | `null`    | Optional benchmark symbol + data source for summary              |
-| `metrics`   | `MetricsCatalog`    | see below | Required and recommended metrics                                 |
-| `decision`  | `DecisionRulesSpec` | all null  | Pass/fail rules (disabled when null)                             |
-| `execution` | `ExecutionSpec`     | see below | Child run failure handling                                       |
-| `reporting` | `ReportingSpec`     | see below | HTML and console output toggles                                  |
+| Field         | Type                | Default   | Description                                                               |
+| ------------- | ------------------- | --------- | ------------------------------------------------------------------------- |
+| `holdout`     | `HoldoutSpec`       | `null`    | Optional holdout period (recorded only; not executed in Phase 1)          |
+| `description` | `str`               | `null`    | Human-readable label; accepted and stored but excluded from the plan hash |
+| `benchmark`   | `BenchmarkRef`      | `null`    | Optional benchmark symbol + data source for summary                       |
+| `metrics`     | `MetricsCatalog`    | see below | Required and recommended metrics                                          |
+| `decision`    | `DecisionRulesSpec` | all null  | Pass/fail rules (disabled when null)                                      |
+| `execution`   | `ExecutionSpec`     | see below | Child run failure handling                                                |
+| `reporting`   | `ReportingSpec`     | see below | HTML and console output toggles                                           |
 
 ### `holdout` block
 
@@ -248,6 +282,16 @@ When passing a directory as `PLAN_PATH`, the loader expects a file named `<direc
 ### `ValidationError: … extra inputs are not permitted` (inside `decision`)
 
 `DecisionRulesSpec` uses `extra="forbid"`. Check that all rule keys under `decision.rules` are from the known catalog: `oos_sharpe_min`, `oos_max_drawdown_max`, `is_to_oos_sharpe_decay_max`, `min_oos_trades`, `require_positive_oos_total_return`. `on_review_required` accepts only `is_to_oos_sharpe_decay_warn`.
+
+### `ValidationError: … extra inputs are not permitted` (at plan root)
+
+`ValidationPlan` uses `extra="forbid"` at the root level. Unknown top-level keys (e.g. future Phase 2 fields like `cost_scenarios` on a `static_is_oos` plan) are rejected at load time.
+
+### Exit code `3` — `walk_forward` non-dry-run not yet supported
+
+Running `qs-trader validate <walk_forward_plan.yaml>` without `--dry-run` exits with code 3 and the message: `Error: walk_forward execution is not yet supported (Phase 2A.2+). Use --dry-run to inspect the generated splits.`
+
+Phase 2A.2 runner support is required for live execution. Use `--dry-run` to preview the generated folds.
 
 ### Exit code `3` with `ChildRunFailedError`
 

@@ -40,11 +40,7 @@ def _make_base_config(**overrides: Any) -> BacktestConfig:
         "start_date": datetime(2020, 1, 1),
         "end_date": datetime(2023, 12, 31),
         "initial_equity": Decimal("100000"),
-        "data": {
-            "sources": [
-                {"name": "yahoo-us-equity-1d-csv", "universe": ["AAPL", "MSFT"]}
-            ]
-        },
+        "data": {"sources": [{"name": "yahoo-us-equity-1d-csv", "universe": ["AAPL", "MSFT"]}]},
         "strategies": [
             {
                 "strategy_id": "buy_and_hold",

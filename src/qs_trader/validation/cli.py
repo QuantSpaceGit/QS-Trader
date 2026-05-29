@@ -19,7 +19,7 @@ from qs_trader.validation.decision import DecisionEngine
 from qs_trader.validation.plan import compute_plan_sha256, load_validation_plan
 from qs_trader.validation.reporting import SummaryWriter, ValidationHTMLReporter
 from qs_trader.validation.runner import ChildRunFailedError, SequentialValidationRunner
-from qs_trader.validation.splits.static import StaticSplitGenerator
+from qs_trader.validation.splits import get_split_generator
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +121,7 @@ def _run_validate(
         )
 
     # ── Generate splits ────────────────────────────────────────────────────
-    splits = StaticSplitGenerator().generate(plan)
+    splits = get_split_generator(plan).generate(plan)
 
     # ── Dry-run: print and exit ────────────────────────────────────────────
     if dry_run:
@@ -131,8 +131,21 @@ def _run_validate(
         click.echo(json.dumps(plan_dict, indent=2, default=str))
         click.echo("\nSplits:")
         for s in splits:
-            click.echo(f"  fold={s.fold_index} role={s.role} {s.test_range.start_date} → {s.test_range.end_date}")
+            status_tag = f" [INVALID: {s.reason}]" if s.status == "invalid" else ""
+            click.echo(
+                f"  fold={s.fold_index} role={s.role}"
+                f" {s.test_range.start_date} \u2192 {s.test_range.end_date}{status_tag}"
+            )
         return  # exit 0
+
+    # ── Hard gate: walk_forward non-dry-run not yet implemented ───────────
+    if plan.mode == "walk_forward":
+        click.echo(
+            "Error: walk_forward execution is not yet supported (Phase 2A.2+). "
+            "Use --dry-run to inspect the generated splits.",
+            err=True,
+        )
+        sys.exit(_OUTCOME_EXIT_CODES["Invalid"])  # exit 3
 
     # ── Resolve output directory ───────────────────────────────────────────
     # Layout: experiments/<exp>/validations/<vid>.yaml  (file-form)

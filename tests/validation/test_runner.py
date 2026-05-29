@@ -25,13 +25,7 @@ from qs_trader.engine.config import (
     RiskPolicyConfig,
     StrategyConfigItem,
 )
-from qs_trader.validation.plan import (
-    DateRange,
-    ExecutionSpec,
-    StaticSplitSpec,
-    ValidationPlan,
-    load_validation_plan,
-)
+from qs_trader.validation.plan import DateRange, ExecutionSpec, StaticSplitSpec, ValidationPlan, load_validation_plan
 from qs_trader.validation.runner import ChildRunFailedError, ChildRunRef, SequentialValidationRunner
 from qs_trader.validation.splits.base import ValidationSplit
 from qs_trader.validation.splits.static import StaticSplitGenerator
@@ -99,9 +93,7 @@ def _make_aapl_config(start: date, end: date) -> BacktestConfig:
         start_date=datetime.combine(start, time.min),
         end_date=datetime.combine(end, time.min),
         initial_equity=Decimal("100000"),
-        data=DataSelectionConfig(
-            sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])]
-        ),
+        data=DataSelectionConfig(sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])]),
         strategies=[
             StrategyConfigItem(
                 strategy_id="buy_and_hold",
@@ -375,12 +367,8 @@ class TestSequentialValidationRunner:
         assert refs_a[0].status == "success"
         assert refs_b[0].status == "success"
 
-        manifest_a = json.loads(
-            (validations_dir_a / "folds" / "f0__is" / "manifest.json").read_text()
-        )
-        manifest_b = json.loads(
-            (validations_dir_b / "folds" / "f0__is" / "manifest.json").read_text()
-        )
+        manifest_a = json.loads((validations_dir_a / "folds" / "f0__is" / "manifest.json").read_text())
+        manifest_b = json.loads((validations_dir_b / "folds" / "f0__is" / "manifest.json").read_text())
         assert manifest_a["metrics"]["bars_processed"] == manifest_b["metrics"]["bars_processed"]
 
 
@@ -399,12 +387,8 @@ class TestOnChildFailure:
             base_config=FIXTURES_DIR / "runner_base_config.yaml",
             mode="static_is_oos",
             splits=StaticSplitSpec(
-                in_sample=DateRange(
-                    start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)
-                ),
-                out_of_sample=DateRange(
-                    start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)
-                ),
+                in_sample=DateRange(start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)),
+                out_of_sample=DateRange(start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)),
             ),
             execution=ExecutionSpec(on_child_failure=mode),  # type: ignore[arg-type]
         )
@@ -414,16 +398,12 @@ class TestOnChildFailure:
             ValidationSplit(
                 fold_index=0,
                 role="is",
-                test_range=DateRange(
-                    start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)
-                ),
+                test_range=DateRange(start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)),
             ),
             ValidationSplit(
                 fold_index=1,
                 role="oos",
-                test_range=DateRange(
-                    start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)
-                ),
+                test_range=DateRange(start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)),
             ),
         ]
 
@@ -435,11 +415,7 @@ class TestOnChildFailure:
             start_date=datetime(2020, 1, 2),
             end_date=datetime(2020, 6, 30),
             initial_equity=Decimal("100000"),
-            data=DataSelectionConfig(
-                sources=[
-                    DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])
-                ]
-            ),
+            data=DataSelectionConfig(sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])]),
             strategies=[
                 StrategyConfigItem(
                     strategy_id="buy_and_hold",
@@ -618,12 +594,8 @@ class TestCollisionGuard:
             base_config=FIXTURES_DIR / "runner_base_config.yaml",
             mode="static_is_oos",
             splits=StaticSplitSpec(
-                in_sample=DateRange(
-                    start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)
-                ),
-                out_of_sample=DateRange(
-                    start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)
-                ),
+                in_sample=DateRange(start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)),
+                out_of_sample=DateRange(start_date=date(2020, 7, 1), end_date=date(2020, 12, 30)),
             ),
         )
 
@@ -632,9 +604,7 @@ class TestCollisionGuard:
             ValidationSplit(
                 fold_index=0,
                 role="is",
-                test_range=DateRange(
-                    start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)
-                ),
+                test_range=DateRange(start_date=date(2020, 1, 2), end_date=date(2020, 6, 30)),
             ),
         ]
 
@@ -646,11 +616,7 @@ class TestCollisionGuard:
             start_date=datetime(2020, 1, 2),
             end_date=datetime(2020, 6, 30),
             initial_equity=Decimal("100000"),
-            data=DataSelectionConfig(
-                sources=[
-                    DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])
-                ]
-            ),
+            data=DataSelectionConfig(sources=[DataSourceConfig(name="yahoo-us-equity-1d-csv", universe=["AAPL"])]),
             strategies=[
                 StrategyConfigItem(
                     strategy_id="buy_and_hold",

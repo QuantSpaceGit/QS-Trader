@@ -8,6 +8,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- **OOS Validation Framework (Phase 2A.1)**: Walk-forward split generator and dry-run preview
+
+  - `ValidationPlan.mode` now accepts `walk_forward` alongside `static_is_oos`; new `WalkForwardSplitsSpec` schema with `style` (`anchored` | `rolling`), `train`, `test`, `step`, `embargo`, `total_range`, and optional `min_fold_bars`
+  - Duration strings (`Ny`, `Nmo`, `Nd`) with strict validation: parseable, strictly positive for `train`/`test`/`step` (`embargo` may be zero), `step >= test`; combined units (e.g. `1y2mo`) rejected
+  - `qs-trader validate <plan> --dry-run` prints the generated fold list for `walk_forward` plans; folds that fail `min_fold_bars` are tagged `[INVALID: insufficient_history_for_fold:<n>]`
+  - New optional root field `description` on `ValidationPlan` (human-readable label); excluded from the plan SHA-256 to preserve hash stability for existing static plans
+  - `python-dateutil` added as a direct runtime dependency
+  - Documentation: [docs/validation-framework.md](docs/validation-framework.md) and [docs/cli/validate.md](docs/cli/validate.md) updated with the walk-forward schema and dry-run output
+
 - **OOS Validation Framework (Phase 1)**: New `qs-trader validate <plan>` command for static in-sample / out-of-sample strategy validation
 
   - `ValidationPlan` YAML format: `validation_id`, `strategy_experiment`, `base_config`, `mode: static_is_oos`, `splits` (IS + OOS date ranges), optional `holdout` period, declarative `decision` rules, `execution` settings, and `reporting` toggles
@@ -17,6 +26,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - Child-run failure handling configurable per plan: `on_child_failure: fail_fast` (default) or `continue`; `--force` flag allows overwriting existing output
   - Full backward compatibility: `qs-trader backtest` and all single-run artifacts unchanged; validation framework is entirely additive
   - Documentation: [docs/validation-framework.md](docs/validation-framework.md) and [docs/cli/validate.md](docs/cli/validate.md)
+
+### Changed
+
+- **OOS Validation Framework**: `ValidationPlan` root model now uses Pydantic `extra="forbid"`, rejecting unknown top-level keys at load time (e.g. future Phase 2 fields on a `static_is_oos` plan).
 
 - **Backtest audit export**: QS-Trader can now emit a database-backed audit export bundle that packages summary metadata, runtime bars, and derived observability rows for persisted runs
 

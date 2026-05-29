@@ -67,6 +67,21 @@ class TestReferencePlanContract:
         sha = compute_plan_sha256(plan, plan.base_config)
         assert len(sha) == 64  # SHA-256 hex digest
 
+    def test_static_is_oos_plan_hash_is_stable(self) -> None:
+        """Regression guard: Phase 1 reference plan sha256 prefix must not change silently.
+
+        This plan and base_config are stable artifacts; any change to hash logic must be
+        caught here and require deliberate reviewer sign-off.
+        """
+        from qs_trader.validation.plan import compute_plan_sha256, load_validation_plan
+
+        plan = load_validation_plan(_REFERENCE_PLAN)
+        sha = compute_plan_sha256(plan, plan.base_config)
+        assert sha.startswith("428e27b2"), (
+            f"Static IS/OOS plan hash changed unexpectedly: {sha[:12]}. "
+            "If this is intentional, update this pin and get reviewer sign-off."
+        )
+
     def test_holdout_is_declared(self) -> None:
         """Reference plan must declare a holdout block to demonstrate the feature."""
         from qs_trader.validation.plan import load_validation_plan

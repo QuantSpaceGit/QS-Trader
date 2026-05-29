@@ -20,7 +20,8 @@ class ValidationSplit:
         fold_index: Zero-based index of this fold in the ordered split list.
         role: Semantic role of the split period.  One of:
               ``'is'`` (in-sample), ``'oos'`` (out-of-sample),
-              ``'holdout'``, or ``'warmup_only'``.
+              ``'train'`` (walk-forward training window), ``'holdout'``,
+              or ``'warmup_only'``.
         test_range: Inclusive date range of the evaluation (test) period.
                     ``start_date`` and ``end_date`` are guaranteed strictly ordered
                     by :class:`~qs_trader.validation.plan.DateRange`.
@@ -29,13 +30,20 @@ class ValidationSplit:
                      IS fold for an OOS split).
         embargo: Gap between the training end and the test start to prevent
                  look-ahead contamination.  Defaults to ``timedelta(0)``.
+        status: Optional status override for this split.  ``None`` means valid.
+                ``'invalid'`` marks a fold that failed a pre-flight check (e.g.
+                insufficient bars).
+        reason: Machine-readable reason code set when ``status='invalid'``, e.g.
+                ``'insufficient_history_for_fold:<n>'``.  ``None`` otherwise.
     """
 
     fold_index: int
-    role: Literal["is", "oos", "holdout", "warmup_only"]
+    role: Literal["is", "oos", "holdout", "warmup_only", "train"]
     test_range: DateRange
     train_range: DateRange | None = None
     embargo: timedelta = timedelta(0)
+    status: str | None = None
+    reason: str | None = None
 
 
 class SplitGenerator(Protocol):

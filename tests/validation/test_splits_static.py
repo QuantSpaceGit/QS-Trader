@@ -8,11 +8,7 @@ from typing import Any
 
 import pytest
 
-from qs_trader.validation.plan import (
-    DateRange,
-    StaticSplitSpec,
-    ValidationPlan,
-)
+from qs_trader.validation.plan import DateRange, StaticSplitSpec, ValidationPlan
 from qs_trader.validation.splits.base import ValidationSplit
 from qs_trader.validation.splits.static import StaticSplitGenerator
 
@@ -113,6 +109,7 @@ class TestStaticSplitGenerator:
         splits = StaticSplitGenerator().generate(plan)
         with pytest.raises((AttributeError, TypeError)):
             splits[0].fold_index = 99  # type: ignore[misc]
+
     def test_returns_list_of_validation_split_instances(self) -> None:
         """Each element in the result is a ValidationSplit."""
         plan = _make_plan()

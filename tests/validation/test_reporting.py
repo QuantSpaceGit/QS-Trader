@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 import pytest
 import yaml
 
@@ -22,9 +21,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 def _make_plan(tmp_path: Path):
     """Build a minimal ValidationPlan pointing to tmp base config."""
     base_cfg = tmp_path / "base.yaml"
-    base_cfg.write_text(
-        (FIXTURES_DIR / "base_config.yaml").read_text()
-    )
+    base_cfg.write_text((FIXTURES_DIR / "base_config.yaml").read_text())
     plan_yaml = tmp_path / "test_plan.yaml"
     plan_yaml.write_text(
         f"""
@@ -568,9 +565,7 @@ class TestAuditGitCwd:
         from qs_trader.validation.audit import _REPO_ROOT
 
         plan = _make_plan(tmp_path)
-        with patch(
-            "qs_trader.validation.audit.ExperimentMetadata.capture_git_info", return_value=None
-        ) as mock_cgi:
+        with patch("qs_trader.validation.audit.ExperimentMetadata.capture_git_info", return_value=None) as mock_cgi:
             AuditWriter().write_audit(plan, "sha_plan", "sha_base", "t1", "t2", tmp_path)
 
         mock_cgi.assert_called_once_with(repo_path=_REPO_ROOT)

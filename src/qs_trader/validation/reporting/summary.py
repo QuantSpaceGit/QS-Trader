@@ -65,13 +65,19 @@ def _load_fold_metrics(run_dir: Path) -> dict[str, Any]:
 
 def _fold_date_range(child_ref: ChildRunRef, plan: ValidationPlan) -> tuple[str | None, str | None]:
     """Return (start_date, end_date) ISO strings for a fold by role."""
+    from qs_trader.validation.plan import StaticSplitSpec
+
     role = child_ref.role
     if role == "is":
-        dr = plan.splits.in_sample
-        return str(dr.start_date), str(dr.end_date)
+        if isinstance(plan.splits, StaticSplitSpec):
+            dr = plan.splits.in_sample
+            return str(dr.start_date), str(dr.end_date)
+        return None, None
     if role == "oos":
-        dr = plan.splits.out_of_sample
-        return str(dr.start_date), str(dr.end_date)
+        if isinstance(plan.splits, StaticSplitSpec):
+            dr = plan.splits.out_of_sample
+            return str(dr.start_date), str(dr.end_date)
+        return None, None
     return None, None
 
 
@@ -151,6 +157,10 @@ class SummaryWriter:
         # Convert Path objects to strings for YAML serialization
         if "base_config" in plan_dict:
             plan_dict["base_config"] = str(plan_dict["base_config"])
+        # description is non-execution metadata; omit when None to preserve
+        # byte-identical effective_plan.yaml for Phase 1 static_is_oos plans.
+        if plan_dict.get("description") is None:
+            plan_dict.pop("description", None)
         with effective_plan_path.open("w") as f:
             yaml.dump(plan_dict, f, default_flow_style=False, allow_unicode=True)
         logger.info("effective_plan_written", path=str(effective_plan_path))

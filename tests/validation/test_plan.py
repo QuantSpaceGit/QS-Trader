@@ -174,16 +174,14 @@ class TestValidationPlan:
         """Every known review rule name is accepted in decision.on_review_required."""
         for rule_name in sorted(KNOWN_REVIEW_RULES):
             d = _minimal_plan_dict(
-                decision=DecisionRulesSpec(
-                    on_review_required=(OnReviewRequiredRule(rule=rule_name, threshold=0.5),)
-                )
+                decision=DecisionRulesSpec(on_review_required=(OnReviewRequiredRule(rule=rule_name, threshold=0.5),))
             )
             plan = ValidationPlan(**d)
             assert plan.decision.on_review_required[0].rule == rule_name
 
-    def test_invalid_mode_rejected(self) -> None:
-        """Reject modes that are not 'static_is_oos'."""
-        d = _minimal_plan_dict(mode="walk_forward")
+    def test_unknown_mode_rejected(self) -> None:
+        """Reject mode values that are not in the supported Literal set."""
+        d = _minimal_plan_dict(mode="bad_mode")
         with pytest.raises(ValidationError):
             ValidationPlan(**d)
 
@@ -626,9 +624,7 @@ class TestDecisionRulesSchemaStrict:
     def test_fail_rule_in_on_review_required_rejected(self) -> None:
         """A pass/fail rule name in on_review_required is rejected (wrong catalog)."""
         d = _minimal_plan_dict(
-            decision=DecisionRulesSpec(
-                on_review_required=(OnReviewRequiredRule(rule="oos_sharpe_min", threshold=0.5),)
-            )
+            decision=DecisionRulesSpec(on_review_required=(OnReviewRequiredRule(rule="oos_sharpe_min", threshold=0.5),))
         )
         with pytest.raises(ValidationError, match="Unknown rule"):
             ValidationPlan(**d)
@@ -637,9 +633,7 @@ class TestDecisionRulesSchemaStrict:
         """is_to_oos_sharpe_decay_warn is accepted in on_review_required."""
         d = _minimal_plan_dict(
             decision=DecisionRulesSpec(
-                on_review_required=(
-                    OnReviewRequiredRule(rule="is_to_oos_sharpe_decay_warn", threshold=0.3),
-                )
+                on_review_required=(OnReviewRequiredRule(rule="is_to_oos_sharpe_decay_warn", threshold=0.3),)
             )
         )
         plan = ValidationPlan(**d)
