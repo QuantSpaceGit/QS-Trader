@@ -7,19 +7,26 @@ Full-period comparison (``full`` field) is deferred to Phase 1.4 and always
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
 from qs_trader.validation.plan import MetricsCatalog
+
+if TYPE_CHECKING:
+    from qs_trader.validation.decision import ValidationDecision
 
 logger = structlog.get_logger(__name__)
 
 _DECAY_EPSILON: float = 1e-6
 
 __all__ = [
+    "FoldAggregates",
     "MetricComparison",
     "MetricsAggregator",
+    "WalkForwardAggregator",
 ]
 
 
@@ -122,3 +129,120 @@ class MetricsAggregator:
             )
 
         return result
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward cross-fold aggregation (Phase 2A.4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FoldAggregates:
+    """Cross-fold aggregate statistics for a single OOS metric.
+
+    Attributes:
+        metric: The metric name that was aggregated (e.g. ``'sharpe_ratio'``).
+        median: Median of OOS metric values across folds with a successful OOS
+                run.  ``None`` when no successful OOS runs were available.
+        iqr: Interquartile range (Q3 − Q1) of the OOS values.  ``0.0`` when
+             exactly one fold contributed a value.  ``None`` when no successful
+             OOS runs were available.
+        min: Minimum OOS metric value.  ``None`` when no successful OOS runs.
+        max: Maximum OOS metric value.  ``None`` when no successful OOS runs.
+        count_pass_folds: Number of folds whose per-fold decision outcome was
+                          ``'Pass'``.
+        count_total_folds: Total folds attempted (includes failed/invalid folds).
+    """
+
+    metric: str
+    median: float | None
+    iqr: float | None
+    min: float | None
+    max: float | None
+    count_pass_folds: int
+    count_total_folds: int
+
+
+def _iqr(sorted_vals: list[float]) -> float:
+    """Compute Q3 − Q1.  Returns ``0.0`` for a single-element list."""
+    n = len(sorted_vals)
+    if n <= 1:
+        return 0.0
+    q1, _, q3 = statistics.quantiles(sorted_vals, n=4)
+    return q3 - q1
+
+
+class WalkForwardAggregator:
+    """Aggregates per-fold metric comparisons across a walk-forward run.
+
+    The aggregator collects OOS values for a single configurable metric from
+    each fold's :class:`MetricComparison` dict.  Folds that did not produce a
+    value for the metric (e.g. the OOS run failed) contribute to
+    ``count_total_folds`` but not to the statistical aggregates.
+
+    Usage::
+
+        agg = WalkForwardAggregator()
+        fa = agg.aggregate(fold_comparisons, fold_decisions, metric="sharpe_ratio")
+    """
+
+    def aggregate(
+        self,
+        fold_comparisons: list[dict[str, MetricComparison]],
+        fold_decisions: list[ValidationDecision],
+        metric: str = "sharpe_ratio",
+    ) -> FoldAggregates:
+        """Compute cross-fold aggregate statistics.
+
+        Args:
+            fold_comparisons: One comparison dict per fold (IS/OOS pair), as
+                produced by :class:`MetricsAggregator`.  The list must be the
+                same length as ``fold_decisions``.
+            fold_decisions: Per-fold :class:`~qs_trader.validation.decision.ValidationDecision`
+                objects.  Each decision's ``outcome`` is checked against
+                ``'Pass'`` to determine ``count_pass_folds``.
+            metric: The metric key to aggregate across OOS values (default
+                    ``'sharpe_ratio'``).
+
+        Returns:
+            A :class:`FoldAggregates` instance.  When no OOS value is available
+            for the metric across any fold, ``median``, ``iqr``, ``min``, and
+            ``max`` are all ``None``.
+        """
+        count_total = len(fold_comparisons)
+        count_pass = sum(1 for d in fold_decisions if d.outcome == "Pass")
+
+        oos_values: list[float] = []
+        for comp in fold_comparisons:
+            mc = comp.get(metric)
+            if mc is not None and mc.oos is not None:
+                oos_values.append(mc.oos)
+
+        if not oos_values:
+            return FoldAggregates(
+                metric=metric,
+                median=None,
+                iqr=None,
+                min=None,
+                max=None,
+                count_pass_folds=count_pass,
+                count_total_folds=count_total,
+            )
+
+        sorted_vals = sorted(oos_values)
+        n = len(sorted_vals)
+        mid = n // 2
+        if n % 2 == 0:
+            median = (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+        else:
+            median = sorted_vals[mid]
+
+        return FoldAggregates(
+            metric=metric,
+            median=median,
+            iqr=_iqr(sorted_vals),
+            min=sorted_vals[0],
+            max=sorted_vals[-1],
+            count_pass_folds=count_pass,
+            count_total_folds=count_total,
+        )

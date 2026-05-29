@@ -25,6 +25,7 @@ __all__ = [
     "DecisionRule",
     "RuleResult",
     "ValidationDecision",
+    "WalkForwardDecisionInput",
 ]
 
 
@@ -68,6 +69,29 @@ class ValidationDecision:
     outcome: Literal["Pass", "Fail", "ReviewRequired", "Invalid"]
     reason_codes: list[str]
     rule_results: list[RuleResult]
+
+
+@dataclass(frozen=True)
+class WalkForwardDecisionInput:
+    """Pre-computed aggregates consumed by the walk-forward decision rules.
+
+    Built by the CLI from two :class:`~qs_trader.validation.aggregation.FoldAggregates`
+    instances (one for sharpe_ratio, one for max_drawdown) and passed to
+    :meth:`DecisionEngine.evaluate_walk_forward`.
+
+    Attributes:
+        count_pass_folds: Number of folds whose per-fold decision was ``'Pass'``.
+        count_total_folds: Total folds attempted, including failed/invalid folds.
+        median_oos_sharpe: Median OOS Sharpe ratio across successful folds.
+                           ``None`` when no successful OOS runs were available.
+        worst_oos_max_drawdown: Worst (maximum) OOS max-drawdown across folds.
+                                ``None`` when no successful OOS runs were available.
+    """
+
+    count_pass_folds: int
+    count_total_folds: int
+    median_oos_sharpe: float | None
+    worst_oos_max_drawdown: float | None
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +368,150 @@ class DecisionEngine:
             reason_codes=[],
             rule_results=rule_results,
         )
+
+    def evaluate_walk_forward(
+        self,
+        wf_input: WalkForwardDecisionInput,
+        rules_spec: DecisionRulesSpec,
+        child_refs: list[ChildRunRef],
+    ) -> ValidationDecision:
+        """Evaluate walk-forward aggregate decision rules.
+
+        Applies the three Phase 2A.4 WF-only rules — ``min_pass_folds_fraction``,
+        ``median_oos_sharpe_min``, and ``worst_oos_max_drawdown_max`` — against
+        the pre-computed aggregates in ``wf_input``.  Per-fold rules
+        (``oos_sharpe_min`` etc.) are **not** evaluated here; they are applied
+        per-fold by :meth:`evaluate` and their outcomes determine
+        ``wf_input.count_pass_folds``.
+
+        Outcome priority:
+
+        1. ``Invalid`` — any child run failed (``child_fold_failed``) OR a
+           required value is ``None`` when its controlling rule is enabled.
+        2. ``Fail`` — any enabled WF rule evaluates to ``passed=False``.
+        3. ``Pass`` — all enabled WF rules satisfied (or none enabled).
+
+        Args:
+            wf_input: Pre-computed aggregates from
+                      :class:`~qs_trader.validation.aggregation.WalkForwardAggregator`.
+            rules_spec: Declarative rule thresholds from
+                        :class:`~qs_trader.validation.plan.DecisionRulesSpec`.
+            child_refs: All fold execution records for the walk-forward run.
+
+        Returns:
+            :class:`ValidationDecision` with outcome and reason codes.
+        """
+        reason_codes: list[str] = []
+
+        # ------------------------------------------------------------------
+        # Step 1: any child fold failure → Invalid
+        # ------------------------------------------------------------------
+        if any(ref.status == "failed" for ref in child_refs):
+            reason_codes.append("child_fold_failed")
+
+        # ------------------------------------------------------------------
+        # Step 2: missing required aggregate values → Invalid
+        # ------------------------------------------------------------------
+        wf_fail_pairs = _get_enabled_wf_fail_rules(rules_spec)
+        seen_missing: set[str] = set()
+        for rule_key, _ in wf_fail_pairs:
+            val = _get_wf_actual(rule_key, wf_input)
+            if val is None:
+                label = _WF_RULE_METRIC_LABEL[rule_key]
+                code = f"missing_metric:{label}"
+                if code not in seen_missing:
+                    seen_missing.add(code)
+                    reason_codes.append(code)
+
+        if reason_codes:
+            logger.debug("validation_wf_invalid", reason_codes=reason_codes)
+            return ValidationDecision(
+                outcome="Invalid",
+                reason_codes=reason_codes,
+                rule_results=[],
+            )
+
+        # ------------------------------------------------------------------
+        # Step 3: evaluate WF fail rules
+        # ------------------------------------------------------------------
+        rule_results: list[RuleResult] = []
+        fail_reason_codes: list[str] = []
+        for rule_key, threshold in wf_fail_pairs:
+            actual = _get_wf_actual(rule_key, wf_input)
+            passed = _evaluate_wf_pass(rule_key, actual, float(threshold))
+            rr = RuleResult(rule=rule_key, threshold=threshold, actual=actual, passed=passed)
+            rule_results.append(rr)
+            if not passed:
+                fail_reason_codes.append(f"{rule_key}_fail")
+
+        if fail_reason_codes:
+            logger.debug("validation_wf_fail", reason_codes=fail_reason_codes)
+            return ValidationDecision(
+                outcome="Fail",
+                reason_codes=fail_reason_codes,
+                rule_results=rule_results,
+            )
+
+        # ------------------------------------------------------------------
+        # Step 4: all pass
+        # ------------------------------------------------------------------
+        logger.debug("validation_wf_pass")
+        return ValidationDecision(
+            outcome="Pass",
+            reason_codes=[],
+            rule_results=rule_results,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward rule helpers (Phase 2A.4)
+# ---------------------------------------------------------------------------
+
+
+def _get_wf_actual(rule_key: str, wf_input: WalkForwardDecisionInput) -> float | None:
+    """Extract the scalar actual value for a WF rule from a :class:`WalkForwardDecisionInput`."""
+    if rule_key == "min_pass_folds_fraction":
+        if wf_input.count_total_folds == 0:
+            return None
+        return wf_input.count_pass_folds / wf_input.count_total_folds
+    if rule_key == "median_oos_sharpe_min":
+        return wf_input.median_oos_sharpe
+    if rule_key == "worst_oos_max_drawdown_max":
+        return wf_input.worst_oos_max_drawdown
+    raise ValueError(f"Unknown WF rule key: {rule_key!r}")
+
+
+def _evaluate_wf_pass(rule_key: str, actual: float | None, threshold: float) -> bool:
+    """Return ``True`` when the WF rule criterion is met.  ``False`` when ``actual`` is ``None``."""
+    if actual is None:
+        return False
+    match rule_key:
+        case "min_pass_folds_fraction":
+            return actual >= threshold
+        case "median_oos_sharpe_min":
+            return actual >= threshold
+        case "worst_oos_max_drawdown_max":
+            return actual <= threshold
+        case _:
+            raise ValueError(f"Unknown WF rule key: {rule_key!r}")
+
+
+def _get_enabled_wf_fail_rules(
+    rules_spec: DecisionRulesSpec,
+) -> list[tuple[str, float]]:
+    """Return ``(rule_key, threshold)`` pairs for enabled WF-only fail rules."""
+    pairs: list[tuple[str, float]] = []
+    if rules_spec.min_pass_folds_fraction is not None:
+        pairs.append(("min_pass_folds_fraction", rules_spec.min_pass_folds_fraction))
+    if rules_spec.median_oos_sharpe_min is not None:
+        pairs.append(("median_oos_sharpe_min", rules_spec.median_oos_sharpe_min))
+    if rules_spec.worst_oos_max_drawdown_max is not None:
+        pairs.append(("worst_oos_max_drawdown_max", rules_spec.worst_oos_max_drawdown_max))
+    return pairs
+
+
+_WF_RULE_METRIC_LABEL: dict[str, str] = {
+    "min_pass_folds_fraction": "pass_folds_fraction",
+    "median_oos_sharpe_min": "sharpe_ratio",
+    "worst_oos_max_drawdown_max": "max_drawdown",
+}

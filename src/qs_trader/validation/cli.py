@@ -13,9 +13,9 @@ import click
 import structlog
 
 from qs_trader.engine.config import load_backtest_config
-from qs_trader.validation.aggregation import MetricsAggregator
+from qs_trader.validation.aggregation import FoldAggregates, MetricsAggregator, WalkForwardAggregator
 from qs_trader.validation.audit import AuditWriter
-from qs_trader.validation.decision import DecisionEngine
+from qs_trader.validation.decision import DecisionEngine, WalkForwardDecisionInput
 from qs_trader.validation.plan import compute_plan_sha256, load_validation_plan
 from qs_trader.validation.reporting import SummaryWriter, ValidationHTMLReporter
 from qs_trader.validation.runner import ChildRunFailedError, SequentialValidationRunner
@@ -179,15 +179,6 @@ def _run_validate(
             )
         return  # exit 0
 
-    # ── Hard gate: walk_forward non-dry-run not yet implemented ───────────
-    if plan.mode == "walk_forward":
-        click.echo(
-            "Error: walk_forward execution is not yet supported (Phase 2A.2+). "
-            "Use --dry-run to inspect the generated splits.",
-            err=True,
-        )
-        sys.exit(_OUTCOME_EXIT_CODES["Invalid"])  # exit 3
-
     # ── Resolve output directory ───────────────────────────────────────────
     # Layout: experiments/<exp>/validations/<vid>.yaml  (file-form)
     #      or experiments/<exp>/validations/<vid>/       (dir-form)
@@ -267,18 +258,74 @@ def _run_validate(
             if not isinstance(data, dict):
                 continue
             numeric = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
-            if ref.role == "is":
+            # walk_forward splits emit role="train" for the IS window; accept
+            # both "is" (static_is_oos) and "train" (walk_forward) as the
+            # in-sample side so per-fold comparisons are populated correctly.
+            if ref.role in ("is", "train"):
                 is_m = numeric
             elif ref.role == "oos":
                 oos_m = numeric
         return is_m, oos_m
 
-    if plan.cost_scenarios is None:
+    def _group_wf_folds(refs: list[Any]) -> dict[int, list[Any]]:
+        """Group child refs by walk-forward fold index.
+
+        Fold IDs have the format ``f{n}__{role}`` (e.g. ``f0__is``, ``f0__oos``).
+        Returns a dict ordered by fold index with each value being the list of
+        refs for that fold.
+        """
+        grouped: dict[int, list[Any]] = {}
+        for ref in refs:
+            fold_id: str = ref.fold_id or ""
+            # Extract leading integer from patterns like "f0__is" or "f12__oos"
+            if fold_id.startswith("f"):
+                try:
+                    n = int(fold_id[1:].split("__")[0])
+                except (ValueError, IndexError):
+                    n = 0
+            else:
+                n = 0
+            grouped.setdefault(n, []).append(ref)
+        return dict(sorted(grouped.items()))
+
+    if plan.mode == "walk_forward":
+        # ── Walk-forward aggregation (Phase 2A.4) ─────────────────────────
+        # Group refs by fold index (fold_id format: ``f{n}__{role}``).
+        fold_comparisons: list[dict[str, Any]] = []
+        fold_decisions_list: list[Any] = []
+        for _fold_n, frefs in _group_wf_folds(child_refs).items():
+            f_is, f_oos = _load_role_metrics(frefs)
+            f_comp = MetricsAggregator().aggregate(f_is, f_oos, plan.metrics)
+            f_dec = DecisionEngine(plan.metrics).evaluate(f_comp, plan.decision, frefs)
+            fold_comparisons.append(f_comp)
+            fold_decisions_list.append(f_dec)
+
+        sharpe_agg: FoldAggregates = WalkForwardAggregator().aggregate(
+            fold_comparisons, fold_decisions_list, metric="sharpe_ratio"
+        )
+        dd_agg: FoldAggregates = WalkForwardAggregator().aggregate(
+            fold_comparisons, fold_decisions_list, metric="max_drawdown"
+        )
+        wf_input = WalkForwardDecisionInput(
+            count_pass_folds=sharpe_agg.count_pass_folds,
+            count_total_folds=sharpe_agg.count_total_folds,
+            median_oos_sharpe=sharpe_agg.median,
+            worst_oos_max_drawdown=dd_agg.max,
+        )
+        decision = DecisionEngine(plan.metrics).evaluate_walk_forward(wf_input, plan.decision, child_refs)
+        top_outcome: str = decision.outcome
+        top_reason_codes: list[str] = list(decision.reason_codes)
+        # Top-level comparison uses last IS/OOS refs for schema compatibility
+        is_metrics, oos_metrics = _load_role_metrics(child_refs)
+        comparison = MetricsAggregator().aggregate(is_metrics, oos_metrics, plan.metrics)
+        fold_aggregates_for_summary: FoldAggregates | None = sharpe_agg
+    elif plan.cost_scenarios is None:
         is_metrics, oos_metrics = _load_role_metrics(child_refs)
         comparison = MetricsAggregator().aggregate(is_metrics, oos_metrics, plan.metrics)
         decision = DecisionEngine(plan.metrics).evaluate(comparison, plan.decision, child_refs)
-        top_outcome: str = decision.outcome
-        top_reason_codes: list[str] = list(decision.reason_codes)
+        top_outcome = decision.outcome
+        top_reason_codes = list(decision.reason_codes)
+        fold_aggregates_for_summary = None
     else:
         # Group refs by scenario and compute a per-scenario decision.
         from qs_trader.validation.decision import ValidationDecision  # noqa: PLC0415
@@ -352,6 +399,7 @@ def _run_validate(
         else:
             top_outcome = decision.outcome
             top_reason_codes = list(decision.reason_codes)
+        fold_aggregates_for_summary = None
 
     # ── Phase 2A.3: benchmark child run ───────────────────────────────────
     # After the strategy (fold × scenario) matrix completes, run a single
@@ -362,9 +410,7 @@ def _run_validate(
     # fail_fast / continue.
     benchmark_summary: dict[str, Any] | None = None
     if plan.benchmark is not None:
-        from qs_trader.validation.reporting.summary import (  # noqa: PLC0415
-            compute_strategy_minus_benchmark,
-        )
+        from qs_trader.validation.reporting.summary import compute_strategy_minus_benchmark  # noqa: PLC0415
 
         bench_ref = runner.run_benchmark()
         if bench_ref.status == "success":
@@ -375,19 +421,36 @@ def _run_validate(
                     bench_metrics = json.loads(bench_perf_path.read_text())
                 except Exception:
                     bench_metrics = {}
-            # Strategy-side metric source for the delta block: for
-            # static_is_oos use the OOS-fold metric dict; for walk_forward use
-            # the first OOS fold (full aggregate is Phase 2A.4 — TODO).
+            # Strategy-side metric source for the delta block.
+            # For walk_forward: use the aggregate median Sharpe (T3.4 fix);
+            # total_return falls back to the first successful OOS fold.
+            # For static_is_oos: use the OOS-fold metric dict unchanged.
             strategy_metrics: dict[str, Any] = {}
-            for ref in child_refs:
-                if ref.role == "oos" and ref.status == "success":
-                    perf_path = ref.run_dir / "performance.json"
-                    if perf_path.exists():
-                        try:
-                            strategy_metrics = json.loads(perf_path.read_text())
-                        except Exception:
-                            strategy_metrics = {}
-                    break
+            if plan.mode == "walk_forward" and fold_aggregates_for_summary is not None:
+                if fold_aggregates_for_summary.median is not None:
+                    strategy_metrics["sharpe_ratio"] = fold_aggregates_for_summary.median
+                # total_return: first available OOS fold
+                for ref in child_refs:
+                    if ref.role == "oos" and ref.status == "success":
+                        perf_path = ref.run_dir / "performance.json"
+                        if perf_path.exists():
+                            try:
+                                data = json.loads(perf_path.read_text())
+                                if isinstance(data, dict) and "total_return" in data:
+                                    strategy_metrics["total_return"] = float(data["total_return"])
+                            except Exception:
+                                pass
+                        break
+            else:
+                for ref in child_refs:
+                    if ref.role == "oos" and ref.status == "success":
+                        perf_path = ref.run_dir / "performance.json"
+                        if perf_path.exists():
+                            try:
+                                strategy_metrics = json.loads(perf_path.read_text())
+                            except Exception:
+                                strategy_metrics = {}
+                        break
             benchmark_summary = {
                 "instrument": plan.benchmark.instrument,
                 "metrics": bench_metrics,
@@ -420,6 +483,7 @@ def _run_validate(
         out_dir=out_dir,
         scenario_summaries=scenario_summaries,
         benchmark_summary=benchmark_summary,
+        fold_aggregates=fold_aggregates_for_summary,
     )
     summary_writer.write_effective_plan(plan, out_dir)
 

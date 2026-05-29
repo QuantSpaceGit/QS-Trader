@@ -245,6 +245,13 @@ class DecisionRulesSpec(BaseModel):
 
     All fields are Optional; None means the rule is disabled.
     ``extra='forbid'`` rejects unknown rule keys that are not in the known catalog.
+
+    Walk-forward-only fields (``min_pass_folds_fraction``, ``median_oos_sharpe_min``,
+    ``worst_oos_max_drawdown_max``) are accepted here but rejected at the
+    :class:`ValidationPlan` level for ``mode='static_is_oos'`` plans via a model
+    validator on ``ValidationPlan``.  When these fields are ``None`` (the default)
+    they are excluded from the canonical plan hash dict to preserve backward
+    compatibility with existing hash pins.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -255,6 +262,10 @@ class DecisionRulesSpec(BaseModel):
     min_oos_trades: Optional[int] = None
     require_positive_oos_total_return: Optional[bool] = None
     on_review_required: tuple[OnReviewRequiredRule, ...] = ()
+    # Phase 2A.4 — walk-forward-only aggregate rules
+    min_pass_folds_fraction: Optional[float] = None
+    median_oos_sharpe_min: Optional[float] = None
+    worst_oos_max_drawdown_max: Optional[float] = None
 
 
 class MetricsCatalog(BaseModel):
@@ -403,6 +414,29 @@ class ValidationPlan(BaseModel):
                 raise ValueError(
                     f"Unknown rule '{rule.rule}' in decision.on_review_required. "
                     f"Accepted review rule names: {sorted(KNOWN_REVIEW_RULES)}"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_wf_decision_rules_for_static_mode(self) -> "ValidationPlan":
+        """Reject walk-forward-only decision fields for mode='static_is_oos' plans.
+
+        ``min_pass_folds_fraction``, ``median_oos_sharpe_min``, and
+        ``worst_oos_max_drawdown_max`` are aggregate rules that only make sense
+        when multiple OOS folds exist.  Setting them on a static plan is a
+        configuration error caught at load time.
+        """
+        if self.mode == "static_is_oos":
+            wf_fields = {
+                "min_pass_folds_fraction": self.decision.min_pass_folds_fraction,
+                "median_oos_sharpe_min": self.decision.median_oos_sharpe_min,
+                "worst_oos_max_drawdown_max": self.decision.worst_oos_max_drawdown_max,
+            }
+            enabled = [k for k, v in wf_fields.items() if v is not None]
+            if enabled:
+                raise ValueError(
+                    f"Walk-forward-only decision fields {sorted(enabled)} are not permitted "
+                    "for mode='static_is_oos'. These fields require mode='walk_forward'."
                 )
         return self
 
@@ -594,6 +628,15 @@ def _plan_to_canonical_dict(plan: ValidationPlan) -> dict[str, Any]:
     # field was already on the model), so removing it now would break the
     # 428e27b2 reference-plan hash pin. Plans that declare a benchmark will
     # serialize it normally and the hash will change accordingly.
+    # Phase 2A.4: WF-only decision fields excluded when None to preserve hash
+    # stability.  These fields were absent from the model before Phase 2A.4;
+    # stripping them when None keeps the canonical dict identical to pre-Phase
+    # 2A.4 for any plan that does not set them.
+    _WF_DECISION_FIELDS = ("min_pass_folds_fraction", "median_oos_sharpe_min", "worst_oos_max_drawdown_max")
+    if "decision" in d and isinstance(d["decision"], dict):
+        for _wf_field in _WF_DECISION_FIELDS:
+            if d["decision"].get(_wf_field) is None:
+                d["decision"].pop(_wf_field, None)
     return d
 
 

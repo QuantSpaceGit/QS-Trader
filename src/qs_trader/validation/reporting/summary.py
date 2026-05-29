@@ -9,7 +9,7 @@ from typing import Any
 import structlog
 import yaml
 
-from qs_trader.validation.aggregation import MetricComparison
+from qs_trader.validation.aggregation import FoldAggregates, MetricComparison
 from qs_trader.validation.decision import RuleResult, ValidationDecision
 from qs_trader.validation.plan import ValidationPlan
 from qs_trader.validation.runner import ChildRunRef
@@ -35,10 +35,9 @@ def compute_strategy_minus_benchmark(
     or non-numeric entries are silently skipped so a partial metric set does
     not poison the whole block.  The metric subset is :data:`_BENCHMARK_DELTA_METRICS`.
 
-    TODO(Phase 2A.4): replace the static subset with the walk-forward
-    aggregator's canonical metric catalog once it lands; under walk-forward
-    plans the ``strategy_metrics`` argument should then be the aggregate
-    (median Sharpe etc.) rather than a per-fold snapshot.
+    For ``mode: walk_forward`` plans the caller should pass the WF aggregate median
+    Sharpe as the strategy-side sharpe_ratio value.  See ``cli._run_validate`` for
+    how strategy_metrics is constructed per mode.
     """
     deltas: dict[str, float] = {}
     for metric in _BENCHMARK_DELTA_METRICS:
@@ -153,6 +152,7 @@ class SummaryWriter:
         out_dir: Path,
         scenario_summaries: list[dict[str, Any]] | None = None,
         benchmark_summary: dict[str, Any] | None = None,
+        fold_aggregates: FoldAggregates | None = None,
     ) -> dict[str, Any]:
         """Write summary.json and return the summary dict.
 
@@ -206,6 +206,18 @@ class SummaryWriter:
         # the block) the key is omitted entirely — no `null`.
         if benchmark_summary is not None:
             summary["benchmark"] = benchmark_summary
+        # Phase 2A.4: emitted for walk_forward plans only; absent for
+        # static_is_oos (key not present, no null).
+        if fold_aggregates is not None:
+            summary["fold_aggregates"] = {
+                "metric": fold_aggregates.metric,
+                "median": fold_aggregates.median,
+                "iqr": fold_aggregates.iqr,
+                "min": fold_aggregates.min,
+                "max": fold_aggregates.max,
+                "count_pass_folds": fold_aggregates.count_pass_folds,
+                "count_total_folds": fold_aggregates.count_total_folds,
+            }
         out_dir.mkdir(parents=True, exist_ok=True)
         summary_path = out_dir / "summary.json"
         with summary_path.open("w") as f:
