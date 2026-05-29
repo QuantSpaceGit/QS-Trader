@@ -91,6 +91,16 @@ Splits:
 
 > **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of a `walk_forward` plan exits with code `3` (`Invalid`) until Phase 2A.2 runner support is available.
 
+When the plan declares `cost_scenarios`, `--dry-run` also lists the scenario expansion under the splits table:
+
+```
+Cost scenarios:
+  base    folds=2
+  high_friction    folds=2
+```
+
+Each line shows the scenario name and the number of folds it expands into (the same fold set is reused per scenario).
+
 ### `--force`
 
 Allow overwriting an existing `validations/<validation_id>/` output directory. Without this flag the command exits with an error if the directory already exists.
@@ -110,6 +120,8 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --for
 | `4`  | Exception      | Unhandled runtime exception during execution                |
 
 > **Note:** Click's built-in argument-validation errors (missing or invalid flags) also return exit code `2`. The error message on `stderr` identifies which case applies.
+
+> **Cost scenarios (Phase 2A.2):** When the plan declares `cost_scenarios`, the exit code reflects the **worst** outcome across all scenarios (`Fail > ReviewRequired > Invalid > Pass`). A passing `base` scenario followed by a failing `high` scenario therefore exits `1` (Fail), not `0`, and the top-level `summary.json.reason_codes` includes `cost_scenario_failed:high`. Two carve-outs keep the reason-code stream clean: (1) a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker — the underlying per-fold reason codes already carry the full story; and (2) under `on_child_failure: fail_fast`, scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the per-scenario `cost_scenarios` block. The exit code itself is unchanged by these refinements.
 
 ## Examples
 

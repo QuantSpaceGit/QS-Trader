@@ -16,6 +16,7 @@ import structlog
 
 from qs_trader.engine.experiment import ExperimentMetadata, RunMetadata
 from qs_trader.validation.child_config import derive_child_config
+from qs_trader.validation.cost_scenarios import apply_scenario_overrides
 from qs_trader.validation.plan import ValidationPlan, compute_plan_sha256
 from qs_trader.validation.splits.base import ValidationSplit
 
@@ -63,6 +64,7 @@ class ChildRunRef:
     run_dir: Path
     status: str
     error: str | None
+    scenario: str | None = None
 
 
 class SequentialValidationRunner:
@@ -98,23 +100,28 @@ class SequentialValidationRunner:
     def run(self) -> list[ChildRunRef]:
         """Execute all validation folds in order.
 
+        When ``plan.cost_scenarios`` is ``None`` the runner emits folds under
+        ``validations_dir/folds/<fold_id>/`` for byte-identical behaviour with
+        Phase 1 / Phase 2A.1.  When ``cost_scenarios`` is declared the
+        (fold × scenario) matrix is iterated in scenario-major order and each
+        fold lands under ``validations_dir/scenarios/<name>/folds/<fold_id>/``.
+        ``fail_fast`` / ``continue`` semantics are preserved across the matrix;
+        a failure within one scenario does not abort subsequent scenarios under
+        ``continue``.
+
         Returns:
-            List of :class:`ChildRunRef` objects, one per executed fold.
+            List of :class:`ChildRunRef` objects, one per executed fold.  When
+            scenarios are declared each ref carries the ``scenario`` name.
 
         Raises:
             FileExistsError: If ``validations_dir`` already exists and
                              ``force=False``.
             ChildRunFailedError: When ``plan.execution.on_child_failure == 'fail_fast'``
-                and a fold fails.  The exception carries ``partial_refs`` with
-                all :class:`ChildRunRef` objects collected up to and including
-                the failed fold.
+                and any fold (in any scenario) fails.  The exception carries
+                ``partial_refs`` with all :class:`ChildRunRef` objects collected
+                up to and including the failed fold across the entire matrix.
         """
-        # Lazy import to avoid circular dependency with the engine package.
-        from qs_trader.engine.engine import BacktestEngine  # noqa: PLC0415
-
         plan = self._plan
-        splits = self._splits
-        base_config = self._base_config
         validations_dir = self._validations_dir
 
         # --- Collision guard -------------------------------------------
@@ -123,24 +130,72 @@ class SequentialValidationRunner:
                 f"Validation output directory already exists: {validations_dir}. Pass force=True to overwrite."
             )
 
-        folds_dir = validations_dir / "folds"
-
         # --- Plan hash (preflight — must succeed before touching filesystem) --
         plan_sha256 = compute_plan_sha256(plan, plan.base_config)
 
-        folds_dir.mkdir(parents=True, exist_ok=True)
-
         on_child_failure = plan.execution.on_child_failure
+        scenarios = plan.cost_scenarios
 
-        refs: list[ChildRunRef] = []
+        # --- Legacy (no cost_scenarios) path: identical to Phase 1/2A.1 ---
+        if scenarios is None:
+            folds_dir = validations_dir / "folds"
+            folds_dir.mkdir(parents=True, exist_ok=True)
+            return self._run_scenario(
+                scenario_name=None,
+                scenario_base_config=self._base_config,
+                folds_dir=folds_dir,
+                plan_sha256=plan_sha256,
+                on_child_failure=on_child_failure,
+                accumulated=[],
+            )
+
+        # --- (fold × scenario) matrix path ---
+        all_refs: list[ChildRunRef] = []
+        for scenario in scenarios:
+            scenario_base = apply_scenario_overrides(self._base_config, scenario.overrides)
+            scenario_folds_dir = validations_dir / "scenarios" / scenario.name / "folds"
+            scenario_folds_dir.mkdir(parents=True, exist_ok=True)
+            all_refs = self._run_scenario(
+                scenario_name=scenario.name,
+                scenario_base_config=scenario_base,
+                folds_dir=scenario_folds_dir,
+                plan_sha256=plan_sha256,
+                on_child_failure=on_child_failure,
+                accumulated=all_refs,
+            )
+        return all_refs
+
+    def _run_scenario(
+        self,
+        *,
+        scenario_name: str | None,
+        scenario_base_config: "BacktestConfig",
+        folds_dir: Path,
+        plan_sha256: str,
+        on_child_failure: str,
+        accumulated: list[ChildRunRef],
+    ) -> list[ChildRunRef]:
+        """Execute the split list for a single scenario, returning the running ref list.
+
+        Appends to ``accumulated`` and returns the same list so callers can
+        chain across scenarios.  On ``fail_fast`` a :class:`ChildRunFailedError`
+        is raised carrying every ref collected across all scenarios.
+        """
+        # Lazy import to avoid circular dependency with the engine package.
+        from qs_trader.engine.engine import BacktestEngine  # noqa: PLC0415
+
+        plan = self._plan
+        splits = self._splits
+        refs: list[ChildRunRef] = accumulated
 
         for split in splits:
             fold_id = f"f{split.fold_index}__{split.role}"
-            run_id = f"val_{plan.validation_id}__f{split.fold_index}__{split.role}"
+            scenario_tag = f"__{scenario_name}" if scenario_name else ""
+            run_id = f"val_{plan.validation_id}{scenario_tag}__f{split.fold_index}__{split.role}"
             fold_dir = folds_dir / fold_id
             fold_dir.mkdir(parents=True, exist_ok=True)
 
-            child_config = derive_child_config(plan, split, base_config)
+            child_config = derive_child_config(plan, split, scenario_base_config)
             child_config = child_config.model_copy(update={"run_id": run_id})
 
             validation_context = {
@@ -151,6 +206,8 @@ class SequentialValidationRunner:
                 "parent_experiment_id": plan.strategy_experiment,
                 "plan_sha256": plan_sha256,
             }
+            if scenario_name is not None:
+                validation_context["scenario"] = scenario_name
 
             started_at = datetime.now().isoformat()
 
@@ -160,6 +217,7 @@ class SequentialValidationRunner:
                     fold_id=fold_id,
                     run_id=run_id,
                     role=split.role,
+                    scenario=scenario_name,
                 )
 
                 with BacktestEngine.from_config(child_config, results_dir=fold_dir) as engine:
@@ -185,6 +243,7 @@ class SequentialValidationRunner:
                     "validation.fold.succeeded",
                     fold_id=fold_id,
                     run_id=run_id,
+                    scenario=scenario_name,
                 )
 
                 refs.append(
@@ -196,6 +255,7 @@ class SequentialValidationRunner:
                         run_dir=fold_dir,
                         status="success",
                         error=None,
+                        scenario=scenario_name,
                     )
                 )
 
@@ -217,6 +277,7 @@ class SequentialValidationRunner:
                     "validation.fold.failed",
                     fold_id=fold_id,
                     run_id=run_id,
+                    scenario=scenario_name,
                     error=str(exc),
                 )
 
@@ -229,6 +290,7 @@ class SequentialValidationRunner:
                         run_dir=fold_dir,
                         status="failed",
                         error=str(exc),
+                        scenario=scenario_name,
                     )
                 )
 

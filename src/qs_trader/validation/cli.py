@@ -31,6 +31,33 @@ _OUTCOME_EXIT_CODES: dict[str, int] = {
 }
 
 
+# Severity ordering for cross-scenario aggregation (Phase 2A.2 §4).
+# Higher value = more severe.  Matches the prose contract in
+# ``docs/validation-framework.md``: Fail > ReviewRequired > Invalid > Pass.
+_SCENARIO_OUTCOME_SEVERITY: dict[str, int] = {
+    "Pass": 0,
+    "Invalid": 1,
+    "ReviewRequired": 2,
+    "Fail": 3,
+}
+
+
+def _aggregate_scenario_outcomes(outcomes: list[str]) -> str:
+    """Return the worst outcome across cost-scenario decisions.
+
+    The ordering Fail > ReviewRequired > Invalid > Pass mirrors the §4
+    cross-scenario aggregation rule: any failing scenario produces a top-level
+    Fail, any ReviewRequired (in the absence of Fail) produces ReviewRequired,
+    any Invalid (in the absence of Fail / ReviewRequired) produces Invalid,
+    otherwise Pass.  Unknown labels are treated as the most severe so a
+    silent enum drift can never weaken the top-level outcome.
+    """
+    if not outcomes:
+        return "Pass"
+    worst = max(outcomes, key=lambda o: _SCENARIO_OUTCOME_SEVERITY.get(o, 99))
+    return worst
+
+
 def _sha256_file(path: Path) -> str:
     """Return the hex SHA256 of a file's raw bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -136,6 +163,13 @@ def _run_validate(
                 f"  fold={s.fold_index} role={s.role}"
                 f" {s.test_range.start_date} \u2192 {s.test_range.end_date}{status_tag}"
             )
+        if plan.cost_scenarios is not None:
+            click.echo("\nCost scenarios:")
+            # Pretty-align: pad scenario names to the longest name so the
+            # ``folds=N`` column lines up regardless of name length.
+            name_width = max(len(s.name) for s in plan.cost_scenarios)
+            for scenario in plan.cost_scenarios:
+                click.echo(f"  {scenario.name:<{name_width}}  folds={len(splits)}")
         return  # exit 0
 
     # ── Hard gate: walk_forward non-dry-run not yet implemented ───────────
@@ -180,26 +214,117 @@ def _run_validate(
 
     finished_at = _now_iso()
 
-    # ── Load per-fold metrics ──────────────────────────────────────────────
-    is_metrics: dict[str, float] = {}
-    oos_metrics: dict[str, float] = {}
-    for ref in child_refs:
-        if ref.status == "success":
-            perf_path = ref.run_dir / "performance.json"
-            if perf_path.exists():
-                try:
-                    data = json.loads(perf_path.read_text())
-                    if isinstance(data, dict):
-                        if ref.role == "is":
-                            is_metrics = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
-                        elif ref.role == "oos":
-                            oos_metrics = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
-                except Exception:
-                    pass
+    # ── Aggregate per-scenario (Phase 2A.2) ─────────────────────────────────
+    # When the plan declared cost_scenarios, run the existing
+    # MetricsAggregator + DecisionEngine once per scenario.  Top-level summary
+    # fields stay anchored to the first scenario (typically "base") for
+    # downstream compatibility; per-scenario decisions are reported under the
+    # new ``cost_scenarios`` block in summary.json.
+    # When cost_scenarios is None, behavior is byte-identical to Phase 1 /
+    # Phase 2A.1.
+    scenario_summaries: list[dict[str, Any]] | None = None
 
-    # ── Aggregate and decide ───────────────────────────────────────────────
-    comparison = MetricsAggregator().aggregate(is_metrics, oos_metrics, plan.metrics)
-    decision = DecisionEngine(plan.metrics).evaluate(comparison, plan.decision, child_refs)
+    def _load_role_metrics(refs: list[Any]) -> tuple[dict[str, float], dict[str, float]]:
+        is_m: dict[str, float] = {}
+        oos_m: dict[str, float] = {}
+        for ref in refs:
+            if ref.status != "success":
+                continue
+            perf_path = ref.run_dir / "performance.json"
+            if not perf_path.exists():
+                continue
+            try:
+                data = json.loads(perf_path.read_text())
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+            numeric = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
+            if ref.role == "is":
+                is_m = numeric
+            elif ref.role == "oos":
+                oos_m = numeric
+        return is_m, oos_m
+
+    if plan.cost_scenarios is None:
+        is_metrics, oos_metrics = _load_role_metrics(child_refs)
+        comparison = MetricsAggregator().aggregate(is_metrics, oos_metrics, plan.metrics)
+        decision = DecisionEngine(plan.metrics).evaluate(comparison, plan.decision, child_refs)
+        top_outcome: str = decision.outcome
+        top_reason_codes: list[str] = list(decision.reason_codes)
+    else:
+        # Group refs by scenario and compute a per-scenario decision.
+        from qs_trader.validation.decision import ValidationDecision  # noqa: PLC0415
+
+        scenario_summaries = []
+        grouped: dict[str, list[Any]] = {s.name: [] for s in plan.cost_scenarios}
+        for ref in child_refs:
+            grouped.setdefault(ref.scenario or "", []).append(ref)
+        first_scenario_name = plan.cost_scenarios[0].name
+        comparison = {}
+        # Defensive default if first-scenario refs were absent (e.g. fail_fast
+        # aborted before any refs landed under it).
+        decision = ValidationDecision(outcome="Invalid", reason_codes=["child_fold_failed"], rule_results=[])
+        scenario_decisions: list[tuple[str, str, list[str]]] = []
+        # I6: Only scenarios that actually executed (i.e. produced at least one
+        # ChildRunRef) participate in aggregation and per-scenario reporting.
+        # Under ``fail_fast`` the runner aborts at the first failing fold, so
+        # scenarios scheduled after that point have no refs at all; treating
+        # them as Invalid would inject spurious ``cost_scenario_failed:<name>``
+        # and ``missing_metric:*`` codes that the user never asked for.  The
+        # predicate is simply ``bool(srefs)`` — absence from the grouped refs
+        # dict means the runner never reached that scenario.
+        for scenario in plan.cost_scenarios:
+            srefs = grouped.get(scenario.name, [])
+            if not srefs:
+                continue
+            is_m, oos_m = _load_role_metrics(srefs)
+            s_comparison = MetricsAggregator().aggregate(is_m, oos_m, plan.metrics)
+            s_decision = DecisionEngine(plan.metrics).evaluate(s_comparison, plan.decision, srefs)
+            scenario_summaries.append(
+                {
+                    "name": scenario.name,
+                    "decision": s_decision.outcome,
+                    "reason_codes": list(s_decision.reason_codes),
+                    "folds": [{"fold_id": r.fold_id, "role": r.role, "status": r.status} for r in srefs],
+                }
+            )
+            scenario_decisions.append((scenario.name, s_decision.outcome, list(s_decision.reason_codes)))
+            if scenario.name == first_scenario_name and srefs:
+                comparison = s_comparison
+                decision = s_decision
+
+        # ── Cross-scenario aggregation (Phase 2A.2 §4) ──────────────────
+        # The top-level ``outcome`` reflects the worst severity across all
+        # scenarios that produced a decision.  Severity ordering matches the
+        # requirement doc: Fail > ReviewRequired > Invalid > Pass.  For every
+        # non-Pass scenario a ``cost_scenario_failed:<name>`` reason code is
+        # appended to the top-level ``reason_codes`` (the base scenario's own
+        # rule-level reason codes propagate as well so audits keep the
+        # detailed cause).  Under ``fail_fast`` the runner aborts mid-matrix,
+        # so any unreached scenario contributes nothing to the top-level
+        # decision (I6); the aborted scenario itself is recorded as Invalid by
+        # the decision engine (its OOS fold never produced metrics).
+        #
+        # I5 carve-out: when the plan declares exactly one scenario named
+        # ``base`` (the implicit collapsed case), suppress the otherwise
+        # redundant ``cost_scenario_failed:base`` marker — the underlying
+        # per-fold reason codes already carry the full story and the prefix
+        # is only meaningful when distinguishing between multiple declared
+        # scenarios.
+        lone_base = len(plan.cost_scenarios) == 1 and plan.cost_scenarios[0].name == "base"
+        if scenario_decisions:
+            top_outcome = _aggregate_scenario_outcomes([o for _, o, _ in scenario_decisions])
+            top_reason_codes = list(decision.reason_codes)
+            if not lone_base:
+                for s_name, s_outcome, _s_codes in scenario_decisions:
+                    if s_outcome != "Pass":
+                        code = f"cost_scenario_failed:{s_name}"
+                        if code not in top_reason_codes:
+                            top_reason_codes.append(code)
+        else:
+            top_outcome = decision.outcome
+            top_reason_codes = list(decision.reason_codes)
 
     # ── Write audit pack ───────────────────────────────────────────────────
     audit_summary = AuditWriter().write_audit(plan, plan_sha256, base_config_sha256, started_at, finished_at, out_dir)
@@ -211,8 +336,8 @@ def _run_validate(
         plan=plan,
         plan_sha256=plan_sha256,
         base_config_sha256=base_config_sha256,
-        outcome=decision.outcome,
-        reason_codes=decision.reason_codes,
+        outcome=top_outcome,
+        reason_codes=top_reason_codes,
         folds=child_refs,
         comparison=comparison,
         decision=decision,
@@ -220,6 +345,7 @@ def _run_validate(
         started_at=started_at,
         finished_at=finished_at,
         out_dir=out_dir,
+        scenario_summaries=scenario_summaries,
     )
     summary_writer.write_effective_plan(plan, out_dir)
 
@@ -232,7 +358,7 @@ def _run_validate(
         _print_rich_summary(summary_dict, decision)
 
     # ── Exit code ──────────────────────────────────────────────────────────
-    exit_code = _OUTCOME_EXIT_CODES.get(decision.outcome, 4)
+    exit_code = _OUTCOME_EXIT_CODES.get(top_outcome, 4)
     if exit_code != 0:
         sys.exit(exit_code)
 

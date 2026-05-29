@@ -259,6 +259,41 @@ class ReportingSpec(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Cost-scenario spec (Phase 2A.2)
+# ---------------------------------------------------------------------------
+
+
+_SCENARIO_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class CostScenarioSpec(BaseModel):
+    """A named bundle of dot-notation overrides applied to the base ``BacktestConfig``.
+
+    ``overrides`` keys are dot-notation paths (e.g. ``"feature_config.feature_version"``)
+    and are validated against the live ``BacktestConfig`` schema at plan-load time
+    via :class:`ValidationPlan`'s model validator.
+
+    Attributes:
+        name: Filesystem-safe identifier matching ``^[A-Za-z0-9_-]+$``.  Used as
+              the on-disk directory under ``scenarios/<name>/`` when more than
+              one scenario is declared.
+        overrides: Mapping from dot-notation path to the override value applied
+                   on top of the base config for this scenario.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    overrides: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def validate_name(self) -> "CostScenarioSpec":
+        if not _SCENARIO_NAME_RE.match(self.name):
+            raise ValueError(f"Invalid cost-scenario name {self.name!r}: must match ^[A-Za-z0-9_-]+$")
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Root model
 # ---------------------------------------------------------------------------
 
@@ -289,6 +324,7 @@ class ValidationPlan(BaseModel):
     decision: DecisionRulesSpec = DecisionRulesSpec()
     execution: ExecutionSpec = ExecutionSpec()
     reporting: ReportingSpec = ReportingSpec()
+    cost_scenarios: Optional[list[CostScenarioSpec]] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -336,6 +372,49 @@ class ValidationPlan(BaseModel):
                     f"Unknown rule '{rule.rule}' in decision.on_review_required. "
                     f"Accepted review rule names: {sorted(KNOWN_REVIEW_RULES)}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_cost_scenarios(self) -> "ValidationPlan":
+        """Validate cost-scenario uniqueness and override paths against ``BacktestConfig``.
+
+        - Scenario ``name`` values must be unique within the list.
+        - Every override key must resolve to a valid dot-notation path on the
+          live :class:`~qs_trader.engine.config.BacktestConfig` schema; unknown
+          paths raise ``ValueError`` carrying the ``unknown_override_key:<path>``
+          reason code so the CLI surfaces it consistently.
+        """
+        if self.cost_scenarios is None:
+            return self
+
+        # Uniqueness
+        names = [s.name for s in self.cost_scenarios]
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for n in names:
+            if n in seen:
+                duplicates.append(n)
+            seen.add(n)
+        if duplicates:
+            raise ValueError(
+                f"Duplicate cost-scenario name(s): {sorted(set(duplicates))}. "
+                "Scenario names must be unique within a plan."
+            )
+
+        # Override path validation against the live BacktestConfig schema.
+        # Lazy import to avoid module-import cycles (engine.config imports back into
+        # validation in some test paths).
+        from qs_trader.engine.config import BacktestConfig  # noqa: PLC0415
+        from qs_trader.validation.cost_scenarios import validate_override_path  # noqa: PLC0415
+
+        for scenario in self.cost_scenarios:
+            for path in scenario.overrides:
+                try:
+                    validate_override_path(BacktestConfig, path)
+                except ValueError as exc:
+                    # Surface as a fresh ValueError so Pydantic wraps it into a
+                    # ValidationError with the unknown_override_key:<path> reason.
+                    raise ValueError(f"cost_scenarios[{scenario.name!r}].overrides: {exc}") from exc
         return self
 
 
@@ -472,6 +551,12 @@ def _plan_to_canonical_dict(plan: ValidationPlan) -> dict[str, Any]:
     # Non-execution metadata: excluded to preserve hash stability across schema
     # extensions that add optional informational fields.
     d.pop("description", None)
+    # Optional structural field: when not declared, drop it so plans authored
+    # before Phase 2A.2 continue to hash identically (matches the description
+    # exclusion pattern). When declared the field IS hashed (it changes
+    # execution).
+    if d.get("cost_scenarios") is None:
+        d.pop("cost_scenarios", None)
     return d
 
 

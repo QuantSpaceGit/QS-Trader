@@ -8,6 +8,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- **OOS Validation Framework (Phase 2A.2 — cost scenarios)**: Per-scenario cost-sensitivity matrix on top of the validation runner
+
+  - New optional root field `cost_scenarios: list[CostScenarioSpec]` on `ValidationPlan`; each entry has `name` (matching `^[A-Za-z0-9_-]+$`) and `overrides` (dot-notation paths into `BacktestConfig` with their replacement values). Duplicate scenario names are rejected at load time.
+  - New `apply_scenario_overrides(base_config, overrides)` pure-function module (`qs_trader.validation.cost_scenarios`) that deep-merges overrides into a fresh `BacktestConfig` instance (base config is never mutated); returns the input identity when overrides are empty.
+  - Plan-load schema validation walks each override path against the live `BacktestConfig` Pydantic schema (descending into nested `BaseModel` fields and unwrapping `Optional`). Unknown paths raise `ValidationError` with reason code `unknown_override_key:<path>` and exit code `3`.
+  - Runner executes the full `scenario × fold` matrix when `cost_scenarios` is declared, preserving `fail_fast` / `continue` semantics across scenarios; per-fold run IDs become `val_{vid}__{scenario}__f{n}__{role}`.
+  - On-disk layout adds a `scenarios/<name>/folds/<fold_id>/` tier when `cost_scenarios` is declared. When omitted, the legacy `folds/<fold_id>/` layout is preserved byte-identically.
+  - `summary.json` gains a top-level `cost_scenarios` list (only when scenarios are declared); each entry carries `name`, per-scenario `decision`, `reason_codes`, and per-fold status. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The top-level `comparison` remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only. Per-scenario *aggregate metrics* across folds are deferred to Phase 2A.4. Two reason-code carve-outs keep the stream clean: a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker, and under `on_child_failure: fail_fast` scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the `cost_scenarios` block.
+  - CLI `--dry-run` now prints a `Cost scenarios:` expansion table under the splits list when the plan declares scenarios.
+  - `effective_plan.yaml` drops `cost_scenarios` when null (mirrors the `description` exclusion pattern), preserving the pinned static plan hash prefix `428e27b2`.
+
 - **OOS Validation Framework (Phase 2A.1)**: Walk-forward split generator and dry-run preview
 
   - `ValidationPlan.mode` now accepts `walk_forward` alongside `static_is_oos`; new `WalkForwardSplitsSpec` schema with `style` (`anchored` | `rolling`), `train`, `test`, `step`, `embargo`, `total_range`, and optional `min_fold_bars`

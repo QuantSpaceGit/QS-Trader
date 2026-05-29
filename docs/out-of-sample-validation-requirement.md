@@ -616,3 +616,41 @@ Phase 2A.1 (walk-forward split generation — preview only) is **implemented and
 - Implementation spec: [QS-Infra/docs/qs-trader-oos-validation-framework.md](../../QS-Infra/docs/qs-trader-oos-validation-framework.md)
 - Architecture and plan YAML reference: [docs/validation-framework.md](validation-framework.md)
 - CLI reference: [docs/cli/validate.md](cli/validate.md)
+
+## Phase 2A.2 Implementation
+
+Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemented** in QS-Trader. Walk-forward non-dry-run execution (the other Phase 2A.2 work item) remains tracked separately and is still gated.
+
+### What Phase 2A.2 (cost scenarios) delivers
+
+- New `CostScenarioSpec` (Pydantic v2, frozen + `extra="forbid"`): `name: str` matching `^[A-Za-z0-9_-]+$`, `overrides: dict[str, Any]` (default `{}`). Duplicate scenario names are rejected at plan-load.
+- New optional `ValidationPlan.cost_scenarios: list[CostScenarioSpec] | None` root field. When `None` the field is dropped from the canonical plan dict and from `effective_plan.yaml`, preserving the pinned static plan hash prefix `428e27b2`.
+- New module `qs_trader.validation.cost_scenarios` with:
+  - `validate_override_path(model_cls, path)` — walks a dot-path through Pydantic `BaseModel` fields, unwrapping `Optional[...]`. Raises `ValueError("unknown_override_key:<path> …")` for unknown fields or for descending below non-`BaseModel` leaves.
+  - `apply_scenario_overrides(base_config, overrides)` — returns the input instance unchanged when `overrides` is empty; otherwise `model_dump(mode="python")` → deep-merge → `BacktestConfig.model_validate(...)`. The base config is never mutated.
+- Plan-load schema validation invokes `validate_override_path(BacktestConfig, path)` for every scenario override and surfaces the failure as a `ValidationError` containing the reason code `unknown_override_key:<path>`; CLI exit code is `3`.
+- Validation runner executes the full `scenario × fold` matrix when `cost_scenarios` is declared:
+  - Per-fold run IDs become `val_{vid}__{scenario}__f{n}__{role}`; the implicit-base layout remains `val_{vid}__f{n}__{role}`.
+  - `fail_fast` and `continue` semantics propagate across scenarios; on fail_fast, the accumulated `ChildRunRef` list (including refs from prior scenarios) is attached to `ChildRunFailedError`.
+  - `validation_context` injected into each child run gains `scenario` only when set.
+  - `ChildRunRef` gained a trailing `scenario: str | None = None` field (backward compatible with all existing positional construction).
+- On-disk layout when `cost_scenarios` is declared: `validations/<vid>/scenarios/<name>/folds/<fold_id>/…`. When omitted, the Phase 2A.1 layout (`validations/<vid>/folds/<fold_id>/…`) is preserved byte-identically.
+- `summary.json` gains a top-level `cost_scenarios` list **only** when scenarios are declared. Each entry has `name`, per-scenario `decision`, `reason_codes`, and per-fold `{fold_id, role, status}`. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The lone-`base` scenario case (a single scenario named `base`) suppresses the `cost_scenario_failed:base` prefix to avoid noise (per-fold reason codes already carry the full story). Under `fail_fast`, scenarios that never executed are omitted from both the top-level aggregation and the `cost_scenarios` block. The top-level `comparison` block remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only — it does not drive the decision. Per-scenario fold-aggregate metrics (median, IQR, etc.) are deferred to Phase 2A.4 alongside the walk-forward aggregator.
+- CLI `--dry-run` prints a `Cost scenarios:` expansion table under the splits list when the plan declares scenarios. Scenario names are column-aligned.
+
+### What Phase 2A.2 (cost scenarios) explicitly defers
+
+- Per-scenario fold-aggregate metrics (median / IQR / min / max / `count_pass_folds` per scenario) — Phase 2A.4 alongside the walk-forward aggregator. A `TODO` in `reporting/summary.py` flags the placeholder.
+- Walk-forward non-dry-run execution (a separate Phase 2A.2 work item, tracked under T2.6+) — still exits `Invalid` (code 3) for non-dry-run `walk_forward` plans.
+- Benchmark overlay child run / equity overlay chart — Phase 2A.3.
+- Walk-forward aggregation rules — Phase 2A.4.
+- Walk-forward HTML reporter and equity overlay PNG — Phase 2A.5.
+- Reference walk-forward validation plan in QS-Research — Phase 2A.7.
+
+### Quality gate state at Phase 2A.2 (cost scenarios) implementation
+
+- Tests: **390 passing** (`uv run pytest tests/validation/ -q`), of which **43 are new** in `tests/validation/test_cost_scenarios.py` (vs. the Phase 2A.1 baseline of 347). Full suite: **2543+ passing** (`uv run pytest -q`).
+- Linting: **ruff check clean**; **ruff format --check clean**.
+- Type checking: **mypy clean** (16 source files, `--ignore-missing-imports`).
+- Documentation: this file, `docs/validation-framework.md`, `docs/cli/validate.md`, `README.md`, and `CHANGELOG.md` updated.
+- Static plan hash prefix pin `428e27b2` is preserved (verified by `TestCanonicalDictStability::test_static_plan_hash_unchanged`).

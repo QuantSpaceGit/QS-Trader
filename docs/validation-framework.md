@@ -108,15 +108,16 @@ Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined u
 
 ### Optional fields
 
-| Field         | Type                | Default   | Description                                                               |
-| ------------- | ------------------- | --------- | ------------------------------------------------------------------------- |
-| `holdout`     | `HoldoutSpec`       | `null`    | Optional holdout period (recorded only; not executed in Phase 1)          |
-| `description` | `str`               | `null`    | Human-readable label; accepted and stored but excluded from the plan hash |
-| `benchmark`   | `BenchmarkRef`      | `null`    | Optional benchmark symbol + data source for summary                       |
-| `metrics`     | `MetricsCatalog`    | see below | Required and recommended metrics                                          |
-| `decision`    | `DecisionRulesSpec` | all null  | Pass/fail rules (disabled when null)                                      |
-| `execution`   | `ExecutionSpec`     | see below | Child run failure handling                                                |
-| `reporting`   | `ReportingSpec`     | see below | HTML and console output toggles                                           |
+| Field            | Type                     | Default   | Description                                                               |
+| ---------------- | ------------------------ | --------- | ------------------------------------------------------------------------- |
+| `holdout`        | `HoldoutSpec`            | `null`    | Optional holdout period (recorded only; not executed in Phase 1)          |
+| `description`    | `str`                    | `null`    | Human-readable label; accepted and stored but excluded from the plan hash |
+| `benchmark`      | `BenchmarkRef`           | `null`    | Optional benchmark symbol + data source for summary                       |
+| `metrics`        | `MetricsCatalog`         | see below | Required and recommended metrics                                          |
+| `decision`       | `DecisionRulesSpec`      | all null  | Pass/fail rules (disabled when null)                                      |
+| `execution`      | `ExecutionSpec`          | see below | Child run failure handling                                                |
+| `reporting`      | `ReportingSpec`          | see below | HTML and console output toggles                                           |
+| `cost_scenarios` | `list[CostScenarioSpec]` | `null`    | Phase 2A.2 cost-sensitivity scenarios (see below)                         |
 
 ### `holdout` block
 
@@ -190,6 +191,35 @@ reporting:
   console_summary: true # print Rich summary table (default: true)
 ```
 
+### `cost_scenarios` block
+
+```yaml
+cost_scenarios:
+  - name: base
+    overrides: {}
+  - name: high_friction
+    overrides:
+      replay_speed: 0.5
+      feature_config.feature_version: "v2"
+```
+
+Each scenario is a `CostScenarioSpec`:
+
+| Field       | Type             | Default | Description                                                       |
+| ----------- | ---------------- | ------- | ----------------------------------------------------------------- |
+| `name`      | `str`            | —       | Unique scenario label matching `^[A-Za-z0-9_-]+$`                 |
+| `overrides` | `dict[str, Any]` | `{}`    | Dot-notation paths into `BacktestConfig` and their override value |
+
+**Override semantics.** Each `overrides` key is a dot-path into `BacktestConfig` (e.g. `replay_speed`, `feature_config.feature_version`). Paths are validated at plan-load time against the live `BacktestConfig` schema; unknown paths cause a load-time `ValidationError` with reason code `unknown_override_key:<path>` and exit code `3`. The base config is deep-merged with the overrides per scenario; unset paths inherit the base value verbatim.
+
+**Matrix expansion.** When `cost_scenarios` is declared the runner executes the full `scenario × fold` matrix. Each scenario produces its own per-scenario decision; the top-level `outcome` aggregates these by **worst severity** — ordering `Fail > ReviewRequired > Invalid > Pass`. For every non-Pass scenario the top-level `reason_codes` gain an entry `cost_scenario_failed:<scenario_name>`, so a CI/exit-code consumer cannot miss a stress-scenario regression. The CLI exit code follows the aggregated top-level decision (`0` Pass / `1` Fail / `2` ReviewRequired / `3` Invalid). The top-level `comparison` block (the IS/OOS metric table) remains anchored to the first declared scenario (typically `base`) — it is purely a presentation artefact and does not drive the decision. Per-scenario *aggregate* metrics across folds (e.g. median OOS Sharpe) are deferred to Phase 2A.4 alongside the walk-forward aggregator.
+
+**Lone-base carve-out.** When the plan declares exactly one scenario named `base` (the collapsed single-scenario case), the redundant `cost_scenario_failed:base` marker is suppressed from the top-level `reason_codes` — the underlying per-fold codes from the decision engine already carry the full story, and the `cost_scenario_failed:<name>` prefix is only meaningful when multiple scenarios are present. If the user declares multiple scenarios (even if one is `base`), the prefix is emitted for every non-Pass scenario including `base`.
+
+**Unreached scenarios under `fail_fast`.** When `on_child_failure: fail_fast` aborts the matrix at the first failing fold, scenarios scheduled after the abort point never run and emit no `ChildRunRef`. Such unreached scenarios contribute neither to the aggregated top-level outcome nor to the top-level `reason_codes`, and they are omitted from the per-scenario `cost_scenarios` block in `summary.json`. The predicate the CLI uses is the absence of any ref grouped under that scenario name.
+
+**Backward compatibility.** When `cost_scenarios` is omitted the runner behaves exactly as Phase 2A.1 (single implicit scenario, no `scenarios/` directory, no `cost_scenarios` block in `summary.json`, and the field is dropped from `effective_plan.yaml` to preserve byte-identical round-trip).
+
 ## Decision Rule Catalog
 
 ### Fail rules
@@ -241,6 +271,20 @@ experiments/<experiment>/
           …
 ```
 
+When `cost_scenarios` is declared, the `folds/` directory is replaced by a per-scenario layout:
+
+```text
+      scenarios/
+        base/
+          folds/
+            f0__is/
+            f1__oos/
+        high_friction/
+          folds/
+            f0__is/
+            f1__oos/
+```
+
 Each `folds/<fold_id>/` directory is a standard QS-Trader filesystem artifact output (the same structure produced by `qs-trader backtest` with `artifact_policy.mode=filesystem`).
 
 ## Audit Pack Contents
@@ -285,7 +329,11 @@ When passing a directory as `PLAN_PATH`, the loader expects a file named `<direc
 
 ### `ValidationError: … extra inputs are not permitted` (at plan root)
 
-`ValidationPlan` uses `extra="forbid"` at the root level. Unknown top-level keys (e.g. future Phase 2 fields like `cost_scenarios` on a `static_is_oos` plan) are rejected at load time.
+`ValidationPlan` uses `extra="forbid"` at the root level. Unknown top-level keys are rejected at load time. `cost_scenarios` is accepted as of Phase 2A.2.
+
+### `ValidationError: … unknown_override_key:<path>`
+
+A scenario in `cost_scenarios[*].overrides` referenced a dot-path that does not exist on `BacktestConfig` (or descended below a non-`BaseModel` leaf). Check the path against the live `BacktestConfig` schema in `qs_trader.engine.config`. The plan exits with code `3`.
 
 ### Exit code `3` — `walk_forward` non-dry-run not yet supported
 

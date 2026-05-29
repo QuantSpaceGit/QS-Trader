@@ -121,11 +121,33 @@ class SummaryWriter:
         started_at: str,
         finished_at: str,
         out_dir: Path,
+        scenario_summaries: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Write summary.json and return the summary dict.
 
         The ``is_val`` field on :class:`MetricComparison` is serialized as
         ``"is"`` in the JSON output per §4.3.
+
+        When ``scenario_summaries`` is supplied (Phase 2A.2, only when
+        ``plan.cost_scenarios`` is declared) a ``cost_scenarios`` block is
+        emitted of shape::
+
+            [{"name": str, "decision": "Pass|Fail|...", "reason_codes": [...],
+              "folds": [{"fold_id": str, "role": str, "status": str}, ...]}]
+
+        Per-scenario decisions are aggregated into the top-level ``outcome``
+        and ``reason_codes`` by the CLI before this writer is called: the
+        worst severity wins (Fail > ReviewRequired > Invalid > Pass) and a
+        ``cost_scenario_failed:<name>`` reason code is appended for every
+        non-Pass scenario.  The top-level ``comparison`` block remains
+        anchored to the first declared scenario (typically ``base``) — it
+        renders the IS/OOS metric table for that scenario only, not the
+        overall decision.
+
+        Note: per-scenario *aggregate metrics* (e.g. ``median_oos_sharpe``
+        across folds) are still deferred to Phase 2A.4 alongside the
+        walk-forward aggregator; only the decision/reason-code propagation
+        landed in Phase 2A.2.
         """
         summary: dict[str, Any] = {
             "validation_id": validation_id,
@@ -142,6 +164,11 @@ class SummaryWriter:
             "decision": _serialize_decision(decision),
             "audit": audit,
         }
+        # Phase 2A.2: cost-scenarios block only when declared. When None the
+        # key is omitted entirely (no `null`) to preserve byte-identical
+        # output for Phase 1 / Phase 2A.1 plans.
+        if scenario_summaries is not None:
+            summary["cost_scenarios"] = scenario_summaries
         out_dir.mkdir(parents=True, exist_ok=True)
         summary_path = out_dir / "summary.json"
         with summary_path.open("w") as f:
@@ -161,6 +188,11 @@ class SummaryWriter:
         # byte-identical effective_plan.yaml for Phase 1 static_is_oos plans.
         if plan_dict.get("description") is None:
             plan_dict.pop("description", None)
+        # Phase 2A.2: same convention for cost_scenarios. When the plan did not
+        # declare scenarios the field is dropped from the effective plan so
+        # Phase 1 / Phase 2A.1 artifacts remain byte-identical.
+        if plan_dict.get("cost_scenarios") is None:
+            plan_dict.pop("cost_scenarios", None)
         with effective_plan_path.open("w") as f:
             yaml.dump(plan_dict, f, default_flow_style=False, allow_unicode=True)
         logger.info("effective_plan_written", path=str(effective_plan_path))
