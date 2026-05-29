@@ -102,7 +102,7 @@ Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined u
 
 **`min_fold_bars`:** When set, any fold whose test window spans fewer calendar days than this value is marked `status=invalid` with `reason=insufficient_history_for_fold:<n>`. Invalid folds appear in `--dry-run` output tagged `[INVALID: …]` and are never executed.
 
-> **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of `walk_forward` plans requires Phase 2A.2 runner support and currently exits `Invalid` (code 3) with an explanatory message.
+> **Note:** `--dry-run` is fully supported for `walk_forward` plans. Live execution of `walk_forward` plans is supported as of Phase 2A.4 and uses the WF aggregation path described in the Decision Rule Catalog.
 >
 > **Backward compatibility:** `static_is_oos` plans are unaffected by Phase 2A.1. All Phase 1 artifacts round-trip byte-identically. The static plan hash is pinned to prefix `428e27b2`; any intentional change requires updating the pin and getting reviewer sign-off.
 
@@ -217,7 +217,7 @@ Each scenario is a `CostScenarioSpec`:
 
 **Override semantics.** Each `overrides` key is a dot-path into `BacktestConfig` (e.g. `replay_speed`, `feature_config.feature_version`). Paths are validated at plan-load time against the live `BacktestConfig` schema; unknown paths cause a load-time `ValidationError` with reason code `unknown_override_key:<path>` and exit code `3`. The base config is deep-merged with the overrides per scenario; unset paths inherit the base value verbatim.
 
-**Matrix expansion.** When `cost_scenarios` is declared the runner executes the full `scenario × fold` matrix. Each scenario produces its own per-scenario decision; the top-level `outcome` aggregates these by **worst severity** — ordering `Fail > ReviewRequired > Invalid > Pass`. For every non-Pass scenario the top-level `reason_codes` gain an entry `cost_scenario_failed:<scenario_name>`, so a CI/exit-code consumer cannot miss a stress-scenario regression. The CLI exit code follows the aggregated top-level decision (`0` Pass / `1` Fail / `2` ReviewRequired / `3` Invalid). The top-level `comparison` block (the IS/OOS metric table) remains anchored to the first declared scenario (typically `base`) — it is purely a presentation artefact and does not drive the decision. Per-scenario *aggregate* metrics across folds (e.g. median OOS Sharpe) are deferred to Phase 2A.4 alongside the walk-forward aggregator.
+**Matrix expansion.** When `cost_scenarios` is declared the runner executes the full `scenario × fold` matrix. Each scenario produces its own per-scenario decision; the top-level `outcome` aggregates these by **worst severity** — ordering `Fail > ReviewRequired > Invalid > Pass`. For every non-Pass scenario the top-level `reason_codes` gain an entry `cost_scenario_failed:<scenario_name>`, so a CI/exit-code consumer cannot miss a stress-scenario regression. The CLI exit code follows the aggregated top-level decision (`0` Pass / `1` Fail / `2` ReviewRequired / `3` Invalid). The top-level `comparison` block (the IS/OOS metric table) remains anchored to the first declared scenario (typically `base`) — it is purely a presentation artefact and does not drive the decision. Per-scenario *aggregate* metrics across folds (e.g. median OOS Sharpe per scenario) are deferred to a later phase; the walk-forward aggregate rules described in [Walk-forward aggregate rules (Phase 2A.4)](#walk-forward-aggregate-rules-phase-2a4) cover the cross-fold dimension using the `base` scenario results.
 
 **Lone-base carve-out.** When the plan declares exactly one scenario named `base` (the collapsed single-scenario case), the redundant `cost_scenario_failed:base` marker is suppressed from the top-level `reason_codes` — the underlying per-fold codes from the decision engine already carry the full story, and the `cost_scenario_failed:<name>` prefix is only meaningful when multiple scenarios are present. If the user declares multiple scenarios (even if one is `base`), the prefix is emitted for every non-Pass scenario including `base`.
 
@@ -252,6 +252,50 @@ Breach downgrades the outcome from `Pass` to `ReviewRequired` (never to `Fail`).
 | `is_to_oos_sharpe_decay_warn` | Sharpe decay   | `actual <= threshold` |
 
 Example: set `is_to_oos_sharpe_decay_warn: 0.3` to flag decays > 30% for manual review while allowing them to pass if the harder `is_to_oos_sharpe_decay_max` threshold is met.
+
+### Walk-forward aggregate rules (Phase 2A.4)
+
+These rules are evaluated at the **cross-fold level** and apply only to `mode: walk_forward` plans. Specifying any of these fields in a `mode: static_is_oos` plan is rejected at load time with a `ValidationError`.
+
+| Rule key                     | Field compared                    | Condition             | Fail reason code                  |
+| ---------------------------- | --------------------------------- | --------------------- | --------------------------------- |
+| `min_pass_folds_fraction`    | `count_pass / count_total`        | `actual >= threshold` | `min_pass_folds_fraction_fail`    |
+| `median_oos_sharpe_min`      | Median OOS Sharpe across folds    | `actual >= threshold` | `median_oos_sharpe_min_fail`      |
+| `worst_oos_max_drawdown_max` | Max OOS max-drawdown across folds | `actual <= threshold` | `worst_oos_max_drawdown_max_fail` |
+
+- **`min_pass_folds_fraction`**: `count_pass` is the number of folds whose per-fold decision was `Pass`; `count_total` is all folds attempted. A value of `0.7` requires at least 70% of folds to pass individually.
+- **`median_oos_sharpe_min`**: Median of the OOS Sharpe ratio across all folds that produced a successful OOS backtest. `None` when no folds produced an OOS metric (→ `Invalid`).
+- **`worst_oos_max_drawdown_max`**: Maximum (worst-case) OOS max-drawdown value across all folds. Consistent with `oos_max_drawdown_max`, drawdowns use the **positive-loss convention** (`0.25` = 25% drawdown). `worst_oos_max_drawdown_max: 0.25` fails any run where the worst fold exceeded a 25% drawdown (i.e. the maximum OOS drawdown value across folds was > 0.25).
+
+For `mode: walk_forward`, the benchmark `strategy_minus_benchmark` delta uses the aggregate **median Sharpe** as the strategy-side Sharpe value rather than a single fold's OOS metric.
+
+### `fold_aggregates` block in `summary.json` (walk-forward only)
+
+When `mode: walk_forward`, the top-level `summary.json` gains a `fold_aggregates` object. This key is absent (not `null`) for `mode: static_is_oos` plans.
+
+```json
+{
+  "fold_aggregates": {
+    "metric": "sharpe_ratio",
+    "median": 0.71,
+    "iqr": 0.18,
+    "min": 0.42,
+    "max": 0.95,
+    "count_pass_folds": 6,
+    "count_total_folds": 7
+  }
+}
+```
+
+| Field               | Type            | Description                                                                           |
+| ------------------- | --------------- | ------------------------------------------------------------------------------------- |
+| `metric`            | `str`           | The metric name aggregated across OOS folds (always `sharpe_ratio` in Phase 2A).      |
+| `median`            | `float \| null` | Median OOS metric value; `null` when no fold produced a valid OOS result.             |
+| `iqr`               | `float \| null` | Interquartile range (Q3 − Q1); `0.0` for a single fold; `null` when median is `null`. |
+| `min`               | `float \| null` | Minimum OOS metric value across folds; `null` when median is `null`.                  |
+| `max`               | `float \| null` | Maximum OOS metric value across folds; `null` when median is `null`.                  |
+| `count_pass_folds`  | `int`           | Number of folds whose per-fold decision outcome was `Pass`.                           |
+| `count_total_folds` | `int`           | Total folds attempted (includes failed and invalid folds).                            |
 
 ## Output Directory Layout
 
@@ -350,12 +394,6 @@ When passing a directory as `PLAN_PATH`, the loader expects a file named `<direc
 ### `ValidationError: … unknown_override_key:<path>`
 
 A scenario in `cost_scenarios[*].overrides` referenced a dot-path that does not exist on `BacktestConfig` (or descended below a non-`BaseModel` leaf). Check the path against the live `BacktestConfig` schema in `qs_trader.engine.config`. The plan exits with code `3`.
-
-### Exit code `3` — `walk_forward` non-dry-run not yet supported
-
-Running `qs-trader validate <walk_forward_plan.yaml>` without `--dry-run` exits with code 3 and the message: `Error: walk_forward execution is not yet supported (Phase 2A.2+). Use --dry-run to inspect the generated splits.`
-
-Phase 2A.2 runner support is required for live execution. Use `--dry-run` to preview the generated folds.
 
 ### Exit code `3` with `ChildRunFailedError`
 

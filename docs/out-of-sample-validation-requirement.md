@@ -591,6 +591,7 @@ Phase 2A.1 (walk-forward split generation — preview only) is **implemented and
 - `min_fold_bars` enforcement marks short test windows with `status='invalid'` and `reason='insufficient_history_for_fold:<n>'` instead of raising.
 - `qs-trader validate <plan> --dry-run` prints generated splits with `[INVALID: <reason>]` tags for invalid folds.
 - `qs-trader validate <plan>` (non-dry-run) on a `walk_forward` plan exits with code `3` (`Invalid`) and an explanatory message until Phase 2A.2 runner support lands.
+  > **Note:** Live execution of `walk_forward` plans is fully supported as of Phase 2A.4. This Phase 2A.1 restriction was lifted incrementally: runner support landed in Phase 2A.2, aggregation rules in Phase 2A.4.
 - `ValidationPlan` is now strict: `extra="forbid"` at the root rejects unknown top-level keys (e.g. Phase 2 fields on a `static_is_oos` plan).
 - `description` is an accepted optional root field (human-readable label); it is excluded from the plan SHA-256 so existing static plan hashes are preserved, and is omitted from `effective_plan.yaml` when not set.
 - `python-dateutil` is now a direct runtime dependency.
@@ -704,5 +705,38 @@ validations/<vid>/
 
 ### Deferred items
 
-- Walk-forward `strategy_minus_benchmark` currently uses the first OOS fold; a true cross-fold OOS aggregate (and per-scenario benchmark delta when `cost_scenarios` is also declared) is Phase 2A.4.
+- ~~Walk-forward `strategy_minus_benchmark` currently uses the first OOS fold~~ — resolved in Phase 2A.4 (median OOS Sharpe from `WalkForwardAggregator` is now used).
 - Dividend reinvestment for `BuyAndHoldStrategy` is plumbed through `reinvest_dividends` but the corporate-action ingestion path needed to honour it is tracked separately.
+
+## Phase 2A.4 Implementation
+
+Phase 2A.4 (walk-forward aggregation and decision rules — subtasks T4, T4.1–T4.5 and T3.4 completion) is **implemented** in QS-Trader. Live execution of `walk_forward` plans is now **fully supported**; the phase-gate that previously exited with code `3` for non-dry-run WF plans is removed.
+
+### What Phase 2A.4 delivers
+
+- `WalkForwardAggregator` in `validation/aggregation.py`: computes **median, IQR (Q3−Q1), min, max, `count_pass_folds`, `count_total_folds`** across OOS folds for a configurable metric (default `sharpe_ratio`). Edge cases: N=1, all-failed (→ `None` aggregates), empty fold list.
+- `FoldAggregates` frozen dataclass exposes the seven summary fields.
+- Three new walk-forward decision rules in `validation/decision.py` (apply only when `mode: walk_forward`; rejected at load time for `static_is_oos` plans):
+  - `min_pass_folds_fraction` — fraction of per-fold `Pass` decisions must be `≥ threshold`; reason code `min_pass_folds_fraction_fail`.
+  - `median_oos_sharpe_min` — median OOS Sharpe must be `≥ threshold`; reason code `median_oos_sharpe_min_fail`.
+  - `worst_oos_max_drawdown_max` — worst (largest, positive-loss convention) OOS drawdown must be `≤ threshold`; reason code `worst_oos_max_drawdown_max_fail`.
+- `summary.json` gains a `fold_aggregates` block when `mode: walk_forward`; absent for `static_is_oos` (not `null`, not present).
+- `cli._load_role_metrics` now treats `role='train'` as the IS side (in addition to `role='is'`), so per-fold comparisons from live walk-forward runs are correctly populated.
+- T3.4 completion: `strategy_minus_benchmark` for `walk_forward` mode now uses the aggregate **median OOS Sharpe** instead of the first-OOS-fold fallback.
+- Phase-gate removed from `cli.py`; non-dry-run WF execution runs the full aggregation path.
+- Walk-forward execution phase-gate note updated in `docs/validation-framework.md` and `docs/cli/validate.md`.
+
+### What Phase 2A.4 explicitly defers
+
+- Walk-forward HTML reporter and equity overlay PNG — Phase 2A.5.
+- Backward-compatibility golden-file test for `static_is_oos` round-trip — Phase 2A.6.
+- Reference walk-forward validation plan in QS-Research — Phase 2A.7.
+- Per-scenario fold-aggregate metrics (median/IQR per scenario, not just per `base`) — future phase.
+
+### Quality gate state at Phase 2A.4
+
+- Tests: **467+ passing** (`uv run pytest tests/validation/ -q`), of which 39+ are new in `test_walk_forward_aggregation.py`, `test_walk_forward_decision.py`, and `test_end_to_end.py` (walk-forward integration class).
+- Linting: **ruff check clean**; **ruff format --check clean**.
+- Type checking: **mypy clean** (`src/qs_trader/validation/` with `--ignore-missing-imports`).
+- Formatting: **mdformat clean** on all documentation files.
+- Static plan hash prefix pin `428e27b2` is preserved.

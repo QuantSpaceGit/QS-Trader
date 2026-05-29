@@ -89,7 +89,7 @@ Splits:
   fold=2 role=oos   2014-01-01 → 2014-12-31  [INVALID: insufficient_history_for_fold:2]
 ```
 
-> **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of a `walk_forward` plan exits with code `3` (`Invalid`) until Phase 2A.2 runner support is available.
+> **Note:** `--dry-run` is fully supported for `walk_forward` plans. Live execution of `walk_forward` plans is fully supported as of Phase 2A.4.
 
 When the plan declares `cost_scenarios`, `--dry-run` also lists the scenario expansion under the splits table:
 
@@ -131,6 +131,16 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --for
 > **Cost scenarios (Phase 2A.2):** When the plan declares `cost_scenarios`, the exit code reflects the **worst** outcome across all scenarios (`Fail > ReviewRequired > Invalid > Pass`). A passing `base` scenario followed by a failing `high` scenario therefore exits `1` (Fail), not `0`, and the top-level `summary.json.reason_codes` includes `cost_scenario_failed:high`. Two carve-outs keep the reason-code stream clean: (1) a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker — the underlying per-fold reason codes already carry the full story; and (2) under `on_child_failure: fail_fast`, scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the per-scenario `cost_scenarios` block. The exit code itself is unchanged by these refinements.
 >
 > **Benchmark overlay (Phase 2A.3):** When the plan declares `benchmark`, the CLI runs a single synthetic buy-and-hold child over the plan's full validation range after the strategy folds (and cost scenarios) complete. Two new reason codes are surfaced under exit code `3` (Invalid): `benchmark_data_unavailable:<instrument>` (pre-flight: declared instrument lacks coverage for the full range — no folds are launched and nothing is written) and `benchmark_run_failed` (the benchmark engine child failed after pre-flight passed; strategy folds and any cost-scenario blocks remain in `summary.json`, but the top-level outcome becomes `Invalid`). When the benchmark child succeeds, `summary.json` gains a `benchmark` block with the benchmark instrument, its `metrics` dict, and a `strategy_minus_benchmark` delta (Sharpe + total return) against the OOS fold.
+>
+> **Walk-forward aggregate rules (Phase 2A.4):** When `mode: walk_forward`, the decision engine evaluates three additional cross-fold rules after all folds complete. All three produce exit code `1` (Fail) when breached.
+>
+> | Reason code                       | Rule field                   | Condition                                                  |
+> | --------------------------------- | ---------------------------- | ---------------------------------------------------------- |
+> | `min_pass_folds_fraction_fail`    | `min_pass_folds_fraction`    | `count_pass / count_total >= threshold`                    |
+> | `median_oos_sharpe_min_fail`      | `median_oos_sharpe_min`      | `median OOS Sharpe >= threshold`                           |
+> | `worst_oos_max_drawdown_max_fail` | `worst_oos_max_drawdown_max` | `max OOS drawdown <= threshold` (positive-loss convention) |
+>
+> When the required aggregate is unavailable (all folds produced no OOS metric), the outcome is `Invalid` with reason code `missing_metric:<metric_name>` instead of `Fail`.
 
 ## Examples
 
