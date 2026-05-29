@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import yaml
 
@@ -222,3 +224,168 @@ class TestEndToEnd:
         out_dir = self._run_pipeline(tmp_path)
         html = (out_dir / "report.html").read_text()
         assert "e2e_vid" in html
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward end-to-end integration (non-dry-run, role="train"/"oos")
+# ---------------------------------------------------------------------------
+
+
+def _write_wf_plan(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a minimal walk_forward plan + base config.  Returns (plan_yaml, base_cfg)."""
+    base_cfg = tmp_path / "base.yaml"
+    base_cfg.write_text((FIXTURES_DIR / "base_config.yaml").read_text())
+
+    plan_yaml = tmp_path / "wf_plan.yaml"
+    plan_yaml.write_text(
+        f"""
+validation_id: wf_e2e_vid
+strategy_experiment: wf_e2e_exp
+base_config: {base_cfg}
+mode: walk_forward
+splits:
+  style: rolling
+  train: 2y
+  test: 1y
+  step: 1y
+  embargo: 0d
+  total_range:
+    start_date: "2015-01-01"
+    end_date: "2020-12-31"
+metrics:
+  required:
+    - total_return
+    - sharpe_ratio
+    - max_drawdown
+    - num_trades
+decision:
+  rules:
+    oos_sharpe_min: 0.5
+    oos_max_drawdown_max: 0.30
+  min_pass_folds_fraction: 0.5
+reporting:
+  html: false
+  console_summary: false
+"""
+    )
+    return plan_yaml, base_cfg
+
+
+def _stub_wf_child_refs(out_dir: Path) -> list[ChildRunRef]:
+    """Create stub walk-forward ChildRunRefs using role='train'/'oos' as the runner produces.
+
+    Two folds, both passing per-fold rules:
+    - fold 0: train=IS, oos=OOS
+    - fold 1: train=IS, oos=OOS
+
+    Performance values are chosen so oos_sharpe_min=0.5 and
+    oos_max_drawdown_max=0.30 rules both Pass for every fold.
+    """
+    refs = []
+    for fold_n in range(2):
+        for role in ("train", "oos"):
+            fold_dir = out_dir / "folds" / f"f{fold_n}__{role}"
+            fold_dir.mkdir(parents=True, exist_ok=True)
+            if role == "train":
+                perf = {
+                    "sharpe_ratio": 1.2,
+                    "total_return": 0.40,
+                    "max_drawdown": 0.15,
+                    "num_trades": 80,
+                }
+            else:
+                perf = {
+                    "sharpe_ratio": 0.85,
+                    "total_return": 0.22,
+                    "max_drawdown": 0.18,
+                    "num_trades": 45,
+                }
+            (fold_dir / "performance.json").write_text(json.dumps(perf))
+            refs.append(
+                ChildRunRef(
+                    fold_id=f"f{fold_n}__{role}",
+                    run_id=f"val_wf_e2e_vid__f{fold_n}__{role}",
+                    experiment_id="wf_e2e_exp",
+                    role=role,
+                    run_dir=fold_dir,
+                    status="success",
+                    error=None,
+                )
+            )
+    return refs
+
+
+def _invoke_cli_wf(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+    """Invoke the real ``validate`` CLI for a walk_forward plan, patching the runner.
+
+    ``SequentialValidationRunner.run`` is replaced with a stub that returns
+    pre-built :class:`ChildRunRef` objects whose ``performance.json`` files are
+    written to disk before the CLI starts.  This exercises the production
+    ``_run_validate`` → ``_load_role_metrics`` → ``_group_wf_folds`` →
+    ``WalkForwardAggregator`` → ``DecisionEngine.evaluate_walk_forward`` path
+    without running a real :class:`BacktestEngine`.
+
+    Returns ``(out_dir, summary_dict)``.
+    """
+    from click.testing import CliRunner
+
+    from qs_trader.validation.cli import validate_command
+
+    plan_yaml, _ = _write_wf_plan(tmp_path)
+    # CLI writes to plan_path.parent / validation_id
+    cli_out_dir = tmp_path / "wf_e2e_vid"
+    child_refs = _stub_wf_child_refs(cli_out_dir)
+
+    with patch(
+        "qs_trader.validation.runner.SequentialValidationRunner.run",
+        return_value=child_refs,
+    ):
+        result = CliRunner().invoke(validate_command, [str(plan_yaml), "--no-html-report"])
+
+    assert result.exit_code == 0, f"CLI exited {result.exit_code}: {result.output}"
+    summary: dict[str, Any] = json.loads((cli_out_dir / "summary.json").read_text())
+    return cli_out_dir, summary
+
+
+class TestWalkForwardEndToEnd:
+    """CLI integration tests for the walk-forward non-dry-run pipeline.
+
+    Each test invokes the real ``validate_command`` via Click's ``CliRunner``
+    with ``SequentialValidationRunner.run`` patched to return pre-built stub
+    refs.  This exercises the production ``_run_validate`` path — including
+    ``_load_role_metrics``, ``_group_wf_folds``, ``WalkForwardAggregator``, and
+    ``DecisionEngine.evaluate_walk_forward`` — without running a BacktestEngine.
+    """
+
+    def test_train_role_is_loaded_as_in_sample_side(self, tmp_path: Path) -> None:
+        """Regression test for B2: role='train' IS refs must be recognised by the CLI.
+
+        Before the fix, ``_load_role_metrics`` only accepted ``role='is'``.
+        Required metrics would have ``is_val=None`` → ``missing_metric:*`` →
+        per-fold Invalid → ``count_pass_folds=0``.  After the fix,
+        ``count_pass_folds == count_total_folds``.
+        """
+        _, summary = _invoke_cli_wf(tmp_path)
+        fa = summary["fold_aggregates"]
+        assert fa["count_pass_folds"] == fa["count_total_folds"], (
+            f"count_pass_folds={fa['count_pass_folds']} != count_total_folds={fa['count_total_folds']}; "
+            "role='train' refs may not be recognised as IS side by the production CLI"
+        )
+
+    def test_top_level_outcome_is_pass(self, tmp_path: Path) -> None:
+        """With all folds passing and min_pass_folds_fraction=0.5 satisfied, outcome is Pass."""
+        _, summary = _invoke_cli_wf(tmp_path)
+        assert summary["outcome"] == "Pass"
+
+    def test_fold_aggregates_in_summary_json(self, tmp_path: Path) -> None:
+        """fold_aggregates block must appear in summary.json for walk_forward mode."""
+        out_dir, summary = _invoke_cli_wf(tmp_path)
+        assert "fold_aggregates" in summary
+        fa = summary["fold_aggregates"]
+        assert fa["metric"] == "sharpe_ratio"
+        assert fa["count_total_folds"] == 2
+        assert fa["count_pass_folds"] == 2
+        assert fa["median"] is not None
+        # Verify the file on disk is consistent
+        disk = json.loads((out_dir / "summary.json").read_text())
+        assert disk["fold_aggregates"]["count_pass_folds"] == 2

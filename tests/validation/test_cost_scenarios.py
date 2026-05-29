@@ -34,10 +34,7 @@ from qs_trader.engine.config import (
     RiskPolicyConfig,
     StrategyConfigItem,
 )
-from qs_trader.validation.cost_scenarios import (
-    apply_scenario_overrides,
-    validate_override_path,
-)
+from qs_trader.validation.cost_scenarios import apply_scenario_overrides, validate_override_path
 from qs_trader.validation.plan import (
     CostScenarioSpec,
     DateRange,
