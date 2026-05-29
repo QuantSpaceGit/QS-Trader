@@ -489,6 +489,9 @@ def _run_validate(
 
     # ── HTML report ────────────────────────────────────────────────────────
     if html_report:
+        # TODO(Phase 2A integration): equity curve data must be extracted from
+        # fold ChildRunRef artifacts and passed as equity_chart_png to render().
+        # Until then the equity overlay section is omitted from production reports.
         ValidationHTMLReporter().render(summary_dict, out_dir / "report.html")
 
     # ── Rich console summary ───────────────────────────────────────────────

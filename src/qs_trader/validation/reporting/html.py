@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import html as _html
 from pathlib import Path
 from typing import Any
@@ -64,12 +65,22 @@ class ValidationHTMLReporter:
     The output has no external CSS, JS, or CDN dependencies (R7).
     """
 
-    def render(self, summary: dict[str, Any], out_path: Path) -> None:
+    def render(
+        self,
+        summary: dict[str, Any],
+        out_path: Path,
+        equity_chart_png: bytes | None = None,
+    ) -> None:
         """Render the validation summary as standalone HTML.
 
         Args:
             summary: The summary dict produced by :class:`SummaryWriter`.
             out_path: File path to write the HTML report.
+            equity_chart_png: Optional raw PNG bytes to embed as an equity
+                overlay chart.  Generate with
+                :func:`~qs_trader.validation.reporting.charts.generate_equity_overlay`
+                and pass the result here.  Keeps ``html.py`` decoupled from
+                matplotlib — the caller decides whether to generate the chart.
         """
         validation_id: str = summary.get("validation_id", "")
         outcome: str = summary.get("outcome", "")
@@ -145,6 +156,102 @@ class ValidationHTMLReporter:
   {fold_rows}
 </table>"""
 
+        # ── Walk-forward aggregate section ───────────────────────────────────
+        wf_aggregate_html = ""
+        fold_aggregates: dict[str, Any] | None = summary.get("fold_aggregates")
+        if fold_aggregates:
+            agg_rows = (
+                f"<tr><td>metric</td><td>{_html.escape(str(fold_aggregates.get('metric', '')))}</td></tr>"
+                f"<tr><td>median</td><td>{_fmt_val(fold_aggregates.get('median'))}</td></tr>"
+                f"<tr><td>IQR</td><td>{_fmt_val(fold_aggregates.get('iqr'))}</td></tr>"
+                f"<tr><td>min</td><td>{_fmt_val(fold_aggregates.get('min'))}</td></tr>"
+                f"<tr><td>max</td><td>{_fmt_val(fold_aggregates.get('max'))}</td></tr>"
+                f"<tr><td>count_pass_folds</td><td>{_fmt_val(fold_aggregates.get('count_pass_folds'))}</td></tr>"
+                f"<tr><td>count_total_folds</td><td>{_fmt_val(fold_aggregates.get('count_total_folds'))}</td></tr>"
+            )
+            wf_aggregate_html = (
+                '<div class="section">'
+                "<h2>Walk-Forward Aggregates</h2>"
+                "<table><tr><th>Field</th><th>Value</th></tr>"
+                f"{agg_rows}"
+                "</table></div>"
+            )
+
+        # ── Walk-forward fold details (walk_forward mode only) ───────────────
+        wf_folds_html = ""
+        mode: str = summary.get("mode", "")
+        if mode == "walk_forward":
+            oos_folds = [f for f in folds if f.get("role") == "oos"]
+            wf_fold_rows = "".join(
+                f"<tr><td>{_fmt_val(fold.get('fold_index'))}</td>"
+                f"<td>{_outcome_badge(fold.get('per_fold_decision') or 'N/A')}</td>"
+                f"<td>{_fmt_val(fold.get('metrics', {}).get('sharpe_ratio'))}</td>"
+                f"<td>{_fmt_val(fold.get('metrics', {}).get('total_return'))}</td>"
+                f"<td>{_fmt_val(fold.get('metrics', {}).get('max_drawdown'))}</td></tr>"
+                for fold in oos_folds
+            )
+            wf_folds_html = (
+                '<div class="section">'
+                "<h2>Walk-Forward Fold Details (OOS)</h2>"
+                "<table>"
+                "<tr><th>fold_index</th><th>per_fold_decision</th>"
+                "<th>sharpe_ratio</th><th>total_return</th><th>max_drawdown</th></tr>"
+                f"{wf_fold_rows}"
+                "</table></div>"
+            )
+
+        # ── Cost scenarios section ───────────────────────────────────────────
+        cost_scenarios_html = ""
+        cost_scenarios: list[dict[str, Any]] = summary.get("cost_scenarios") or []
+        if cost_scenarios:
+            scenario_rows = "".join(
+                f"<tr><td>{_html.escape(str(sc.get('name', '')))}</td>"
+                f"<td>{_outcome_badge(sc.get('decision') or 'N/A')}</td>"
+                f"<td>{_fmt_val(sc.get('median_oos_sharpe'))}</td></tr>"
+                for sc in cost_scenarios
+            )
+            cost_scenarios_html = (
+                '<div class="section">'
+                "<h2>Cost Scenarios</h2>"
+                "<table>"
+                "<tr><th>Scenario</th><th>Decision</th><th>Median OOS Sharpe</th></tr>"
+                f"{scenario_rows}"
+                "</table></div>"
+            )
+
+        # ── Benchmark section ────────────────────────────────────────────────
+        benchmark_html = ""
+        benchmark: dict[str, Any] | None = summary.get("benchmark")
+        if benchmark:
+            instrument_e = _html.escape(str(benchmark.get("instrument", "")))
+            bench_metrics: dict[str, Any] = benchmark.get("metrics", {})
+            strat_minus: dict[str, Any] = benchmark.get("strategy_minus_benchmark", {})
+            benchmark_html = (
+                '<div class="section">'
+                "<h2>Benchmark</h2>"
+                "<table>"
+                "<tr><th>Instrument</th><th>Benchmark Sharpe</th><th>Benchmark Return</th>"
+                "<th>+/- Sharpe</th><th>+/- Return</th></tr>"
+                f"<tr><td>{instrument_e}</td>"
+                f"<td>{_fmt_val(bench_metrics.get('sharpe_ratio'))}</td>"
+                f"<td>{_fmt_val(bench_metrics.get('total_return'))}</td>"
+                f"<td>{_fmt_val(strat_minus.get('sharpe_ratio'))}</td>"
+                f"<td>{_fmt_val(strat_minus.get('total_return'))}</td></tr>"
+                "</table></div>"
+            )
+
+        # ── Equity overlay PNG section ───────────────────────────────────────
+        equity_chart_html = ""
+        if equity_chart_png is not None:
+            png_b64 = base64.b64encode(equity_chart_png).decode("ascii")
+            equity_chart_html = (
+                '<div class="section">'
+                "<h2>Equity Overlay</h2>"
+                f'<img src="data:image/png;base64,{png_b64}" '
+                'style="max-width:100%;border-radius:0.5rem;" alt="Equity overlay chart">'
+                "</div>"
+            )
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -171,6 +278,11 @@ class ValidationHTMLReporter:
   <h2>Folds</h2>
   {folds_table}
 </div>
+{wf_aggregate_html}
+{wf_folds_html}
+{cost_scenarios_html}
+{benchmark_html}
+{equity_chart_html}
 </body>
 </html>"""
 
