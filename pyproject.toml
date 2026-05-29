@@ -50,6 +50,7 @@ dependencies = [
     "structlog>=24.4.0",
     # Visualization
     "plotly>=5.0.0",
+    "matplotlib>=3.7,<4",
     # Market data
     "yfinance>=0.2.66",
     # Database
