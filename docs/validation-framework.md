@@ -26,6 +26,7 @@ src/qs_trader/validation/
 ├── plan.py             # ValidationPlan model, YAML loader, plan hash
 ├── reporting/
 │   ├── __init__.py     # exports SummaryWriter, ValidationHTMLReporter
+│   ├── charts.py       # generate_equity_overlay — matplotlib PNG generator (lazy import)
 │   ├── html.py         # ValidationHTMLReporter — standalone HTML
 │   └── summary.py      # SummaryWriter — summary.json + effective_plan.yaml
 ├── runner.py           # SequentialValidationRunner, ChildRunRef, ChildRunFailedError
@@ -372,6 +373,42 @@ The `audit/` directory provides a self-contained evidence pack for reproducibili
 | `4`  | Exception      | Unhandled runtime exception                                                |
 
 > **Note:** Click's built-in argument-validation errors (missing or invalid flags) also return exit code `2`. The error message on stderr identifies which case applies.
+
+## HTML Report Generation
+
+The `ValidationHTMLReporter.render()` method writes a single, self-contained HTML file with no external dependencies (CDN, JS, or CSS).
+
+### Equity-overlay PNG (walk_forward mode)
+
+For `mode: walk_forward` plans the report can embed an equity-curve overlay chart comparing the strategy cumulative equity against the benchmark. The PNG is not generated automatically — the caller (CLI or test) is responsible for generating it and passing it in:
+
+```python
+from qs_trader.validation.reporting.charts import generate_equity_overlay
+from qs_trader.validation.reporting.html import ValidationHTMLReporter
+
+png_bytes = generate_equity_overlay(
+    strategy_equity=strategy_cumulative,
+    benchmark_equity=benchmark_cumulative,
+    fold_boundaries=fold_boundary_indices,
+)
+ValidationHTMLReporter().render(summary, out_path, equity_chart_png=png_bytes)
+```
+
+The PNG is embedded as a `data:image/png;base64,…` URI so the HTML file remains fully offline. When `equity_chart_png=None` (the default) the Equity Overlay section is omitted — the report still renders correctly for all modes.
+
+### matplotlib and `MPLCONFIGDIR`
+
+`charts.py` imports matplotlib **lazily** (inside the function body only), so importing the module does not trigger matplotlib initialisation. In CI or headless environments, set `MPLCONFIGDIR` to redirect the font cache to a writable path and avoid permission errors:
+
+```bash
+export MPLCONFIGDIR=/tmp/mpl_cache
+```
+
+The `Agg` backend is selected automatically before any pyplot call, so no display server is required. See R1 in the Phase 2A requirement doc (`QS-Infra/docs/qs-trader-oos-validation-phase2.md`) for the original risk note.
+
+### Walk-forward sections in static_is_oos reports
+
+The reporter renders the `fold_aggregates`, `cost_scenarios`, and `benchmark` sections whenever those keys are present in the summary dict, regardless of `mode`. The per-fold decision table (`Walk-Forward Fold Details`) is only rendered when `mode == "walk_forward"`.
 
 ## Troubleshooting
 
