@@ -1,0 +1,23 @@
+backtest_id: buy_and_hold
+start_date: "2018-01-01"
+end_date: "2024-12-31"
+initial_equity: 100000
+
+data:
+  sources:
+    - name: yahoo-us-equity-1d-csv
+      universe:
+        - AAPL
+
+strategies:
+  - strategy_id: buy_and_hold
+    universe:
+      - AAPL
+    data_sources:
+      - yahoo-us-equity-1d-csv
+    config: {}
+
+risk_policy:
+  name: naive
+  config:
+    max_pct_position_size: 0.30

@@ -1,0 +1,20 @@
+validation_id: golden_static_v1
+strategy_experiment: buy_and_hold
+base_config: base_config.yaml
+mode: static_is_oos
+
+splits:
+  in_sample:
+    start_date: "2018-01-02"
+    end_date: "2021-12-31"
+  out_of_sample:
+    start_date: "2022-01-03"
+    end_date: "2024-12-31"
+
+decision:
+  rules:
+    oos_sharpe_min: 0.5
+    oos_max_drawdown_max: 0.30
+    is_to_oos_sharpe_decay_max: 0.6
+    min_oos_trades: 10
+    require_positive_oos_total_return: true

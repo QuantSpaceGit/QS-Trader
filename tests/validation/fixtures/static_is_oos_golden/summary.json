@@ -1,0 +1,151 @@
+{
+  "validation_id": "golden_static_v1",
+  "plan_sha256": "d49c8e1e69cd31b1d39612d551b7b490a2d92eada872935c150134502dd32736",
+  "base_config_sha256": "2228f198bf90298780efe75f243408db18e0e9681bd7f18347cd1261c87bf15e",
+  "strategy_experiment": "buy_and_hold",
+  "mode": "static_is_oos",
+  "started_at": "2026-01-01T00:00:00+00:00",
+  "finished_at": "2026-01-01T00:00:00+00:00",
+  "outcome": "Pass",
+  "reason_codes": [],
+  "folds": [
+    {
+      "fold_id": "f0__is",
+      "role": "is",
+      "run_id": "val_golden_static_v1__f0__is",
+      "experiment_id": "buy_and_hold",
+      "start_date": "2018-01-02",
+      "end_date": "2021-12-31",
+      "status": "success",
+      "error": null,
+      "metrics": {
+        "sharpe_ratio": 1.2,
+        "total_return": 0.35,
+        "max_drawdown": 0.1,
+        "num_trades": 45,
+        "cagr": 0.1,
+        "volatility": 0.15,
+        "sortino_ratio": 1.8
+      }
+    },
+    {
+      "fold_id": "f1__oos",
+      "role": "oos",
+      "run_id": "val_golden_static_v1__f1__oos",
+      "experiment_id": "buy_and_hold",
+      "start_date": "2022-01-03",
+      "end_date": "2024-12-31",
+      "status": "success",
+      "error": null,
+      "metrics": {
+        "sharpe_ratio": 0.9,
+        "total_return": 0.22,
+        "max_drawdown": 0.15,
+        "num_trades": 30,
+        "cagr": 0.07,
+        "volatility": 0.16,
+        "sortino_ratio": 1.3
+      }
+    }
+  ],
+  "comparison": {
+    "total_return": {
+      "is": 0.35,
+      "oos": 0.22,
+      "full": null,
+      "decay": 0.3714285714285714
+    },
+    "cagr": {
+      "is": 0.1,
+      "oos": 0.07,
+      "full": null,
+      "decay": 0.3
+    },
+    "sharpe_ratio": {
+      "is": 1.2,
+      "oos": 0.9,
+      "full": null,
+      "decay": 0.24999999999999994
+    },
+    "max_drawdown": {
+      "is": 0.1,
+      "oos": 0.15,
+      "full": null,
+      "decay": -0.4999999999999999
+    },
+    "volatility": {
+      "is": 0.15,
+      "oos": 0.16,
+      "full": null,
+      "decay": -0.06666666666666674
+    },
+    "num_trades": {
+      "is": 45.0,
+      "oos": 30.0,
+      "full": null,
+      "decay": 0.3333333333333333
+    },
+    "sortino_ratio": {
+      "is": 1.8,
+      "oos": 1.3,
+      "full": null,
+      "decay": 0.2777777777777778
+    },
+    "win_rate": {
+      "is": null,
+      "oos": null,
+      "full": null,
+      "decay": null
+    },
+    "turnover": {
+      "is": null,
+      "oos": null,
+      "full": null,
+      "decay": null
+    }
+  },
+  "decision": {
+    "outcome": "Pass",
+    "reason_codes": [],
+    "rule_results": [
+      {
+        "rule": "oos_sharpe_min",
+        "threshold": 0.5,
+        "actual": 0.9,
+        "passed": true
+      },
+      {
+        "rule": "oos_max_drawdown_max",
+        "threshold": 0.3,
+        "actual": 0.15,
+        "passed": true
+      },
+      {
+        "rule": "is_to_oos_sharpe_decay_max",
+        "threshold": 0.6,
+        "actual": 0.24999999999999994,
+        "passed": true
+      },
+      {
+        "rule": "min_oos_trades",
+        "threshold": 10.0,
+        "actual": 30.0,
+        "passed": true
+      },
+      {
+        "rule": "require_positive_oos_total_return",
+        "threshold": true,
+        "actual": true,
+        "passed": true
+      }
+    ]
+  },
+  "audit": {
+    "code_commit": "0000000000000000000000000000000000000000",
+    "code_dirty": false,
+    "python_version": "3.11.0 (golden)",
+    "qs_trader_version": "test",
+    "holdout_declared": false,
+    "holdout_consumed": false
+  }
+}

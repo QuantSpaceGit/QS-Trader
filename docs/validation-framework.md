@@ -105,7 +105,7 @@ Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined u
 
 > **Note:** `--dry-run` is fully supported for `walk_forward` plans. Live execution of `walk_forward` plans is supported as of Phase 2A.4 and uses the WF aggregation path described in the Decision Rule Catalog.
 >
-> **Backward compatibility:** `static_is_oos` plans are unaffected by Phase 2A.1. All Phase 1 artifacts round-trip byte-identically. The static plan hash is pinned to prefix `428e27b2`; any intentional change requires updating the pin and getting reviewer sign-off.
+> **Backward compatibility:** `static_is_oos` plans are unaffected by Phase 2A.1. `summary.json` is byte-identical; `effective_plan.yaml` is verified via normalized semantic equivalence (see the Backward Compatibility section). The static plan hash is pinned to prefix `d49c8e1e`; any intentional change requires updating the pin and getting reviewer sign-off. Note: `plan_sha256` is the SHA-256 of the canonical-JSON representation of the plan + base config (see `compute_plan_sha256`), not of the raw YAML bytes — so `sha256sum plan.yaml` will produce a different value.
 
 ### Optional fields
 
@@ -143,7 +143,7 @@ As of Phase 2A.3 the benchmark is **engine-driven**: a single synthetic buy-and-
 
 The plan loader runs a **pre-flight data-availability check** before any fold launches. If the declared instrument lacks coverage spanning the full validation range, the CLI exits `3` with reason code `benchmark_data_unavailable:<instrument>` and nothing is written to disk. A benchmark child run that fails after the pre-flight passes surfaces as top-level `Invalid` with reason code `benchmark_run_failed`; the strategy folds and any cost-scenario blocks remain untouched in the summary.
 
-When the plan omits `benchmark`, the field is dropped from `effective_plan.yaml`, the `benchmark/` directory is not created, and the `benchmark` key is absent from `summary.json` — Phase 1 / Phase 2A.1 / Phase 2A.2 artifacts remain byte-identical.
+When the plan omits `benchmark`, the field is dropped from `effective_plan.yaml`, the `benchmark/` directory is not created, and the `benchmark` key is absent from `summary.json` — Phase 1 / Phase 2A.1 / Phase 2A.2 plans preserve the backward-compatibility artifact contract (`summary.json` byte-identical, `effective_plan.yaml` normalized semantic equivalence).
 
 ### `metrics` block
 
@@ -224,7 +224,7 @@ Each scenario is a `CostScenarioSpec`:
 
 **Unreached scenarios under `fail_fast`.** When `on_child_failure: fail_fast` aborts the matrix at the first failing fold, scenarios scheduled after the abort point never run and emit no `ChildRunRef`. Such unreached scenarios contribute neither to the aggregated top-level outcome nor to the top-level `reason_codes`, and they are omitted from the per-scenario `cost_scenarios` block in `summary.json`. The predicate the CLI uses is the absence of any ref grouped under that scenario name.
 
-**Backward compatibility.** When `cost_scenarios` is omitted the runner behaves exactly as Phase 2A.1 (single implicit scenario, no `scenarios/` directory, no `cost_scenarios` block in `summary.json`, and the field is dropped from `effective_plan.yaml` to preserve byte-identical round-trip).
+**Backward compatibility.** When `cost_scenarios` is omitted the runner behaves exactly as Phase 2A.1 (single implicit scenario, no `scenarios/` directory, no `cost_scenarios` block in `summary.json`, and the field is dropped from `effective_plan.yaml`), preserving the Phase 1 artifact contract.
 
 ## Decision Rule Catalog
 
@@ -443,3 +443,35 @@ The `validations/<validation_id>/` directory from a previous run already exists.
 ### `outcome: Invalid` with empty `rule_results`
 
 At least one child run failed in `fail_fast` mode (or both failed in `continue` mode). The decision engine produces `Invalid` when required metrics are unavailable. Inspect `summary.json → folds[*].status` and the fold artifact directories for details.
+
+## Backward Compatibility
+
+### Phase 1 artifact stability guarantee
+
+Phase 1 `static_is_oos` plans are guaranteed to produce stable artifacts across all Phase 2A releases. This guarantee is enforced by the golden-file test in `tests/validation/test_static_mode_backward_compatibility.py`.
+
+- **`summary.json`** — byte-identical: every field is fully deterministic under the fixed-timestamp and fixed-audit mocks.
+- **`effective_plan.yaml`** — normalized semantic equivalence: the `base_config` field is reduced to its basename (portability across checkout locations), then both sides are re-serialized with `sort_keys=True` before comparison. Structural regressions (added/removed fields, changed values) are caught; raw formatting drift is not.
+
+### Deliberate-change procedure
+
+If a Phase 1 behavior must intentionally change (e.g. a field added to `summary.json` that is required for correctness), follow this procedure:
+
+1. Delete the golden files:
+
+   ```bash
+   rm tests/validation/fixtures/static_is_oos_golden/summary.json
+   rm tests/validation/fixtures/static_is_oos_golden/effective_plan.yaml
+   ```
+
+1. Regenerate them with:
+
+   ```bash
+   REGEN_GOLDEN=1 uv run pytest tests/validation/test_static_mode_backward_compatibility.py -v
+   ```
+
+1. Review the diff of the new golden files carefully. Confirm the change is intentional and does not break downstream consumers.
+
+1. Commit the new golden files with a commit message that clearly explains why the artifact changed (e.g. `chore(validation): regen golden — add X field to summary.json (reason)`).
+
+1. Require explicit reviewer sign-off on the golden-file diff before merging.

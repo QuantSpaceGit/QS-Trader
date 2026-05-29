@@ -1,0 +1,39 @@
+base_config: base_config.yaml
+decision:
+  is_to_oos_sharpe_decay_max: 0.6
+  median_oos_sharpe_min: null
+  min_oos_trades: 10
+  min_pass_folds_fraction: null
+  on_review_required: []
+  oos_max_drawdown_max: 0.3
+  oos_sharpe_min: 0.5
+  require_positive_oos_total_return: true
+  worst_oos_max_drawdown_max: null
+execution:
+  on_child_failure: fail_fast
+holdout: null
+metrics:
+  recommended:
+  - sortino_ratio
+  - win_rate
+  - turnover
+  required:
+  - total_return
+  - cagr
+  - sharpe_ratio
+  - max_drawdown
+  - volatility
+  - num_trades
+mode: static_is_oos
+reporting:
+  console_summary: true
+  html: true
+splits:
+  in_sample:
+    end_date: '2021-12-31'
+    start_date: '2018-01-02'
+  out_of_sample:
+    end_date: '2024-12-31'
+    start_date: '2022-01-03'
+strategy_experiment: buy_and_hold
+validation_id: golden_static_v1
