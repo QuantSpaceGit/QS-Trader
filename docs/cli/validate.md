@@ -101,6 +101,13 @@ Cost scenarios:
 
 Each line shows the scenario name and the number of folds it expands into (the same fold set is reused per scenario).
 
+When the plan declares `benchmark`, `--dry-run` adds a one-line summary of the benchmark child run that would be executed:
+
+```
+Benchmark:
+  instrument=SPY  strategy=buy_and_hold  reinvest_dividends=True
+```
+
 ### `--force`
 
 Allow overwriting an existing `validations/<validation_id>/` output directory. Without this flag the command exits with an error if the directory already exists.
@@ -120,8 +127,10 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --for
 | `4`  | Exception      | Unhandled runtime exception during execution                |
 
 > **Note:** Click's built-in argument-validation errors (missing or invalid flags) also return exit code `2`. The error message on `stderr` identifies which case applies.
-
+>
 > **Cost scenarios (Phase 2A.2):** When the plan declares `cost_scenarios`, the exit code reflects the **worst** outcome across all scenarios (`Fail > ReviewRequired > Invalid > Pass`). A passing `base` scenario followed by a failing `high` scenario therefore exits `1` (Fail), not `0`, and the top-level `summary.json.reason_codes` includes `cost_scenario_failed:high`. Two carve-outs keep the reason-code stream clean: (1) a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker — the underlying per-fold reason codes already carry the full story; and (2) under `on_child_failure: fail_fast`, scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the per-scenario `cost_scenarios` block. The exit code itself is unchanged by these refinements.
+>
+> **Benchmark overlay (Phase 2A.3):** When the plan declares `benchmark`, the CLI runs a single synthetic buy-and-hold child over the plan's full validation range after the strategy folds (and cost scenarios) complete. Two new reason codes are surfaced under exit code `3` (Invalid): `benchmark_data_unavailable:<instrument>` (pre-flight: declared instrument lacks coverage for the full range — no folds are launched and nothing is written) and `benchmark_run_failed` (the benchmark engine child failed after pre-flight passed; strategy folds and any cost-scenario blocks remain in `summary.json`, but the top-level outcome becomes `Invalid`). When the benchmark child succeeds, `summary.json` gains a `benchmark` block with the benchmark instrument, its `metrics` dict, and a `strategy_minus_benchmark` delta (Sharpe + total return) against the OOS fold.
 
 ## Examples
 

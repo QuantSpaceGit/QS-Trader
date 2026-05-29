@@ -103,7 +103,7 @@ Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined u
 **`min_fold_bars`:** When set, any fold whose test window spans fewer calendar days than this value is marked `status=invalid` with `reason=insufficient_history_for_fold:<n>`. Invalid folds appear in `--dry-run` output tagged `[INVALID: …]` and are never executed.
 
 > **Phase 2A.1 note:** `--dry-run` is fully supported for `walk_forward` plans. Non-dry-run execution of `walk_forward` plans requires Phase 2A.2 runner support and currently exits `Invalid` (code 3) with an explanatory message.
-
+>
 > **Backward compatibility:** `static_is_oos` plans are unaffected by Phase 2A.1. All Phase 1 artifacts round-trip byte-identically. The static plan hash is pinned to prefix `428e27b2`; any intentional change requires updating the pin and getting reviewer sign-off.
 
 ### Optional fields
@@ -112,7 +112,7 @@ Duration strings accept `Ny` (years), `Nmo` (months), or `Nd` (days); combined u
 | ---------------- | ------------------------ | --------- | ------------------------------------------------------------------------- |
 | `holdout`        | `HoldoutSpec`            | `null`    | Optional holdout period (recorded only; not executed in Phase 1)          |
 | `description`    | `str`                    | `null`    | Human-readable label; accepted and stored but excluded from the plan hash |
-| `benchmark`      | `BenchmarkRef`           | `null`    | Optional benchmark symbol + data source for summary                       |
+| `benchmark`      | `BenchmarkSpec`          | `null`    | Engine-driven benchmark overlay (Phase 2A.3, see below)                   |
 | `metrics`        | `MetricsCatalog`         | see below | Required and recommended metrics                                          |
 | `decision`       | `DecisionRulesSpec`      | all null  | Pass/fail rules (disabled when null)                                      |
 | `execution`      | `ExecutionSpec`          | see below | Child run failure handling                                                |
@@ -133,11 +133,16 @@ When declared, the holdout period is recorded in `audit/holdout.json` but not ex
 
 ```yaml
 benchmark:
-  symbol: "SPY"
-  data_source: "yahoo-us-equity-1d-csv"
+  instrument: "SPY"
+  strategy: "buy_and_hold"      # only "buy_and_hold" supported in Phase 2A.3
+  reinvest_dividends: true       # default true
 ```
 
-Rendered in `summary.json` if the data-source resolves at runtime. Full overlay charts are deferred to Phase 2.
+As of Phase 2A.3 the benchmark is **engine-driven**: a single synthetic buy-and-hold child runs over the plan's full validation range on `benchmark.instrument` using the same data source, calendar, cost model, and metrics as the strategy folds. Artifacts land under `<validation_dir>/benchmark/` (a sibling of `folds/` and `scenarios/`) and the `benchmark` block in `summary.json` reports the benchmark's `instrument`, `metrics`, and a `strategy_minus_benchmark` delta (Sharpe and total return) versus the OOS fold.
+
+The plan loader runs a **pre-flight data-availability check** before any fold launches. If the declared instrument lacks coverage spanning the full validation range, the CLI exits `3` with reason code `benchmark_data_unavailable:<instrument>` and nothing is written to disk. A benchmark child run that fails after the pre-flight passes surfaces as top-level `Invalid` with reason code `benchmark_run_failed`; the strategy folds and any cost-scenario blocks remain untouched in the summary.
+
+When the plan omits `benchmark`, the field is dropped from `effective_plan.yaml`, the `benchmark/` directory is not created, and the `benchmark` key is absent from `summary.json` — Phase 1 / Phase 2A.1 / Phase 2A.2 artifacts remain byte-identical.
 
 ### `metrics` block
 
@@ -286,6 +291,17 @@ When `cost_scenarios` is declared, the `folds/` directory is replaced by a per-s
 ```
 
 Each `folds/<fold_id>/` directory is a standard QS-Trader filesystem artifact output (the same structure produced by `qs-trader backtest` with `artifact_policy.mode=filesystem`).
+
+When `benchmark` is declared, a sibling `benchmark/` directory is added alongside `folds/` (or `scenarios/`):
+
+```text
+      benchmark/
+        performance.json
+        run_metadata.json
+        …                       # standard filesystem-artifact output for the buy-and-hold child
+```
+
+The benchmark directory is created exactly once per validation run regardless of whether `cost_scenarios` is also declared — the single benchmark child applies to the strategy as a whole, not per-scenario.
 
 ## Audit Pack Contents
 

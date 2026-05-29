@@ -51,7 +51,8 @@ class ChildRunRef:
         fold_id: Fold identifier string, e.g. ``'f0__is'``, ``'f1__oos'``.
         run_id: Unique run ID, e.g. ``'val_my_plan__f0__is'``.
         experiment_id: Strategy experiment ID from the validation plan.
-        role: Split role (``'is'``, ``'oos'``, ``'holdout'``, ``'warmup_only'``).
+        role: Split role (``'is'``, ``'oos'``, ``'holdout'``, ``'warmup_only'``)
+              or ``'benchmark'`` for the Phase 2A.3 single benchmark child run.
         run_dir: Absolute path to the fold's artifact directory.
         status: Execution outcome, either ``'success'`` or ``'failed'``.
         error: Error message string on failure, or ``None`` on success.
@@ -298,3 +299,108 @@ class SequentialValidationRunner:
                     raise ChildRunFailedError(refs, fold_id, exc) from exc
 
         return refs
+
+    def run_benchmark(self) -> ChildRunRef:
+        """Execute the synthetic benchmark child run for the plan.
+
+        Returns a :class:`ChildRunRef` describing the benchmark child run.
+        Writes artifacts under ``validations_dir/benchmark/``.  Caller must
+        only invoke this method when ``self._plan.benchmark`` is declared and
+        after :meth:`run` has completed (or been skipped by the CLI).
+
+        The benchmark run uses the same engine machinery as fold runs.  On
+        failure the returned :class:`ChildRunRef` has ``status='failed'`` and
+        ``error`` populated; this method never raises
+        :class:`ChildRunFailedError` because the CLI applies its own
+        benchmark-specific reason-code mapping
+        (``benchmark_run_failed``).
+        """
+        from qs_trader.engine.engine import BacktestEngine  # noqa: PLC0415
+        from qs_trader.validation.benchmark import (  # noqa: PLC0415
+            BENCHMARK_FOLD_ID,
+            BENCHMARK_ROLE,
+            benchmark_full_range,
+            derive_benchmark_child_config,
+        )
+
+        plan = self._plan
+        if plan.benchmark is None:
+            raise ValueError("run_benchmark requires plan.benchmark to be declared")
+
+        full_range = benchmark_full_range(plan)
+        bench_dir = self._validations_dir / BENCHMARK_FOLD_ID
+        bench_dir.mkdir(parents=True, exist_ok=True)
+
+        run_id = f"val_{plan.validation_id}__{BENCHMARK_FOLD_ID}"
+        child_config = derive_benchmark_child_config(plan, full_range, self._base_config)
+        child_config = child_config.model_copy(update={"run_id": run_id})
+        plan_sha256 = compute_plan_sha256(plan, plan.base_config)
+
+        validation_context = {
+            "validation_id": plan.validation_id,
+            "fold_id": BENCHMARK_FOLD_ID,
+            "split_role": BENCHMARK_ROLE,
+            "parent_plan_id": plan.validation_id,
+            "parent_experiment_id": plan.strategy_experiment,
+            "plan_sha256": plan_sha256,
+            "benchmark_instrument": plan.benchmark.instrument,
+        }
+        started_at = datetime.now().isoformat()
+
+        try:
+            logger.info(
+                "validation.benchmark.starting",
+                run_id=run_id,
+                instrument=plan.benchmark.instrument,
+            )
+            with BacktestEngine.from_config(child_config, results_dir=bench_dir) as engine:
+                result = engine.run()
+
+            finished_at = datetime.now().isoformat()
+            run_metadata = RunMetadata(
+                experiment_id=plan.strategy_experiment,
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=finished_at,
+                status="success",
+                metrics={
+                    "bars_processed": result.bars_processed,
+                    "duration_seconds": result.duration.total_seconds(),
+                    "validation_context": validation_context,
+                },
+            )
+            ExperimentMetadata.write_run_metadata(bench_dir, run_metadata)
+            logger.info("validation.benchmark.succeeded", run_id=run_id)
+            return ChildRunRef(
+                fold_id=BENCHMARK_FOLD_ID,
+                run_id=run_id,
+                experiment_id=plan.strategy_experiment,
+                role=BENCHMARK_ROLE,
+                run_dir=bench_dir,
+                status="success",
+                error=None,
+                scenario=None,
+            )
+        except Exception as exc:
+            finished_at = datetime.now().isoformat()
+            run_metadata = RunMetadata(
+                experiment_id=plan.strategy_experiment,
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=finished_at,
+                status="failed",
+                error=str(exc),
+                metrics={"validation_context": validation_context},
+            )
+            ExperimentMetadata.write_run_metadata(bench_dir, run_metadata)
+            logger.error("validation.benchmark.failed", run_id=run_id, error=str(exc))
+            return ChildRunRef(
+                fold_id=BENCHMARK_FOLD_ID,
+                run_id=run_id,
+                experiment_id=plan.strategy_experiment,
+                role=BENCHMARK_ROLE,
+                run_dir=bench_dir,
+                status="failed",
+                error=str(exc),
+                scenario=None,
+            )

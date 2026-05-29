@@ -654,3 +654,55 @@ Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemente
 - Type checking: **mypy clean** (16 source files, `--ignore-missing-imports`).
 - Documentation: this file, `docs/validation-framework.md`, `docs/cli/validate.md`, `README.md`, and `CHANGELOG.md` updated.
 - Static plan hash prefix pin `428e27b2` is preserved (verified by `TestCanonicalDictStability::test_static_plan_hash_unchanged`).
+
+## Phase 2A.3 Implementation
+
+This section documents what landed in Phase 2A.3 — engine-driven benchmark overlay. The phase replaces the legacy declarative `BenchmarkRef` (instrument + data-source metadata only) with a full child run produced by the same engine machinery that drives the strategy folds, so the benchmark equity curve is directly comparable.
+
+### Scope delivered (T3.1 – T3.5)
+
+- **T3.1 — Buy-and-hold benchmark strategy.** New `BuyAndHoldStrategy` (registered as `buy_and_hold`) emits a single `OPEN_LONG` on the first bar for a single instrument and never closes; `reinvest_dividends` is forwarded as a config flag for future dividend-aware variants.
+- **T3.2 — Engine-driven config derivation.** `derive_benchmark_child_config(plan, full_range, base_config)` returns a fresh `BacktestConfig` that reuses the base config's calendar, data-source name, cost model, risk policy, and reporting block while overriding the universe (single benchmark instrument), strategy list (single buy-and-hold entry), `start_date` / `end_date` (the full validation range), and `backtest_id` (suffix `__benchmark`). Sleeve and IS/OOS split metadata are cleared. The input base config is never mutated.
+- **T3.3 — Pre-flight data-availability check.** `check_benchmark_data_availability(...)` runs before any fold launches; it raises a typed `BenchmarkDataUnavailableError` when the declared instrument has no data or only partial coverage for the full range. The CLI catches the error, echoes `benchmark_data_unavailable:<instrument>` to stderr, and exits `3` without writing anything to disk. The check accepts an injectable `BenchmarkBarLoader` so tests can stub the data layer.
+- **T3.4 — Summary block + strategy-minus-benchmark delta.** `summary.json` gains an optional `benchmark` block (`instrument`, `metrics`, `strategy_minus_benchmark`). The delta is the strategy OOS metric minus the benchmark metric for Sharpe and total return. For walk-forward plans the first OOS fold is used as the strategy-side source; a cross-fold OOS aggregate is deferred to Phase 2A.4 (tracked in `compute_strategy_minus_benchmark` as a `TODO`).
+- **T3.5 — Runner integration.** `SequentialValidationRunner.run_benchmark()` writes artifacts to `<validation_dir>/benchmark/` and returns a `ChildRunRef` with `fold_id="benchmark"` and `role="benchmark"`. It never raises on engine failure; failure surfaces in the CLI as top-level `Invalid` plus `benchmark_run_failed`. Pre-flight failures and engine failures are reported through distinct reason codes so downstream tooling can disambiguate.
+
+### Schema migration: `BenchmarkSpec`
+
+- The legacy `BenchmarkRef` (Phase 1 declarative metadata) is replaced by `BenchmarkSpec` with fields `instrument: str`, `strategy: Literal["buy_and_hold"]`, `reinvest_dividends: bool`. `BenchmarkRef = BenchmarkSpec` is exported as a backwards-compatible alias.
+- Instrument values must match `^[A-Za-z0-9._-]+$`. Empty / whitespace-only values are rejected at load time.
+- The plan canonical-dict shape for `benchmark=None` is **unchanged**: the field continues to serialise as `"benchmark": null`, preserving the `428e27b2` static reference-plan hash pin (the legacy field was already optional on the Phase 1 model, so dropping it from the canonical dict would have broken the pin). Plans that declare a benchmark naturally change the hash because the value is no longer null.
+- `effective_plan.yaml` drops `benchmark` when null (mirroring `description` / `cost_scenarios`), so on-disk byte-equivalence for Phase 1 / Phase 2A.1 / Phase 2A.2 plans is preserved.
+
+### Output layout
+
+When `benchmark` is declared the validation directory adds a sibling `benchmark/` directory:
+
+```text
+validations/<vid>/
+  folds/           # or scenarios/<name>/folds/ when cost_scenarios is also declared
+  benchmark/       # standard filesystem-artifact output for the buy-and-hold child
+  summary.json     # gains a `benchmark` block
+  audit/
+  …
+```
+
+### CLI surface
+
+- `--dry-run` adds a `Benchmark:` line (instrument / strategy / reinvest_dividends).
+- New reason codes (both under exit code `3`):
+  - `benchmark_data_unavailable:<instrument>` (pre-flight; no folds launched, no writes).
+  - `benchmark_run_failed` (engine child failed after pre-flight passed; folds and scenarios still recorded, top-level outcome flipped to `Invalid`).
+
+### Quality gates
+
+- Tests: **425 passing** (`uv run pytest tests/validation/ -q`), of which **35 are new** in `tests/validation/test_benchmark.py` (vs. the Phase 2A.2 baseline of 390).
+- Linting: **ruff check clean**; **ruff format --check clean** (validation, strategies, tests).
+- Type checking: **mypy clean** under `src/qs_trader/validation/` with `--ignore-missing-imports`.
+- Documentation: this file, `docs/validation-framework.md`, `docs/cli/validate.md`, `README.md`, and `CHANGELOG.md` updated.
+- Static plan hash prefix pin `428e27b2` is preserved (verified by `TestReferencePlanContract::test_static_is_oos_plan_hash_is_stable` and `TestPlanHashStabilityForBenchmark::test_static_reference_plan_hash_pin_unchanged`).
+
+### Deferred items
+
+- Walk-forward `strategy_minus_benchmark` currently uses the first OOS fold; a true cross-fold OOS aggregate (and per-scenario benchmark delta when `cost_scenarios` is also declared) is Phase 2A.4.
+- Dividend reinvestment for `BuyAndHoldStrategy` is plumbed through `reinvest_dividends` but the corporate-action ingestion path needed to honour it is tracked separately.

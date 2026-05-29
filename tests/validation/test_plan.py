@@ -189,14 +189,15 @@ class TestValidationPlan:
         """Create a plan with optional holdout and benchmark fields."""
         d = _minimal_plan_dict(
             holdout={"start_date": date(2025, 1, 2), "end_date": date(2025, 12, 31)},
-            benchmark={"symbol": "SPY", "data_source": "yahoo-us-equity-1d-csv"},
+            benchmark={"instrument": "SPY", "strategy": "buy_and_hold", "reinvest_dividends": True},
         )
         plan = ValidationPlan(**d)
         assert plan.holdout is not None
         assert plan.holdout.start_date == date(2025, 1, 2)
         assert plan.benchmark is not None
-        assert plan.benchmark.symbol == "SPY"
-        assert plan.benchmark.data_source == "yahoo-us-equity-1d-csv"
+        assert plan.benchmark.instrument == "SPY"
+        assert plan.benchmark.strategy == "buy_and_hold"
+        assert plan.benchmark.reinvest_dividends is True
 
     def test_with_decision_thresholds(self) -> None:
         """Decision rules are stored correctly when provided."""
@@ -549,6 +550,7 @@ class TestFrozenNestedModels:
     def test_plan_nested_splits_frozen(self) -> None:
         """plan.splits raises on attribute assignment (nested mutation blocked)."""
         plan = ValidationPlan(**_minimal_plan_dict())
+        assert isinstance(plan.splits, StaticSplitSpec)
         with pytest.raises((TypeError, ValidationError)):
             plan.splits.in_sample.start_date = date(2019, 1, 1)
 
@@ -559,10 +561,15 @@ class TestFrozenNestedModels:
             h.start_date = date(2026, 1, 1)
 
     def test_benchmark_ref_frozen(self) -> None:
-        """BenchmarkRef raises on attribute assignment after construction."""
-        b = BenchmarkRef(symbol="SPY", data_source="yahoo-us-equity-1d-csv")
+        """BenchmarkSpec raises on attribute assignment after construction.
+
+        ``BenchmarkRef`` is retained as a backward-compatible alias for the
+        Phase 2A.3 ``BenchmarkSpec`` model (instrument / strategy /
+        reinvest_dividends).
+        """
+        b = BenchmarkRef(instrument="SPY")
         with pytest.raises((TypeError, ValidationError)):
-            b.symbol = "QQQ"
+            b.instrument = "QQQ"
 
     def test_decision_rules_spec_frozen(self) -> None:
         """DecisionRulesSpec raises on attribute assignment after construction."""

@@ -190,13 +190,45 @@ class HoldoutSpec(BaseModel):
         return self
 
 
-class BenchmarkRef(BaseModel):
-    """Optional benchmark reference for summary reporting."""
+_BENCHMARK_INSTRUMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
-    model_config = ConfigDict(frozen=True)
 
-    symbol: str
-    data_source: str
+class BenchmarkSpec(BaseModel):
+    """Synthetic single-instrument benchmark overlay (Phase 2A.3).
+
+    When declared on a :class:`ValidationPlan`, the validation runner executes
+    one synthetic buy-and-hold child run over the plan's full validation range
+    on the named instrument.  Fields per requirement doc §5.1:
+
+    Attributes:
+        instrument: Benchmark instrument symbol (filesystem- and registry-safe;
+            must match ``^[A-Za-z0-9._-]+$``).
+        strategy: Strategy registry name to use for the benchmark child run.
+            Only ``"buy_and_hold"`` is accepted in Phase 2A.
+        reinvest_dividends: When ``True`` (default) the benchmark strategy
+            reinvests cash dividends.  No-op until the engine surfaces a
+            dividend feed (tracked separately for Phase 2A.5).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    instrument: str
+    strategy: Literal["buy_and_hold"] = "buy_and_hold"
+    reinvest_dividends: bool = True
+
+    @model_validator(mode="after")
+    def _validate_instrument(self) -> "BenchmarkSpec":
+        if not self.instrument or not self.instrument.strip():
+            raise ValueError("BenchmarkSpec.instrument must be a non-empty string")
+        if not _BENCHMARK_INSTRUMENT_RE.match(self.instrument):
+            raise ValueError(f"Invalid benchmark instrument {self.instrument!r}: must match ^[A-Za-z0-9._-]+$")
+        return self
+
+
+# Backward-compatible re-export name (Phase 1 stub never used by a real plan).
+# The legacy ``BenchmarkRef`` shape (``symbol`` + ``data_source``) is removed in
+# favour of the Phase 2A.3 ``BenchmarkSpec`` contract.
+BenchmarkRef = BenchmarkSpec
 
 
 class OnReviewRequiredRule(BaseModel):
@@ -319,7 +351,7 @@ class ValidationPlan(BaseModel):
     mode: Literal["static_is_oos", "walk_forward"]
     splits: Union[StaticSplitSpec, WalkForwardSplitsSpec]
     holdout: Optional[HoldoutSpec] = None
-    benchmark: Optional[BenchmarkRef] = None
+    benchmark: Optional[BenchmarkSpec] = None
     metrics: MetricsCatalog = MetricsCatalog()
     decision: DecisionRulesSpec = DecisionRulesSpec()
     execution: ExecutionSpec = ExecutionSpec()
@@ -557,6 +589,11 @@ def _plan_to_canonical_dict(plan: ValidationPlan) -> dict[str, Any]:
     # execution).
     if d.get("cost_scenarios") is None:
         d.pop("cost_scenarios", None)
+    # NOTE: ``benchmark`` is intentionally NOT dropped when None. The Phase 1
+    # canonical dict emitted ``"benchmark": null`` (the legacy ``BenchmarkRef``
+    # field was already on the model), so removing it now would break the
+    # 428e27b2 reference-plan hash pin. Plans that declare a benchmark will
+    # serialize it normally and the hash will change accordingly.
     return d
 
 

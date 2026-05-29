@@ -478,6 +478,8 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry
 
 **Cost scenarios (Phase 2A.2):** A plan may declare an optional `cost_scenarios` list (`name` + dot-notation `overrides` into `BacktestConfig`). When declared, the runner executes the full `scenario × fold` matrix under `validations/<vid>/scenarios/<name>/folds/...` and emits a per-scenario `cost_scenarios` block in `summary.json`.
 
+**Benchmark overlay (Phase 2A.3):** A plan may declare an optional `benchmark` block (`instrument` + `strategy: buy_and_hold` + `reinvest_dividends`); the runner executes a single synthetic buy-and-hold child over the plan's full validation range under `validations/<vid>/benchmark/` and emits a `benchmark` block in `summary.json` with the benchmark metrics and a `strategy_minus_benchmark` Sharpe / total-return delta.
+
 See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference, decision rule catalog, output layout, and audit pack contents. Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
 
 ### Documentation References

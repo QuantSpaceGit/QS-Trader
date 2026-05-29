@@ -10,6 +10,7 @@ from qs_trader.validation.plan import (
     KNOWN_FAIL_RULES,
     KNOWN_REVIEW_RULES,
     BenchmarkRef,
+    BenchmarkSpec,
     DateRange,
     DecisionRulesSpec,
     ExecutionSpec,
@@ -27,6 +28,7 @@ from qs_trader.validation.splits.static import StaticSplitGenerator
 
 __all__ = [
     "BenchmarkRef",
+    "BenchmarkSpec",
     "ChildRunRef",
     "DateRange",
     "DecisionEngine",

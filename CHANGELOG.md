@@ -8,6 +8,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- **OOS Validation Framework (Phase 2A.3 — engine-driven benchmark overlay)**: Synthetic buy-and-hold benchmark child run integrated into the validation runner
+
+  - New `BuyAndHoldStrategy` registered under `qs_trader.strategies.buy_and_hold` (single-instrument, single-open-trade, optional `reinvest_dividends`).
+  - `BenchmarkRef` replaced by `BenchmarkSpec` (Pydantic v2, frozen, `extra="forbid"`): `instrument: str` (must match `^[A-Za-z0-9._-]+$`), `strategy: Literal["buy_and_hold"]` (default `"buy_and_hold"`), `reinvest_dividends: bool` (default `True`). A backwards-compatible `BenchmarkRef = BenchmarkSpec` alias keeps the previous public symbol importable. The plan canonical-dict shape is unchanged when `benchmark` is `None` (the existing `428e27b2` static plan hash pin is preserved).
+  - New `qs_trader.validation.benchmark` module with `BenchmarkDataUnavailableError`, `benchmark_full_range`, `derive_benchmark_child_config` (pure derivation: overrides the universe with the benchmark instrument, swaps strategies to buy-and-hold, sets `backtest_id` suffix `__benchmark`, clears sleeve/split metadata — base config never mutated), and `check_benchmark_data_availability` (pre-flight with an injectable `BenchmarkBarLoader`).
+  - `SequentialValidationRunner.run_benchmark()` executes the synthetic buy-and-hold child over the plan's full validation range and writes artifacts to `<validation_dir>/benchmark/`. The returned `ChildRunRef` carries `fold_id="benchmark"` / `role="benchmark"` and never raises on engine failure.
+  - CLI integration: `--dry-run` adds a `Benchmark:` line (instrument / strategy / reinvest_dividends); the runner pre-flights data availability before any fold launches and exits `3` with `benchmark_data_unavailable:<instrument>` when the declared instrument lacks coverage for the full range; on benchmark child failure the top-level outcome flips to `Invalid` with reason code `benchmark_run_failed`. On success, `summary.json` gains a `benchmark` block with the instrument, the benchmark child's metrics dict, and a `strategy_minus_benchmark` delta (Sharpe + total return) versus the OOS fold.
+  - `effective_plan.yaml` drops `benchmark` when null (mirrors the `description` / `cost_scenarios` exclusion pattern).
+  - Walk-forward note: `strategy_minus_benchmark` uses the first OOS fold's metrics. A cross-fold OOS aggregate for the delta is deferred to Phase 2A.4.
+
 - **OOS Validation Framework (Phase 2A.2 — cost scenarios)**: Per-scenario cost-sensitivity matrix on top of the validation runner
 
   - New optional root field `cost_scenarios: list[CostScenarioSpec]` on `ValidationPlan`; each entry has `name` (matching `^[A-Za-z0-9_-]+$`) and `overrides` (dot-notation paths into `BacktestConfig` with their replacement values). Duplicate scenario names are rejected at load time.

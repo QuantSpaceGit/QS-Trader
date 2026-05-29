@@ -479,11 +479,13 @@ class BacktestEngine:
 
             # Get custom strategies path from system config
             strategies_loaded: dict = {}
+            # Always create the registry so first-party strategies are reachable
+            # even when no custom library is configured.
+            strategy_registry = StrategyRegistry()
             if system_config.custom_libraries.strategies is not None:
                 custom_strategies_path = Path(system_config.custom_libraries.strategies)
 
                 # Discover strategies using registry
-                strategy_registry = StrategyRegistry()
                 try:
                     strategies_loaded = strategy_registry.load_from_directory(custom_strategies_path, recursive=False)
                     logger.debug(
@@ -499,6 +501,19 @@ class BacktestEngine:
                         error=str(e),
                     )
                     strategies_loaded = {}
+
+            # Register first-party shipped strategies (e.g. the Phase 2A.3
+            # benchmark `buy_and_hold`).  User-custom strategies loaded above
+            # take precedence: `register_builtin_strategies` skips any name
+            # already present in the registry.
+            from qs_trader.strategies import register_builtin_strategies
+
+            builtin_registered = register_builtin_strategies(strategy_registry)
+            if builtin_registered:
+                logger.debug(
+                    "backtest.engine.builtin_strategies_registered",
+                    strategy_names=builtin_registered,
+                )
 
             # Instantiate strategies from config
             for strategy_cfg in config.strategies:

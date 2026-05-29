@@ -170,6 +170,13 @@ def _run_validate(
             name_width = max(len(s.name) for s in plan.cost_scenarios)
             for scenario in plan.cost_scenarios:
                 click.echo(f"  {scenario.name:<{name_width}}  folds={len(splits)}")
+        if plan.benchmark is not None:
+            click.echo("\nBenchmark:")
+            click.echo(
+                f"  instrument={plan.benchmark.instrument}"
+                f"  strategy={plan.benchmark.strategy}"
+                f"  reinvest_dividends={plan.benchmark.reinvest_dividends}"
+            )
         return  # exit 0
 
     # ── Hard gate: walk_forward non-dry-run not yet implemented ───────────
@@ -200,6 +207,26 @@ def _run_validate(
     # ── Apply --silent to base config before passing to runner ──────────────
     if silent:
         base_config = base_config.model_copy(update={"replay_speed": -1.0, "display_events": None})
+
+    # ── Phase 2A.3: pre-flight benchmark data availability ─────────────────
+    # Run BEFORE launching any fold so a missing benchmark instrument fails
+    # cheaply with ``benchmark_data_unavailable:<instrument>`` (exit 3) and
+    # writes nothing to disk.
+    if plan.benchmark is not None:
+        from qs_trader.validation.benchmark import (  # noqa: PLC0415
+            BenchmarkDataUnavailableError,
+            benchmark_full_range,
+            check_benchmark_data_availability,
+        )
+
+        try:
+            check_benchmark_data_availability(plan, benchmark_full_range(plan), base_config)
+        except BenchmarkDataUnavailableError as exc:
+            click.echo(
+                f"ERROR: benchmark_data_unavailable:{exc.instrument} ({exc})",
+                err=True,
+            )
+            sys.exit(_OUTCOME_EXIT_CODES["Invalid"])  # exit 3
 
     # ── Run folds ──────────────────────────────────────────────────────────
     runner = SequentialValidationRunner(plan, splits, base_config, out_dir, force=force)
@@ -326,6 +353,52 @@ def _run_validate(
             top_outcome = decision.outcome
             top_reason_codes = list(decision.reason_codes)
 
+    # ── Phase 2A.3: benchmark child run ───────────────────────────────────
+    # After the strategy (fold × scenario) matrix completes, run a single
+    # synthetic buy-and-hold child over the full validation range when the
+    # plan declares ``benchmark``. The pre-flight data-availability check
+    # already ran above; failure of the engine child here surfaces as a
+    # top-level ``Invalid`` + ``benchmark_run_failed`` regardless of
+    # fail_fast / continue.
+    benchmark_summary: dict[str, Any] | None = None
+    if plan.benchmark is not None:
+        from qs_trader.validation.reporting.summary import (  # noqa: PLC0415
+            compute_strategy_minus_benchmark,
+        )
+
+        bench_ref = runner.run_benchmark()
+        if bench_ref.status == "success":
+            bench_perf_path = bench_ref.run_dir / "performance.json"
+            bench_metrics: dict[str, Any] = {}
+            if bench_perf_path.exists():
+                try:
+                    bench_metrics = json.loads(bench_perf_path.read_text())
+                except Exception:
+                    bench_metrics = {}
+            # Strategy-side metric source for the delta block: for
+            # static_is_oos use the OOS-fold metric dict; for walk_forward use
+            # the first OOS fold (full aggregate is Phase 2A.4 — TODO).
+            strategy_metrics: dict[str, Any] = {}
+            for ref in child_refs:
+                if ref.role == "oos" and ref.status == "success":
+                    perf_path = ref.run_dir / "performance.json"
+                    if perf_path.exists():
+                        try:
+                            strategy_metrics = json.loads(perf_path.read_text())
+                        except Exception:
+                            strategy_metrics = {}
+                    break
+            benchmark_summary = {
+                "instrument": plan.benchmark.instrument,
+                "metrics": bench_metrics,
+                "strategy_minus_benchmark": compute_strategy_minus_benchmark(strategy_metrics, bench_metrics),
+            }
+        else:
+            logger.error("validation.benchmark.child_failed", error=bench_ref.error)
+            top_outcome = "Invalid"
+            if "benchmark_run_failed" not in top_reason_codes:
+                top_reason_codes.append("benchmark_run_failed")
+
     # ── Write audit pack ───────────────────────────────────────────────────
     audit_summary = AuditWriter().write_audit(plan, plan_sha256, base_config_sha256, started_at, finished_at, out_dir)
 
@@ -346,6 +419,7 @@ def _run_validate(
         finished_at=finished_at,
         out_dir=out_dir,
         scenario_summaries=scenario_summaries,
+        benchmark_summary=benchmark_summary,
     )
     summary_writer.write_effective_plan(plan, out_dir)
 

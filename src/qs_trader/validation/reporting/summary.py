@@ -16,7 +16,37 @@ from qs_trader.validation.runner import ChildRunRef
 
 logger = structlog.get_logger(__name__)
 
-__all__ = ["SummaryWriter"]
+__all__ = ["SummaryWriter", "compute_strategy_minus_benchmark"]
+
+
+# Metrics included in the ``strategy_minus_benchmark`` delta block.  Kept
+# narrow and stable so the diff is meaningful; can be extended in Phase 2A.4
+# once the walk-forward aggregator publishes a richer canonical metric set.
+_BENCHMARK_DELTA_METRICS: tuple[str, ...] = ("sharpe_ratio", "total_return")
+
+
+def compute_strategy_minus_benchmark(
+    strategy_metrics: dict[str, Any],
+    benchmark_metrics: dict[str, Any],
+) -> dict[str, float]:
+    """Return ``strategy[m] - benchmark[m]`` for the comparable metric subset.
+
+    Only entries where both sides expose a numeric value participate; missing
+    or non-numeric entries are silently skipped so a partial metric set does
+    not poison the whole block.  The metric subset is :data:`_BENCHMARK_DELTA_METRICS`.
+
+    TODO(Phase 2A.4): replace the static subset with the walk-forward
+    aggregator's canonical metric catalog once it lands; under walk-forward
+    plans the ``strategy_metrics`` argument should then be the aggregate
+    (median Sharpe etc.) rather than a per-fold snapshot.
+    """
+    deltas: dict[str, float] = {}
+    for metric in _BENCHMARK_DELTA_METRICS:
+        s = strategy_metrics.get(metric)
+        b = benchmark_metrics.get(metric)
+        if isinstance(s, (int, float)) and isinstance(b, (int, float)):
+            deltas[metric] = float(s) - float(b)
+    return deltas
 
 
 def _serialize_comparison(comparison: dict[str, MetricComparison]) -> dict[str, dict[str, Any]]:
@@ -122,6 +152,7 @@ class SummaryWriter:
         finished_at: str,
         out_dir: Path,
         scenario_summaries: list[dict[str, Any]] | None = None,
+        benchmark_summary: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Write summary.json and return the summary dict.
 
@@ -169,6 +200,12 @@ class SummaryWriter:
         # output for Phase 1 / Phase 2A.1 plans.
         if scenario_summaries is not None:
             summary["cost_scenarios"] = scenario_summaries
+        # Phase 2A.3: benchmark block only when declared AND the benchmark
+        # child run produced a summary payload. When the plan does not declare
+        # ``benchmark`` (or the benchmark child failed and the CLI suppressed
+        # the block) the key is omitted entirely — no `null`.
+        if benchmark_summary is not None:
+            summary["benchmark"] = benchmark_summary
         out_dir.mkdir(parents=True, exist_ok=True)
         summary_path = out_dir / "summary.json"
         with summary_path.open("w") as f:
@@ -193,6 +230,11 @@ class SummaryWriter:
         # Phase 1 / Phase 2A.1 artifacts remain byte-identical.
         if plan_dict.get("cost_scenarios") is None:
             plan_dict.pop("cost_scenarios", None)
+        # Phase 2A.3: same convention for benchmark. When the plan did not
+        # declare a benchmark the field is dropped from the effective plan
+        # so Phase 1 / Phase 2A.1 / Phase 2A.2 artifacts remain byte-identical.
+        if plan_dict.get("benchmark") is None:
+            plan_dict.pop("benchmark", None)
         with effective_plan_path.open("w") as f:
             yaml.dump(plan_dict, f, default_flow_style=False, allow_unicode=True)
         logger.info("effective_plan_written", path=str(effective_plan_path))
