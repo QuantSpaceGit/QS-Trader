@@ -241,3 +241,6 @@ __marimo__/
 
 
 
+
+# Generated validation run outputs under test fixtures
+tests/validation/fixtures/wf_test/
