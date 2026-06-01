@@ -58,10 +58,10 @@ mode: static_is_oos
 
 splits:
   in_sample:
-    start_date: "2020-01-01"    # ISO 8601. Inclusive.
-    end_date: "2022-12-31"      # Must be strictly before out_of_sample.start_date.
+    start_date: "2020-01-01" # ISO 8601. Inclusive.
+    end_date: "2022-12-31" # Must be strictly before out_of_sample.start_date.
   out_of_sample:
-    start_date: "2023-01-01"    # Must be strictly after in_sample.end_date.
+    start_date: "2023-01-01" # Must be strictly after in_sample.end_date.
     end_date: "2024-12-31"
 
 # ==============================================================================
@@ -120,7 +120,7 @@ decision:
   # ── Review-required rules (breach downgrades outcome to ReviewRequired) ────
   # The plan passes all fail rules but a human review is flagged.
   on_review_required:
-    - is_to_oos_sharpe_decay_warn: 0.3   # Warn if decay > 30% (below the 60% fail threshold)
+    - is_to_oos_sharpe_decay_warn: 0.3 # Warn if decay > 30% (below the 60% fail threshold)
 
   # ── Walk-forward aggregate rules (commented out — require mode: walk_forward) ──
   #
