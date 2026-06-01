@@ -401,4 +401,59 @@ qs-trader backtest experiments/my_strategy --silent
 qs-trader backtest experiments/my_strategy --start-date 2020-01-01
 ```
 
+## 🧪 Out-of-Sample Validation
+
+Out-of-sample (OOS) validation verifies that a strategy generalises beyond its training (in-sample) window. A strategy that only looks good on the data it was fitted on may be overfit and unlikely to perform well live. Validation separates a held-out OOS period and applies objective pass/fail criteria to those results.
+
+### Running Validation
+
+```bash
+# Run a validation plan (executes IS + OOS backtests, applies decision rules)
+qs-trader validate experiments/buy_hold/validations/buy_hold_static_oos.yaml
+
+# Preview effective plan and splits without executing any backtests
+qs-trader validate experiments/buy_hold/validations/buy_hold_static_oos.yaml --dry-run
+```
+
+The `--dry-run` flag parses the plan, resolves splits, and prints the effective configuration — no backtests are run and no files are written. Use it to validate YAML syntax and split generation before committing to a full run.
+
+### Output Structure
+
+Each validation run creates an artifact directory alongside the plan file:
+
+```
+experiments/{experiment_id}/
+└── validations/
+    ├── {plan_name}.yaml          # Validation plan (your config)
+    └── {validation_id}/          # Created on first run (named by validation_id)
+        ├── summary.json          # Outcome + reason codes (Pass / Fail / ReviewRequired)
+        ├── report.html           # HTML report with equity charts and metric tables
+        └── folds/                # Per-fold artifacts (IS and OOS backtest runs)
+```
+
+### Key Plan Fields
+
+| Field            | Description                                                                       |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `validation_id`  | Unique identifier; becomes the output directory name                              |
+| `mode`           | `static_is_oos` (single split) or `walk_forward` (multi-fold rolling/anchored CV) |
+| `splits`         | Date windows for in-sample and out-of-sample periods                              |
+| `decision.rules` | Quantitative pass/fail thresholds (Sharpe, drawdown, decay)                       |
+
+### Exit Codes
+
+| Code | Meaning                                                           |
+| ---- | ----------------------------------------------------------------- |
+| `0`  | Pass — strategy clears all decision rules                         |
+| `1`  | Fail — one or more decision rules breached                        |
+| `2`  | ReviewRequired — no hard failures but a review-trigger rule fired |
+| `3`  | Invalid — plan structure or split generation error                |
+| `4`  | Error — unexpected runtime failure                                |
+
+### Template and Documentation
+
+See `experiments/template/validations/template_plan.yaml` for a fully annotated template covering all supported plan fields, including walk-forward splits, cost scenarios, benchmark overlay, and all decision rules.
+
+For full validation framework documentation, see `docs/qs-trader-oos-validation-phase2.md` in your QS-Infra installation.
+
 Happy backtesting! 📈

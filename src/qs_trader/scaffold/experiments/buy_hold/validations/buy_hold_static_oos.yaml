@@ -1,0 +1,45 @@
+# buy_hold scaffold OOS validation plan — static IS/OOS reference
+#
+# This is the scaffold reference validation plan for the buy_hold experiment.
+# It is bundled with every `qs-trader init-project` scaffold and serves as a
+# starting-point template for static in-sample / out-of-sample validation.
+#
+# Uses the bundled sample-csv-1d data (AAPL 2020) — no data download required.
+# Run: qs-trader validate experiments/buy_hold/validations/buy_hold_static_oos.yaml
+#
+# Data source: sample-csv-1d (bundled — data/sample-csv/AAPL.csv, covers 2020)
+# For a fully annotated template covering all plan options, see:
+#   experiments/template/validations/template_plan.yaml
+
+validation_id: buy_hold_static_oos
+strategy_experiment: buy_hold
+base_config: ../buy_hold.yaml
+description: >-
+  Scaffold reference plan for the buy_hold experiment.
+  IS 2020-H1 (Jan–Jun), OOS 2020-H2 (Jul–Dec). Uses the bundled
+  sample-csv-1d data (AAPL 2020) — no data download required.
+  Conservative thresholds for a pure buy-and-hold benchmark strategy.
+
+mode: static_is_oos
+
+splits:
+  in_sample:
+    start_date: "2020-01-01"
+    end_date: "2020-06-30"
+  out_of_sample:
+    start_date: "2020-07-01"
+    end_date: "2020-12-31"
+
+decision:
+  rules:
+    oos_sharpe_min: 0.2
+    oos_max_drawdown_max: 0.50
+    is_to_oos_sharpe_decay_max: 0.9
+  on_review_required:
+    - is_to_oos_sharpe_decay_warn: 0.5
+
+execution:
+  on_child_failure: fail_fast
+
+reporting:
+  console_summary: true

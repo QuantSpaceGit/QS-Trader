@@ -1,0 +1,189 @@
+# ==============================================================================
+# VALIDATION PLAN TEMPLATE
+# ==============================================================================
+#
+# This file is a fully annotated template covering every supported validation
+# plan field. It ships with every `qs-trader init-project` scaffold.
+#
+# The ACTIVE (non-commented) configuration below is a minimal but complete
+# static IS/OOS plan that parses and dry-runs without error.
+# All optional / advanced sections are shown as commented-out examples with
+# explanations — uncomment and adapt as needed.
+#
+# Quick start:
+#   cp experiments/template/validations/template_plan.yaml \
+#      experiments/my_strategy/validations/my_strategy_oos.yaml
+#   # Edit the fields, then:
+#   qs-trader validate experiments/my_strategy/validations/my_strategy_oos.yaml --dry-run
+#   qs-trader validate experiments/my_strategy/validations/my_strategy_oos.yaml
+#
+# Full framework documentation:
+#   QS-Infra/docs/qs-trader-oos-validation-phase2.md
+
+# ==============================================================================
+# REQUIRED IDENTITY FIELDS
+# ==============================================================================
+
+# Unique identifier for this validation plan.
+# Used as the on-disk artifact directory name and as the primary key in the
+# PostgreSQL validation_runs table (when running via QS-Research API).
+# Must be filesystem-safe: lowercase letters, digits, and underscores.
+validation_id: template_static_oos
+
+# Must match the experiment directory name under experiments/.
+# The runner uses this to locate base artifacts and organize output paths.
+strategy_experiment: template
+
+# Path to the base backtest config for this experiment, relative to this
+# plan file's location. Typically ../my_experiment.yaml
+base_config: ../template.yaml
+
+# Human-readable description. Not used by the engine; shown in reports.
+description: >-
+  Fully annotated scaffold template demonstrating all validation plan fields.
+  IS 2020-2022, OOS 2023-2024. Replace with your own description.
+
+# ==============================================================================
+# VALIDATION MODE
+# ==============================================================================
+
+# Two modes are supported:
+#   static_is_oos  — single IS/OOS split (see splits.in_sample / out_of_sample)
+#   walk_forward   — rolling or anchored multi-fold CV (see walk_forward splits block below)
+mode: static_is_oos
+
+# ==============================================================================
+# SPLITS — STATIC IS/OOS (active)
+# ==============================================================================
+
+splits:
+  in_sample:
+    start_date: "2020-01-01"    # ISO 8601. Inclusive.
+    end_date: "2022-12-31"      # Must be strictly before out_of_sample.start_date.
+  out_of_sample:
+    start_date: "2023-01-01"    # Must be strictly after in_sample.end_date.
+    end_date: "2024-12-31"
+
+# ==============================================================================
+# SPLITS — WALK-FORWARD (commented out — switch mode: walk_forward to activate)
+# ==============================================================================
+#
+# When mode: walk_forward, replace the splits block above with:
+#
+# splits:
+#   style: anchored        # "anchored" (expanding train window) or "rolling" (fixed train window)
+#   train: 3y              # Training (IS) window duration. Durations: Ny / Nmo / Nd
+#   test: 1y               # Test (OOS) window duration per fold.
+#   step: 1y               # How far to advance the window between folds. Must be >= test.
+#   embargo: 30d           # Gap between IS end and OOS start to prevent leakage (default: 0d).
+#   total_range:
+#     start_date: "2015-01-01"   # Earliest possible training start.
+#     end_date: "2024-12-31"     # Latest possible test end.
+#   min_fold_bars: 50      # Optional: reject folds with fewer bars (e.g., holiday-sparse periods).
+
+# ==============================================================================
+# HOLDOUT (commented out — optional, static_is_oos and walk_forward)
+# ==============================================================================
+#
+# A holdout period is recorded in summary.json and the HTML report but is NOT
+# executed in Phase 1/2A. It documents your intended embargo window to prevent
+# accidental look-ahead before a planned live deployment date.
+#
+# holdout:
+#   start_date: "2025-01-01"
+#   end_date: "2025-12-31"
+
+# ==============================================================================
+# DECISION RULES
+# ==============================================================================
+
+decision:
+  # ── Pass/Fail rules (all optional; omit a rule to disable it) ──────────────
+  rules:
+    # Minimum OOS Sharpe ratio. Plan fails if OOS Sharpe < threshold.
+    oos_sharpe_min: 0.5
+
+    # Maximum allowed OOS max drawdown (absolute, 0–1). Fails if drawdown > threshold.
+    oos_max_drawdown_max: 0.40
+
+    # Maximum tolerated IS-to-OOS Sharpe decay fraction.
+    # decay = (IS_sharpe - OOS_sharpe) / IS_sharpe
+    # Fails if decay > threshold. Catches severe overfitting.
+    is_to_oos_sharpe_decay_max: 0.6
+
+    # Uncomment to require at least one completed OOS trade:
+    # min_oos_trades: 1
+
+    # Uncomment to require positive total OOS return (strict > 0):
+    # require_positive_oos_total_return: true
+
+  # ── Review-required rules (breach downgrades outcome to ReviewRequired) ────
+  # The plan passes all fail rules but a human review is flagged.
+  on_review_required:
+    - is_to_oos_sharpe_decay_warn: 0.3   # Warn if decay > 30% (below the 60% fail threshold)
+
+  # ── Walk-forward aggregate rules (commented out — require mode: walk_forward) ──
+  #
+  # These rules aggregate across all OOS folds; they are not valid for static mode.
+  #
+  # min_pass_folds_fraction: 0.6   # At least 60% of folds must individually pass.
+  # median_oos_sharpe_min: 0.4     # Median OOS Sharpe across folds must exceed threshold.
+  # worst_oos_max_drawdown_max: 0.50  # Worst single-fold drawdown must not exceed threshold.
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+
+execution:
+  # What to do if a child backtest run (IS or OOS fold) fails.
+  # "fail_fast" (default): abort immediately on first child failure.
+  # "continue": run remaining folds and report all failures at the end.
+  on_child_failure: fail_fast
+
+# ==============================================================================
+# COST SCENARIOS (commented out — optional)
+# ==============================================================================
+#
+# Cost scenarios run the full IS/OOS validation multiple times, each with a
+# different set of cost/config overrides applied on top of the base_config.
+# Useful for sensitivity analysis (e.g., how does strategy performance degrade
+# with higher commissions or slippage?).
+#
+# cost_scenarios:
+#   - name: base_costs          # Filesystem-safe name: ^[A-Za-z0-9_-]+$
+#     overrides: {}             # No overrides — identical to the plain run.
+#
+#   - name: high_commission
+#     overrides:
+#       execution.commission_pct: 0.002   # Dot-notation path into BacktestConfig.
+#
+#   - name: high_slippage
+#     overrides:
+#       execution.slippage_pct: 0.001
+
+# ==============================================================================
+# BENCHMARK (commented out — optional)
+# ==============================================================================
+#
+# When declared, the runner executes a synthetic buy-and-hold child run on the
+# named instrument over the full validation range, producing benchmark metrics
+# that appear alongside strategy metrics in the HTML report.
+#
+# Only "buy_and_hold" strategy is supported in Phase 2A.
+#
+# benchmark:
+#   instrument: SPY                # Symbol available in the configured data source.
+#   strategy: buy_and_hold         # Must be "buy_and_hold" (Phase 2A constraint).
+#   reinvest_dividends: true       # Reserved for future dividend-feed support.
+
+# ==============================================================================
+# REPORTING
+# ==============================================================================
+
+reporting:
+  # Print a pass/fail summary table to the console after the run.
+  console_summary: true
+
+  # Write an HTML report with equity charts and metric tables.
+  # Set to false to suppress HTML output (e.g., in CI pipelines).
+  html: true

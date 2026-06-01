@@ -1,0 +1,46 @@
+# sma_crossover scaffold OOS validation plan — static IS/OOS reference
+#
+# This is the scaffold reference validation plan for the sma_crossover experiment.
+# It is bundled with every `qs-trader init-project` scaffold and serves as a
+# starting-point template for static in-sample / out-of-sample validation.
+#
+# Prerequisites:
+#   - Download data: qs-trader data yahoo-update AAPL
+#   - Run: qs-trader validate experiments/sma_crossover/validations/sma_crossover_static_oos.yaml
+#
+# Data source: yahoo-us-equity-1d-csv (CSV cache — no ClickHouse or Postgres required)
+# For a fully annotated template covering all plan options, see:
+#   experiments/template/validations/template_plan.yaml
+
+validation_id: sma_crossover_static_oos
+strategy_experiment: sma_crossover
+base_config: ../sma_crossover.yaml
+description: >-
+  Scaffold reference plan for the sma_crossover experiment.
+  IS 2020-2022, OOS 2023-2024. Moderate thresholds suitable for a
+  trend-following SMA crossover strategy. Uses the yahoo-us-equity-1d-csv
+  data source (CSV cache — no ClickHouse required).
+
+mode: static_is_oos
+
+splits:
+  in_sample:
+    start_date: "2020-01-01"
+    end_date: "2022-12-31"
+  out_of_sample:
+    start_date: "2023-01-01"
+    end_date: "2024-12-31"
+
+decision:
+  rules:
+    oos_sharpe_min: 0.5
+    oos_max_drawdown_max: 0.40
+    is_to_oos_sharpe_decay_max: 0.6
+  on_review_required:
+    - is_to_oos_sharpe_decay_warn: 0.3
+
+execution:
+  on_child_failure: fail_fast
+
+reporting:
+  console_summary: true
