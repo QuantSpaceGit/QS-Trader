@@ -244,3 +244,8 @@ __marimo__/
 
 # Generated validation run outputs under test fixtures
 tests/validation/fixtures/wf_test/
+
+# Generated validation run artifact directories inside the scaffold source tree.
+# Only plan .yaml files should be committed; never runtime outputs (summary.json,
+# report.html, effective_plan.yaml, audit/, folds/).
+src/qs_trader/scaffold/experiments/*/validations/*/

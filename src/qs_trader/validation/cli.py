@@ -67,6 +67,72 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
+def _load_role_metrics(refs: list[Any]) -> tuple[dict[str, float], dict[str, float]]:
+    """Load IS/OOS metric dicts from backtest ``performance.json`` artefacts.
+
+    Handles two serialization conventions produced by ``FullMetrics``:
+
+    * **String-encoded Decimals** — every numeric field is written as a JSON
+      string (e.g. ``"sharpe_ratio": "2.00"``).  The plain
+      ``isinstance(v, (int, float))`` filter used previously silently dropped
+      all of them; this function accepts both native numbers and numeric
+      strings.
+    * **``_pct``-suffixed names with percent-form values** — ``FullMetrics``
+      uses ``total_return_pct``, ``max_drawdown_pct``, ``volatility_annual_pct``
+      (values in percent, e.g. 19.80 for 18 % drawdown) while the validation
+      catalog expects the canonical un-suffixed names in decimal form (0.198).
+      The ``_ALIAS`` dict maps each canonical name to the ``_pct`` key and the
+      scale factor (0.01) to apply when the canonical name is absent.
+
+    Aliases are only applied when the canonical name is **not already present**,
+    so test fixtures that write canonical names with float values are unaffected.
+    """
+    is_m: dict[str, float] = {}
+    oos_m: dict[str, float] = {}
+    _ALIAS: dict[str, tuple[str, float]] = {
+        "total_return": ("total_return_pct", 0.01),
+        "max_drawdown": ("max_drawdown_pct", 0.01),
+        "volatility": ("volatility_annual_pct", 0.01),
+        "num_trades": ("total_trades", 1.0),
+    }
+    for ref in refs:
+        if ref.status != "success":
+            continue
+        perf_path = ref.run_dir / "performance.json"
+        if not perf_path.exists():
+            continue
+        try:
+            data = json.loads(perf_path.read_text())
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        # Accept native int/float and Decimal-serialized strings from FullMetrics.
+        numeric: dict[str, float] = {}
+        for k, v in data.items():
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)):
+                numeric[k] = float(v)
+            elif isinstance(v, str):
+                try:
+                    numeric[k] = float(v)
+                except (ValueError, TypeError):
+                    pass
+        # Apply canonical name and scale aliases.
+        for canonical, (alias_key, scale) in _ALIAS.items():
+            if canonical not in numeric and alias_key in numeric:
+                numeric[canonical] = numeric[alias_key] * scale
+        # walk_forward splits emit role="train" for the IS window; accept
+        # both "is" (static_is_oos) and "train" (walk_forward) as the
+        # in-sample side so per-fold comparisons are populated correctly.
+        if ref.role in ("is", "train"):
+            is_m = numeric
+        elif ref.role == "oos":
+            oos_m = numeric
+    return is_m, oos_m
+
+
 @click.command("validate")
 @click.argument("plan_path", type=click.Path(exists=True, path_type=Path))
 @click.option("--silent", "-s", is_flag=True, help="Suppress per-bar event display")
@@ -241,31 +307,6 @@ def _run_validate(
     # When cost_scenarios is None, behavior is byte-identical to Phase 1 /
     # Phase 2A.1.
     scenario_summaries: list[dict[str, Any]] | None = None
-
-    def _load_role_metrics(refs: list[Any]) -> tuple[dict[str, float], dict[str, float]]:
-        is_m: dict[str, float] = {}
-        oos_m: dict[str, float] = {}
-        for ref in refs:
-            if ref.status != "success":
-                continue
-            perf_path = ref.run_dir / "performance.json"
-            if not perf_path.exists():
-                continue
-            try:
-                data = json.loads(perf_path.read_text())
-            except Exception:
-                continue
-            if not isinstance(data, dict):
-                continue
-            numeric = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
-            # walk_forward splits emit role="train" for the IS window; accept
-            # both "is" (static_is_oos) and "train" (walk_forward) as the
-            # in-sample side so per-fold comparisons are populated correctly.
-            if ref.role in ("is", "train"):
-                is_m = numeric
-            elif ref.role == "oos":
-                oos_m = numeric
-        return is_m, oos_m
 
     def _group_wf_folds(refs: list[Any]) -> dict[int, list[Any]]:
         """Group child refs by walk-forward fold index.

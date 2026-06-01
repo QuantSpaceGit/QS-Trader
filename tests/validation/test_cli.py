@@ -12,6 +12,7 @@ from click.testing import CliRunner
 from qs_trader.validation.cli import validate_command
 from qs_trader.validation.decision import ValidationDecision
 from qs_trader.validation.runner import ChildRunFailedError, ChildRunRef
+from qs_trader.validation.cli import _load_role_metrics
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -464,3 +465,187 @@ class TestFailFastInvalidEvidence:
         assert result.exit_code == 3, f"Expected 3, got {result.exit_code}.  Output:\n{result.output}"
         # write_summary must have been called (evidence written)
         assert written_summaries, "write_summary was never called; evidence pack missing"
+
+
+# ---------------------------------------------------------------------------
+# T_LOAD_ROLE_METRICS: unit tests for _load_role_metrics
+# Covers: FullMetrics string-serialised Decimal values, _pct alias + scale,
+# bool skip, non-numeric string no-op, canonical key precedence.
+# ---------------------------------------------------------------------------
+
+
+def _ref(role: str, run_dir: Path, status: str = "success") -> ChildRunRef:
+    return ChildRunRef(
+        fold_id=f"f0__{role}",
+        run_id=f"val_test__f0__{role}",
+        experiment_id="test_exp",
+        role=role,
+        run_dir=run_dir,
+        status=status,
+        error=None,
+    )
+
+
+class TestLoadRoleMetrics:
+    # ------------------------------------------------------------------ #
+    # T_LRM_1: string-encoded Decimal values are accepted as floats
+    # ------------------------------------------------------------------ #
+    def test_string_values_parsed_as_float(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        is_dir.mkdir()
+        (is_dir / "performance.json").write_text(
+            '{"sharpe_ratio": "1.23", "cagr": "0.4500", "total_trades": 10}'
+        )
+        is_m, oos_m = _load_role_metrics([_ref("is", is_dir)])
+        assert is_m["sharpe_ratio"] == pytest.approx(1.23)
+        assert is_m["cagr"] == pytest.approx(0.45)
+        assert oos_m == {}
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_2: _pct alias + 0.01 scale applied when canonical name absent
+    # ------------------------------------------------------------------ #
+    def test_pct_alias_scale_total_return(self, tmp_path: Path) -> None:
+        oos_dir = tmp_path / "oos"
+        oos_dir.mkdir()
+        # total_return_pct = "15.00" → total_return = 0.15
+        (oos_dir / "performance.json").write_text('{"total_return_pct": "15.00"}')
+        _, oos_m = _load_role_metrics([_ref("oos", oos_dir)])
+        assert oos_m["total_return"] == pytest.approx(0.15)
+        assert "total_return_pct" in oos_m  # source key preserved
+
+    def test_pct_alias_scale_max_drawdown(self, tmp_path: Path) -> None:
+        oos_dir = tmp_path / "oos"
+        oos_dir.mkdir()
+        # max_drawdown_pct = "19.80" → max_drawdown = 0.198
+        (oos_dir / "performance.json").write_text('{"max_drawdown_pct": "19.80"}')
+        _, oos_m = _load_role_metrics([_ref("oos", oos_dir)])
+        assert oos_m["max_drawdown"] == pytest.approx(0.198)
+
+    def test_pct_alias_scale_volatility(self, tmp_path: Path) -> None:
+        oos_dir = tmp_path / "oos"
+        oos_dir.mkdir()
+        (oos_dir / "performance.json").write_text('{"volatility_annual_pct": "38.28"}')
+        _, oos_m = _load_role_metrics([_ref("oos", oos_dir)])
+        assert oos_m["volatility"] == pytest.approx(0.3828)
+
+    def test_pct_alias_total_trades_to_num_trades(self, tmp_path: Path) -> None:
+        oos_dir = tmp_path / "oos"
+        oos_dir.mkdir()
+        (oos_dir / "performance.json").write_text('{"total_trades": 0}')
+        _, oos_m = _load_role_metrics([_ref("oos", oos_dir)])
+        assert oos_m["num_trades"] == pytest.approx(0.0)
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_3: canonical key already present → alias is NOT applied (no override)
+    # ------------------------------------------------------------------ #
+    def test_canonical_key_not_overridden_by_alias(self, tmp_path: Path) -> None:
+        oos_dir = tmp_path / "oos"
+        oos_dir.mkdir()
+        # Both canonical and pct key present; canonical must win
+        (oos_dir / "performance.json").write_text(
+            '{"total_return": 0.62, "total_return_pct": "99.00"}'
+        )
+        _, oos_m = _load_role_metrics([_ref("oos", oos_dir)])
+        assert oos_m["total_return"] == pytest.approx(0.62)
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_4: bool values are skipped (True/False must not become 1.0/0.0)
+    # ------------------------------------------------------------------ #
+    def test_bool_values_skipped(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        is_dir.mkdir()
+        (is_dir / "performance.json").write_text(
+            '{"sharpe_ratio": 1.5, "is_live": true, "profitable": false}'
+        )
+        is_m, _ = _load_role_metrics([_ref("is", is_dir)])
+        assert "is_live" not in is_m
+        assert "profitable" not in is_m
+        assert is_m["sharpe_ratio"] == pytest.approx(1.5)
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_5: non-numeric strings are silently skipped (no error)
+    # ------------------------------------------------------------------ #
+    def test_non_numeric_string_skipped(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        is_dir.mkdir()
+        (is_dir / "performance.json").write_text(
+            '{"sharpe_ratio": "1.20", "label": "buy_hold", "status": "ok"}'
+        )
+        is_m, _ = _load_role_metrics([_ref("is", is_dir)])
+        assert "label" not in is_m
+        assert "status" not in is_m
+        assert is_m["sharpe_ratio"] == pytest.approx(1.20)
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_6: failed refs are skipped (status != "success")
+    # ------------------------------------------------------------------ #
+    def test_failed_ref_skipped(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        is_dir.mkdir()
+        (is_dir / "performance.json").write_text('{"sharpe_ratio": 9.99}')
+        is_m, oos_m = _load_role_metrics([_ref("is", is_dir, status="failed")])
+        assert is_m == {}
+        assert oos_m == {}
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_7: missing performance.json → ref silently skipped
+    # ------------------------------------------------------------------ #
+    def test_missing_performance_json_skipped(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        is_dir.mkdir()  # no performance.json written
+        is_m, oos_m = _load_role_metrics([_ref("is", is_dir)])
+        assert is_m == {}
+        assert oos_m == {}
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_8: "train" role maps to IS metrics (walk-forward convention)
+    # ------------------------------------------------------------------ #
+    def test_train_role_maps_to_is(self, tmp_path: Path) -> None:
+        train_dir = tmp_path / "train"
+        train_dir.mkdir()
+        (train_dir / "performance.json").write_text('{"sharpe_ratio": "0.88"}')
+        is_m, oos_m = _load_role_metrics([_ref("train", train_dir)])
+        assert is_m["sharpe_ratio"] == pytest.approx(0.88)
+        assert oos_m == {}
+
+    # ------------------------------------------------------------------ #
+    # T_LRM_9: full FullMetrics-style payload produces correct canonical dict
+    # ------------------------------------------------------------------ #
+    def test_full_fullmetrics_payload(self, tmp_path: Path) -> None:
+        is_dir = tmp_path / "is"
+        oos_dir = tmp_path / "oos"
+        is_dir.mkdir()
+        oos_dir.mkdir()
+        is_payload = {
+            "sharpe_ratio": "0.99",
+            "cagr": "48.39",
+            "total_return_pct": "21.34",
+            "max_drawdown_pct": "29.72",
+            "volatility_annual_pct": "49.23",
+            "total_trades": 0,
+        }
+        oos_payload = {
+            "sharpe_ratio": "2.00",
+            "cagr": "106.44",
+            "total_return_pct": "43.50",
+            "max_drawdown_pct": "19.80",
+            "volatility_annual_pct": "38.28",
+            "total_trades": 0,
+        }
+        import json as _json
+
+        (is_dir / "performance.json").write_text(_json.dumps(is_payload))
+        (oos_dir / "performance.json").write_text(_json.dumps(oos_payload))
+        is_m, oos_m = _load_role_metrics([_ref("is", is_dir), _ref("oos", oos_dir)])
+        # IS
+        assert is_m["sharpe_ratio"] == pytest.approx(0.99)
+        assert is_m["total_return"] == pytest.approx(0.2134)
+        assert is_m["max_drawdown"] == pytest.approx(0.2972)
+        assert is_m["volatility"] == pytest.approx(0.4923)
+        assert is_m["num_trades"] == pytest.approx(0.0)
+        # OOS
+        assert oos_m["sharpe_ratio"] == pytest.approx(2.00)
+        assert oos_m["total_return"] == pytest.approx(0.435)
+        assert oos_m["max_drawdown"] == pytest.approx(0.198)
+        assert oos_m["volatility"] == pytest.approx(0.3828)
+        assert oos_m["num_trades"] == pytest.approx(0.0)
