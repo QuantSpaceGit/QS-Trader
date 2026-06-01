@@ -401,7 +401,7 @@ class TestRunBenchmark:
             splits=_make_splits(),
             base_config=_make_base_config(),
             validations_dir=tmp_path / "validations" / plan.validation_id,
-            system_config=sentinel_cfg,  # type: ignore[arg-type]
+            system_config=sentinel_cfg,
         )
 
         with patch("qs_trader.engine.engine.BacktestEngine") as MockEngine:
