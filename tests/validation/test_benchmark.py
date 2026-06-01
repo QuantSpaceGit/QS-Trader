@@ -389,6 +389,31 @@ class TestRunBenchmark:
         with pytest.raises(ValueError, match="plan.benchmark"):
             runner.run_benchmark()
 
+    def test_run_benchmark_forwards_injected_system_config(self, tmp_path: Path) -> None:
+        """Injected system_config must reach BacktestEngine.from_config (regression)."""
+        from unittest.mock import sentinel
+
+        plan = _make_plan(benchmark=BenchmarkSpec(instrument="SPY"))
+        sentinel_cfg = sentinel.system_config
+
+        runner = SequentialValidationRunner(
+            plan=plan,
+            splits=_make_splits(),
+            base_config=_make_base_config(),
+            validations_dir=tmp_path / "validations" / plan.validation_id,
+            system_config=sentinel_cfg,  # type: ignore[arg-type]
+        )
+
+        with patch("qs_trader.engine.engine.BacktestEngine") as MockEngine:
+            MockEngine.from_config.return_value = _make_mock_engine()
+            runner.run_benchmark()
+
+        call_kwargs = MockEngine.from_config.call_args
+        assert call_kwargs is not None, "BacktestEngine.from_config was not called"
+        assert call_kwargs.kwargs.get("system_config") is sentinel_cfg, (
+            "run_benchmark() did not forward system_config to BacktestEngine.from_config"
+        )
+
 
 # ---------------------------------------------------------------------------
 # CLI end-to-end — dry-run, pre-flight failure, summary block
