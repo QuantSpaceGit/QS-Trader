@@ -35,7 +35,7 @@ from qs_trader.services.portfolio.service import PortfolioService
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.service import ReportingService, build_effective_execution_spec
 from qs_trader.services.strategy.service import StrategyService
-from qs_trader.system.config import get_system_config
+from qs_trader.system.config import SystemConfig, get_system_config
 from qs_trader.system.log_system import LoggerFactory
 
 if TYPE_CHECKING:
@@ -304,7 +304,8 @@ class BacktestEngine:
 
     @classmethod
     def from_config(
-        cls, config: BacktestConfig, results_dir: Path | None = None, debugger: Any | None = None
+        cls, config: BacktestConfig, results_dir: Path | None = None, debugger: Any | None = None,
+        system_config: SystemConfig | None = None,
     ) -> "BacktestEngine":
         """
         Factory method to create engine from configuration.
@@ -324,7 +325,8 @@ class BacktestEngine:
             ValueError: If configuration is invalid or services fail to initialize
         """
         # Load system configuration
-        system_config = get_system_config()
+        if system_config is None:
+            system_config = get_system_config()
 
         # Validate artifact mode before proceeding
         # Raises ArtifactModeError if database_only mode has incompatible config

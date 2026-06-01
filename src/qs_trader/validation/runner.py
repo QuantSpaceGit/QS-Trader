@@ -22,6 +22,7 @@ from qs_trader.validation.splits.base import ValidationSplit
 
 if TYPE_CHECKING:
     from qs_trader.engine.config import BacktestConfig
+    from qs_trader.system.config import SystemConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -91,12 +92,14 @@ class SequentialValidationRunner:
         base_config: "BacktestConfig",
         validations_dir: Path,
         force: bool = False,
+        system_config: "SystemConfig | None" = None,
     ) -> None:
         self._plan = plan
         self._splits = splits
         self._base_config = base_config
         self._validations_dir = validations_dir
         self._force = force
+        self._system_config = system_config
 
     def run(self) -> list[ChildRunRef]:
         """Execute all validation folds in order.
@@ -221,7 +224,7 @@ class SequentialValidationRunner:
                     scenario=scenario_name,
                 )
 
-                with BacktestEngine.from_config(child_config, results_dir=fold_dir) as engine:
+                with BacktestEngine.from_config(child_config, results_dir=fold_dir, system_config=self._system_config) as engine:
                     result = engine.run()
 
                 finished_at = datetime.now().isoformat()
