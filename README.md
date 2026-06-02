@@ -480,6 +480,8 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry
 
 **Benchmark overlay (Phase 2A.3):** A plan may declare an optional `benchmark` block (`instrument` + `strategy: buy_and_hold` + `reinvest_dividends`); the runner executes a single synthetic buy-and-hold child over the plan's full validation range under `validations/<vid>/benchmark/` and emits a `benchmark` block in `summary.json` with the benchmark metrics and a `strategy_minus_benchmark` Sharpe / total-return delta.
 
+**QS-Research service integration (Phase 3A):** The validation framework is also available as a REST API via `QS-Research`. `POST /validations` submits a plan for background execution with job tracking, status polling, and per-fold result retrieval — mirroring the CLI `qs-trader validate` workflow. See the [QS-Research README](../QS-Research/README.md#validation-api-phase-3a) for endpoint details and the [Phase 3A requirement doc](../QS-Infra/docs/qs-trader-oos-validation-phase3a.md) for the full API contract.
+
 See [docs/validation-framework.md](docs/validation-framework.md) for plan YAML reference, decision rule catalog, output layout, and audit pack contents. Full CLI reference: [docs/cli/validate.md](docs/cli/validate.md).
 
 ### Documentation References
