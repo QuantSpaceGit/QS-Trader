@@ -227,6 +227,7 @@ class ReportingService:
         config: ReportingConfig | None = None,
         output_dir: Path | None = None,
         event_store: "EventStore | None" = None,
+        system_config: "SystemConfig | None" = None,
     ):
         """
         Initialize ReportingService.
@@ -236,11 +237,15 @@ class ReportingService:
             config: Reporting configuration (uses defaults if None)
             output_dir: Base output directory from system config (default: Path("output"))
             event_store: Optional EventStore for CSV timeline export
+            system_config: Optional injected SystemConfig instance. When provided,
+                used instead of get_system_config() for artifact policy and database
+                write decisions. Enables proper dependency injection for validation runs.
         """
         self.event_bus = event_bus
         self.config = config or ReportingConfig()
         self.output_dir = output_dir or Path("output")
         self._event_store = event_store
+        self._system_config = system_config
         self.logger = structlog.get_logger(self.__class__.__name__)
 
         # State tracking
@@ -1159,13 +1164,14 @@ class ReportingService:
             return
 
         # Resolve system config once for both gating and database writing.
+        # Prefer injected system_config over global singleton for proper dependency injection.
         from qs_trader.system.config import get_system_config
 
         system_config = None
         db_enabled = False
         should_write_files = True
         try:
-            system_config = get_system_config()
+            system_config = self._system_config if self._system_config is not None else get_system_config()
             db_enabled = system_config.output.database.enabled
             should_write_files = system_config.output.artifact_policy.mode != "database_only"
         except Exception:
@@ -1545,8 +1551,8 @@ class ReportingService:
             return
 
         try:
-            # Get system config
-            system_config = get_system_config()
+            # Get system config (prefer injected over global singleton)
+            system_config = self._system_config if self._system_config is not None else get_system_config()
 
             # Convert configs to dicts for JSON serialization
             # Use model_dump() for Pydantic v2 compatibility

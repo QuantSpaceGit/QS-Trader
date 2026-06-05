@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+
+- **ReportingService SystemConfig injection**: `ReportingService` now accepts an optional `system_config` parameter in its constructor. When provided, the injected `SystemConfig` is used in `_write_outputs()` and `_write_metadata()` instead of the global `get_system_config()` singleton. This eliminates a config bypass bug where the validation manager's override to `filesystem` mode was ignored by the reporting service. The `BacktestEngine.from_config()` factory method now passes the injected `system_config` through to `ReportingService`. Backward compatible — all existing callers continue to work unchanged.
+
+- **CLI validation filesystem override**: The `qs-trader validate` CLI command now overrides `artifact_policy.mode` to `"filesystem"` before executing the validation runner, ensuring `performance.json` is always written regardless of the system config's default artifact policy setting.
+
 ### Added
 
 - **OOS Validation Framework (Phase 2A.3 — engine-driven benchmark overlay)**: Synthetic buy-and-hold benchmark child run integrated into the validation runner

@@ -171,7 +171,7 @@ class TestValidateOnChildFailureOverride:
         mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
         captured_plan: list = []
 
-        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+        def _capture_runner(plan, splits, base_config, out_dir, force=False, system_config=None):
             captured_plan.append(plan)
             m = MagicMock()
             m.run.return_value = child_refs
@@ -217,7 +217,7 @@ class TestValidateForceFlag:
         mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
         captured_kwargs: list = []
 
-        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+        def _capture_runner(plan, splits, base_config, out_dir, force=False, system_config=None):
             captured_kwargs.append({"force": force})
             m = MagicMock()
             m.run.return_value = child_refs
@@ -305,7 +305,7 @@ class TestSilentForwarding:
         mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
         captured_base_configs: list = []
 
-        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+        def _capture_runner(plan, splits, base_config, out_dir, force=False, system_config=None):
             captured_base_configs.append(base_config)
             m = MagicMock()
             m.run.return_value = child_refs
@@ -359,7 +359,7 @@ class TestOutDirResolution:
         captured_out_dirs: list = []
         mock_decision = ValidationDecision(outcome="Pass", reason_codes=[], rule_results=[])
 
-        def _capture_runner(plan, splits, base_config, out_dir, force=False):
+        def _capture_runner(plan, splits, base_config, out_dir, force=False, system_config=None):
             captured_out_dirs.append(out_dir)
             m = MagicMock()
             m.run.return_value = child_refs
@@ -429,7 +429,7 @@ class TestFailFastInvalidEvidence:
         )
         partial_refs = [failed_ref]
 
-        def _failing_runner(plan, splits, base_config, out_dir, force=False):
+        def _failing_runner(plan, splits, base_config, out_dir, force=False, system_config=None):
             m = MagicMock()
             m.run.side_effect = ChildRunFailedError(partial_refs, "f0__is", RuntimeError("no data"))
             return m

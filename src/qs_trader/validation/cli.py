@@ -286,7 +286,17 @@ def _run_validate(
             sys.exit(_OUTCOME_EXIT_CODES["Invalid"])  # exit 3
 
     # ── Run folds ──────────────────────────────────────────────────────────
-    runner = SequentialValidationRunner(plan, splits, base_config, out_dir, force=force)
+    # Override artifact_policy to filesystem mode for validation runs.
+    # Validation framework is designed to produce filesystem artifacts (performance.json,
+    # audit pack, summary, HTML report). This ensures consistent behavior regardless of
+    # the system config's default artifact_policy setting.
+    from copy import deepcopy
+    from qs_trader.system.config import get_system_config
+
+    _child_sys_cfg = deepcopy(get_system_config())
+    _child_sys_cfg.output.artifact_policy.mode = "filesystem"
+
+    runner = SequentialValidationRunner(plan, splits, base_config, out_dir, force=force, system_config=_child_sys_cfg)
     try:
         child_refs = runner.run()
     except ChildRunFailedError as e:
