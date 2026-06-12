@@ -309,6 +309,12 @@ class PriceBarEvent(ValidatedEvent):
     source: str
     trace_id: Optional[str] = None
 
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
+
     @field_serializer("open", "high", "low", "close", "open_adj", "high_adj", "low_adj", "close_adj")
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
         """Serialize Decimal to string for wire format with fixed precision."""
@@ -439,6 +445,12 @@ class SignalEvent(ValidatedEvent):
     stop_loss: Optional[Decimal] = None
     take_profit: Optional[Decimal] = None
 
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
+
     @field_validator("intention", mode="before")
     @classmethod
     def _validate_intention(cls, v: Any) -> str:
@@ -540,6 +552,12 @@ class IndicatorEvent(ValidatedEvent):
     # Optional fields
     metadata: Optional[dict[str, Any]] = None  # Additional context
 
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
+
 
 class RuntimeFeaturesEvent(ValidatedEvent):
     """Runtime feature-consumption event — validates against strategy/runtime_features.v{version}.json.
@@ -568,6 +586,12 @@ class RuntimeFeaturesEvent(ValidatedEvent):
     runtime_features: dict[str, Any]
 
     metadata: Optional[dict[str, Any]] = None
+
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
 
 
 # ============================================
@@ -636,6 +660,12 @@ class OrderEvent(ValidatedEvent):
     source_strategy_id: Optional[str] = None  # From SignalEvent.strategy_id
     stop_loss: Optional[Decimal] = None  # String on wire, Decimal in Python
     take_profit: Optional[Decimal] = None  # String on wire, Decimal in Python
+
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
 
     @field_serializer("quantity", "limit_price", "stop_price", "stop_loss", "take_profit")
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
@@ -707,6 +737,12 @@ class FillEvent(ValidatedEvent):
     slippage_bps: Optional[int] = None
     gross_value: Optional[Decimal] = None  # String on wire, Decimal in Python
     net_value: Optional[Decimal] = None  # String on wire, Decimal in Python
+
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
 
     @field_serializer("filled_quantity", "fill_price", "commission", "gross_value", "net_value")
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
@@ -982,6 +1018,12 @@ class TradeEvent(ValidatedEvent):
     entry_timestamp: Optional[str] = None  # ISO8601 string
     exit_timestamp: Optional[str] = None  # ISO8601 string
 
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None
+
     @field_serializer("entry_price", "exit_price", "current_quantity", "realized_pnl", "commission_total")
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
         """Serialize Decimal to string for wire format."""
@@ -1242,3 +1284,9 @@ class FeatureBarEvent(ControlEvent):
     symbol: str
     features: dict[str, Any] = Field(default_factory=dict)
     feature_set_version: str = "v1"
+
+    # Identity fields for auditability (optional, backward compatible)
+    secid: Optional[int] = None
+    display_symbol: Optional[str] = None
+    ticker_at_date: Optional[str] = None
+    identity_source: Optional[str] = None

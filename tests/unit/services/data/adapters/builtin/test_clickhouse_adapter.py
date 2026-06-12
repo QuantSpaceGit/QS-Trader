@@ -341,3 +341,155 @@ def test_adapter_registry_name():
     registry = AdapterRegistry()
     name = registry._generate_adapter_name("ClickhouseDataAdapter")
     assert name == "clickhouse"
+
+
+# ---------------------------------------------------------------------------
+# Secid-based OHLC loading
+# ---------------------------------------------------------------------------
+
+
+def test_read_bars_uses_secid_when_instrument_has_secid(ch_config):
+    """When instrument.secid is set, the query should use WHERE secid = ..."""
+    from qs_trader.services.data.models import Instrument
+
+    instrument = Instrument(symbol="AAPL", secid=12345)
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    rows = [
+        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
+    ]
+    mock_client = _make_mock_client(rows)
+    adapter._client = mock_client
+
+    list(adapter.read_bars("2024-01-02", "2024-01-02"))
+
+    sql = mock_client.query.call_args[1]["parameters"]
+    assert "secid" in sql
+    assert sql["secid"] == 12345
+    # ticker should NOT be in the parameters when secid is used
+    assert "symbol" not in sql
+
+
+def test_read_bars_falls_back_to_ticker_when_secid_is_none(ch_config):
+    """When instrument.secid is None, the query should use WHERE ticker = ..."""
+    from qs_trader.services.data.models import Instrument
+
+    instrument = Instrument(symbol="AAPL", secid=None)
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    rows = [
+        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
+    ]
+    mock_client = _make_mock_client(rows)
+    adapter._client = mock_client
+
+    list(adapter.read_bars("2024-01-02", "2024-01-02"))
+
+    sql = mock_client.query.call_args[1]["parameters"]
+    assert "symbol" in sql
+    assert sql["symbol"] == "AAPL"
+    assert "secid" not in sql
+
+
+def test_get_available_date_range_uses_secid_when_set(ch_config):
+    """get_available_date_range should query by secid when instrument.secid is set."""
+    from qs_trader.services.data.models import Instrument
+
+    instrument = Instrument(symbol="AAPL", secid=99999)
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    rows = [("2020-01-02", "2024-12-31")]
+    adapter._client = _make_mock_client(rows)
+
+    adapter.get_available_date_range()
+
+    sql = adapter._client.query.call_args[1]["parameters"]
+    assert "secid" in sql
+    assert sql["secid"] == 99999
+
+
+def test_get_available_date_range_falls_back_to_ticker(ch_config):
+    """get_available_date_range should query by ticker when secid is None."""
+    from qs_trader.services.data.models import Instrument
+
+    instrument = Instrument(symbol="AAPL")
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    rows = [("2020-01-02", "2024-12-31")]
+    adapter._client = _make_mock_client(rows)
+
+    adapter.get_available_date_range()
+
+    sql = adapter._client.query.call_args[1]["parameters"]
+    assert "symbol" in sql
+    assert sql["symbol"] == "AAPL"
+
+
+# ---------------------------------------------------------------------------
+# Identity fields on PriceBarEvent
+# ---------------------------------------------------------------------------
+
+
+def test_to_price_bar_event_populates_identity_fields_from_instrument(ch_config):
+    """Identity fields on PriceBarEvent should come from the instrument."""
+    from qs_trader.services.data.models import Instrument
+
+    instrument = Instrument(
+        symbol="AAPL",
+        secid=12345,
+        display_symbol="Apple Inc",
+        ticker_at_date="AAPL",
+        identity_source="explicit_secid",
+    )
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    bar = ClickhouseBar(
+        symbol="AAPL",
+        trade_date=date(2024, 1, 2),
+        open=Decimal("185.50"),
+        high=Decimal("186.00"),
+        low=Decimal("185.00"),
+        close=Decimal("185.80"),
+        open_adj=Decimal("184.50"),
+        high_adj=Decimal("185.00"),
+        low_adj=Decimal("184.00"),
+        close_adj=Decimal("185.00"),
+        volume=50_000_000,
+        volume_raw=60_000_000,
+        volume_adj=50_000_000,
+    )
+    event = adapter.to_price_bar_event(bar)
+
+    assert event.secid == 12345
+    assert event.display_symbol == "Apple Inc"
+    assert event.ticker_at_date == "AAPL"
+    assert event.identity_source == "explicit_secid"
+
+
+def test_to_price_bar_event_identity_fields_are_none_when_instrument_lacks_them(ch_config):
+    """Identity fields should be None when instrument does not have them."""
+    from types import SimpleNamespace
+
+    # Use a plain object without identity fields (backward compat)
+    instrument = SimpleNamespace(symbol="AAPL")
+    adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
+
+    bar = ClickhouseBar(
+        symbol="AAPL",
+        trade_date=date(2024, 1, 2),
+        open=Decimal("185.50"),
+        high=Decimal("186.00"),
+        low=Decimal("185.00"),
+        close=Decimal("185.80"),
+        open_adj=None,
+        high_adj=None,
+        low_adj=None,
+        close_adj=None,
+        volume=0,
+    )
+    event = adapter.to_price_bar_event(bar)
+
+    assert event.secid is None
+    assert event.display_symbol is None
+    assert event.ticker_at_date is None
+    assert event.identity_source is None

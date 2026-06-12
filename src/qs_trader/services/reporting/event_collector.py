@@ -93,6 +93,14 @@ def _join_unique_values(values: list[str]) -> str | None:
     return ",".join(ordered) if ordered else None
 
 
+def _first_non_none(values: list[Any]) -> Any | None:
+    """Return the first non-None value from a list, or None."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
+
+
 def collect_run_events(
     experiment_id: str,
     run_id: str,
@@ -272,19 +280,35 @@ def collect_run_events(
                 "signal_price": _to_float(signal.price) if signal is not None else None,
                 "signal_confidence": _to_float(signal.confidence) if signal is not None else None,
                 "signal_reason": signal.reason if signal is not None else None,
+                "signal_secid": signal.secid if signal is not None else None,
+                "signal_display_symbol": signal.display_symbol if signal is not None else None,
+                "signal_ticker_at_date": signal.ticker_at_date if signal is not None else None,
+                "signal_identity_source": signal.identity_source if signal is not None else None,
                 "order_side": _join_unique_values([order.side.upper() for order in orders]),
                 "order_type": _join_unique_values([order.order_type.upper() for order in orders]),
                 "order_qty": int(order_qty) if order_qty is not None else None,
+                "order_secid": _first_non_none([o.secid for o in orders]),
+                "order_display_symbol": _first_non_none([o.display_symbol for o in orders]),
+                "order_ticker_at_date": _first_non_none([o.ticker_at_date for o in orders]),
+                "order_identity_source": _first_non_none([o.identity_source for o in orders]),
                 "fill_qty": int(fill_qty) if fill_qty is not None else None,
                 "fill_price": fill_price,
                 "fill_slippage_bps": fill_slippage_bps,
                 "commission": commission,
+                "fill_secid": _first_non_none([f.secid for f in fills]),
+                "fill_display_symbol": _first_non_none([f.display_symbol for f in fills]),
+                "fill_ticker_at_date": _first_non_none([f.ticker_at_date for f in fills]),
+                "fill_identity_source": _first_non_none([f.identity_source for f in fills]),
                 "trade_id": trade_event.trade_id if trade_event is not None else None,
                 "trade_status": trade_event.status.upper() if trade_event is not None else None,
                 "trade_side": trade_event.side.upper() if trade_event and trade_event.side else None,
                 "trade_entry_price": _to_float(trade_event.entry_price) if trade_event is not None else None,
                 "trade_exit_price": _to_float(trade_event.exit_price) if trade_event is not None else None,
                 "trade_realized_pnl": _to_float(trade_event.realized_pnl) if trade_event is not None else None,
+                "trade_secid": trade_event.secid if trade_event is not None else None,
+                "trade_display_symbol": trade_event.display_symbol if trade_event is not None else None,
+                "trade_ticker_at_date": trade_event.ticker_at_date if trade_event is not None else None,
+                "trade_identity_source": trade_event.identity_source if trade_event is not None else None,
                 "indicators_json": _to_json(indicators_by_key.get(key) or None),
                 "features_json": _to_json(features_by_key.get(key) or None),
             }

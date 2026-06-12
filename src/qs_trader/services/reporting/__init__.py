@@ -11,7 +11,14 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from qs_trader.services.reporting.config import ReportingConfig
-    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+    from qs_trader.services.reporting.manifest import (
+        ClickHouseInputManifest,
+        ClickHouseInputManifestV1,
+        ClickHouseInputManifestV2,
+        ResolvedInstrumentEntry,
+        TickerHistoryEntry,
+        read_manifest,
+    )
     from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
     from qs_trader.services.reporting.service import ReportingService
 
@@ -20,6 +27,30 @@ _EXPORT_MAP: dict[str, tuple[str, str]] = {
     "ClickHouseInputManifest": (
         "qs_trader.services.reporting.manifest",
         "ClickHouseInputManifest",
+    ),
+    "ClickHouseInputManifestV1": (
+        "qs_trader.services.reporting.manifest",
+        "ClickHouseInputManifestV1",
+    ),
+    "ClickHouseInputManifestV2": (
+        "qs_trader.services.reporting.manifest",
+        "ClickHouseInputManifestV2",
+    ),
+    "ClickHouseInputManifestLatest": (
+        "qs_trader.services.reporting.manifest",
+        "ClickHouseInputManifestLatest",
+    ),
+    "ResolvedInstrumentEntry": (
+        "qs_trader.services.reporting.manifest",
+        "ResolvedInstrumentEntry",
+    ),
+    "TickerHistoryEntry": (
+        "qs_trader.services.reporting.manifest",
+        "TickerHistoryEntry",
+    ),
+    "read_manifest": (
+        "qs_trader.services.reporting.manifest",
+        "read_manifest",
     ),
     "PostgreSQLWriter": (
         "qs_trader.services.reporting.postgres_writer",
@@ -71,6 +102,12 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "ClickHouseInputManifest",
+    "ClickHouseInputManifestV1",
+    "ClickHouseInputManifestV2",
+    "ClickHouseInputManifestLatest",
+    "ResolvedInstrumentEntry",
+    "TickerHistoryEntry",
+    "read_manifest",
     "PostgreSQLWriter",
     "ReportingService",
     "ReportingConfig",

@@ -546,3 +546,115 @@ def test_stream_universe_emits_feature_bar_event() -> None:
     assert fb.features["trend_regime"] == "bull"
     assert fb.features["trend_strength"] == pytest.approx(0.8)
     mock_feature_service.get_features.assert_called_once_with("AAPL", "2024-01-02")
+
+
+# ---------------------------------------------------------------------------
+# Direct secid path (bypasses _resolve_secid)
+# ---------------------------------------------------------------------------
+
+
+def test_get_features_with_explicit_secid_bypasses_resolve():
+    """When secid is passed explicitly, _resolve_secid should not be called."""
+    svc = _service()
+    feature_vals = [0.1] * 18 + ["bull", "low", "low", "positive", "risk_on"]
+    mock_client = _make_client([feature_vals])
+    svc._client = mock_client
+
+    result = svc.get_features("AAPL", "2024-01-02", secid=99999)
+
+    assert result is not None
+    assert len(result) == len(svc._FEATURE_COLUMNS)
+    # Only one query — the feature query, no secid resolution query
+    assert mock_client.query.call_count == 1
+
+
+def test_get_features_without_secid_resolves_via_ticker():
+    """When secid is None (default), _resolve_secid should be called."""
+    svc = _service()
+    feature_vals = [0.1] * 18 + ["bull", "low", "low", "positive", "risk_on"]
+    mock_client = MagicMock()
+    mock_client.query.side_effect = [
+        SimpleNamespace(result_rows=[(99,)]),  # secid resolution
+        SimpleNamespace(result_rows=[feature_vals]),  # features
+    ]
+    svc._client = mock_client
+
+    result = svc.get_features("AAPL", "2024-01-02")
+
+    assert result is not None
+    # Two queries: secid resolution + feature query
+    assert mock_client.query.call_count == 2
+
+
+def test_get_indicators_with_explicit_secid_bypasses_resolve():
+    """When secid is passed explicitly to get_indicators, _resolve_secid should not be called."""
+    svc = _service()
+    indicator_vals = [1.5] * len(svc._INDICATOR_COLUMNS)
+    mock_client = _make_client([indicator_vals])
+    svc._client = mock_client
+
+    result = svc.get_indicators("AAPL", "2024-01-02", secid=88888)
+
+    assert result is not None
+    assert len(result) == len(svc._INDICATOR_COLUMNS)
+    # Only one query — the indicator query, no secid resolution query
+    assert mock_client.query.call_count == 1
+
+
+def test_get_indicators_without_secid_resolves_via_ticker():
+    """When secid is None (default), get_indicators should call _resolve_secid."""
+    svc = _service()
+    indicator_vals = [1.5] * len(svc._INDICATOR_COLUMNS)
+    mock_client = MagicMock()
+    mock_client.query.side_effect = [
+        SimpleNamespace(result_rows=[(99,)]),  # secid resolution
+        SimpleNamespace(result_rows=[indicator_vals]),  # indicators
+    ]
+    svc._client = mock_client
+
+    result = svc.get_indicators("AAPL", "2024-01-02")
+
+    assert result is not None
+    # Two queries: secid resolution + indicator query
+    assert mock_client.query.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Identity fields on RuntimeFeaturesEvent
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_features_event_accepts_identity_fields():
+    """RuntimeFeaturesEvent should accept optional identity fields."""
+    from qs_trader.events.events import RuntimeFeaturesEvent
+
+    event = RuntimeFeaturesEvent(
+        strategy_id="test_strategy",
+        symbol="AAPL",
+        timestamp="2024-01-02T21:00:00+00:00",
+        runtime_features={"momentum_score": 0.75},
+        secid=12345,
+        display_symbol="Apple Inc",
+        ticker_at_date="AAPL",
+        identity_source="explicit_secid",
+    )
+    assert event.secid == 12345
+    assert event.display_symbol == "Apple Inc"
+    assert event.ticker_at_date == "AAPL"
+    assert event.identity_source == "explicit_secid"
+
+
+def test_runtime_features_event_identity_fields_are_optional():
+    """RuntimeFeaturesEvent should work without identity fields (backward compat)."""
+    from qs_trader.events.events import RuntimeFeaturesEvent
+
+    event = RuntimeFeaturesEvent(
+        strategy_id="test_strategy",
+        symbol="AAPL",
+        timestamp="2024-01-02T21:00:00+00:00",
+        runtime_features={"momentum_score": 0.75},
+    )
+    assert event.secid is None
+    assert event.display_symbol is None
+    assert event.ticker_at_date is None
+    assert event.identity_source is None

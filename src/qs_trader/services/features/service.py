@@ -185,7 +185,13 @@ class FeatureService:
     # Public API
     # ------------------------------------------------------------------
 
-    def get_features(self, symbol: str, date: str, columns: Optional[list[str]] = None) -> Optional[dict[str, Any]]:
+    def get_features(
+        self,
+        symbol: str,
+        date: str,
+        columns: Optional[list[str]] = None,
+        secid: Optional[int] = None,
+    ) -> Optional[dict[str, Any]]:
         """Fetch composite feature row for a symbol on a given date.
 
         Args:
@@ -197,6 +203,9 @@ class FeatureService:
                      _FEATURE_COLUMNS if that is also unset.                     Note: filtering is applied after the SQL query; all columns
                      are fetched from ClickHouse and unwanted ones are dropped
                      in-process before returning.
+            secid: Optional explicit secid. When provided, bypasses
+                     ``_resolve_secid()`` and uses secid directly in the WHERE
+                     clause. Falls back to symbol-based resolution when None.
         Returns:
             Dict mapping column name → value, or None if not available.
             Regime columns (trend_regime, vol_regime, etc.) are strings.
@@ -212,8 +221,12 @@ class FeatureService:
                 return row
             return {k: v for k, v in row.items() if k in effective_columns}
 
-        secid = self._resolve_secid(symbol, as_of_date=date)
-        if secid is None:
+        # Use explicit secid when provided; otherwise resolve via ticker
+        if secid is not None:
+            resolved_secid = secid
+        else:
+            resolved_secid = self._resolve_secid(symbol, as_of_date=date)
+        if resolved_secid is None:
             self._feature_cache[cache_key] = None
             return None
 
@@ -222,7 +235,7 @@ class FeatureService:
             query = f"""
                 SELECT {", ".join(self._FEATURE_COLUMNS)}
                 FROM {self._database}.features_equity_features_daily FINAL
-                WHERE secid = {secid}
+                WHERE secid = {resolved_secid}
                   AND date = toDate('{date}')
                   AND feature_version = '{self._feature_version}'
                 LIMIT 1
@@ -258,7 +271,13 @@ class FeatureService:
             self._feature_cache[cache_key] = None
             return None
 
-    def get_indicators(self, symbol: str, date: str, columns: Optional[list[str]] = None) -> Optional[dict[str, float]]:
+    def get_indicators(
+        self,
+        symbol: str,
+        date: str,
+        columns: Optional[list[str]] = None,
+        secid: Optional[int] = None,
+    ) -> Optional[dict[str, float]]:
         """Fetch raw indicator row for a symbol on a given date.
 
         Args:
@@ -266,6 +285,9 @@ class FeatureService:
             date: ISO date string "YYYY-MM-DD".
             columns: Optional subset of indicator columns.
                      Defaults to all _INDICATOR_COLUMNS.
+            secid: Optional explicit secid. When provided, bypasses
+                     ``_resolve_secid()`` and uses secid directly in the WHERE
+                     clause. Falls back to symbol-based resolution when None.
 
         Returns:
             Dict of indicator name → float, or None if not available.
@@ -277,8 +299,12 @@ class FeatureService:
                 return row
             return {k: v for k, v in row.items() if k in columns}
 
-        secid = self._resolve_secid(symbol, as_of_date=date)
-        if secid is None:
+        # Use explicit secid when provided; otherwise resolve via ticker
+        if secid is not None:
+            resolved_secid = secid
+        else:
+            resolved_secid = self._resolve_secid(symbol, as_of_date=date)
+        if resolved_secid is None:
             self._indicator_cache[cache_key] = None
             return None
 
@@ -287,7 +313,7 @@ class FeatureService:
             query = f"""
                 SELECT {", ".join(self._INDICATOR_COLUMNS)}
                 FROM {self._database}.features_equity_indicators_daily FINAL
-                WHERE secid = {secid}
+                WHERE secid = {resolved_secid}
                   AND date = toDate('{date}')
                 LIMIT 1
                 SETTINGS join_use_nulls = 1

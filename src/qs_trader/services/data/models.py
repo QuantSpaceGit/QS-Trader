@@ -60,6 +60,27 @@ class InstrumentType(Enum):
     SIGNAL = "signal"
 
 
+class IdentitySource(str, Enum):
+    """
+    CONTRACT: How an instrument's identity was resolved.
+
+    Tracks the provenance of the secid-to-ticker mapping so that
+    downstream consumers can distinguish between explicit secid input,
+    point-in-time ticker resolution, and legacy (unresolved) symbols.
+
+    Values:
+        explicit_secid: User provided a secid directly; no ticker lookup needed.
+        ticker_point_in_time: Ticker resolved to a secid via secmaster for a
+            specific date range.
+        legacy_symbol: Identity mode is legacy; no secmaster validation was
+            performed. secid is null.
+    """
+
+    EXPLICIT_SECID = "explicit_secid"
+    TICKER_POINT_IN_TIME = "ticker_point_in_time"
+    LEGACY_SYMBOL = "legacy_symbol"
+
+
 class DataSource(Enum):
     """
     CONTRACT: Logical data source identifier.
@@ -89,6 +110,10 @@ class Instrument(BaseModel):
         symbol: Ticker symbol (e.g., "AAPL", "BTCUSD", "ES_Z24")
         frequency: Optional override for dataset default frequency
         metadata: Custom attributes (exchange, contract month, etc.)
+        secid: Optional stable security identifier from secmaster resolution
+        display_symbol: Optional preferred display ticker for UI
+        ticker_at_date: Optional ticker valid on a specific bar date
+        identity_source: Optional provenance of how identity was resolved
 
     Examples:
         >>> # Basic instrument
@@ -102,16 +127,32 @@ class Instrument(BaseModel):
         ...     symbol="ES_Z24",
         ...     metadata={"contract_month": "2024-12", "exchange": "CME"}
         ... )
+        >>>
+        >>> # With identity fields (resolved instrument)
+        >>> instrument = Instrument(
+        ...     symbol="META",
+        ...     secid=3513095,
+        ...     display_symbol="META",
+        ...     ticker_at_date="META",
+        ...     identity_source=IdentitySource.TICKER_POINT_IN_TIME
+        ... )
 
     Notes:
         - Dataset specified separately when resolving to adapter
         - Symbol is the primary identifier
         - Metadata for custom attributes without schema pollution
+        - Identity fields are optional for backward compatibility
     """
 
     symbol: str = Field(..., description="Ticker symbol")
     frequency: Optional[str] = Field(default=None, description="Override dataset default frequency")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom attributes")
+    secid: Optional[int] = Field(default=None, description="Stable security identifier from secmaster")
+    display_symbol: Optional[str] = Field(default=None, description="Preferred display ticker for UI")
+    ticker_at_date: Optional[str] = Field(default=None, description="Ticker valid on specific bar date")
+    identity_source: Optional[IdentitySource] = Field(
+        default=None, description="How identity was resolved"
+    )
 
     model_config = {"frozen": True}
 
@@ -475,6 +516,7 @@ __all__ = [
     "PriceSeries",
     "Instrument",
     "InstrumentType",
+    "IdentitySource",
     "DataSource",
     "CorporateAction",
     "CorporateActionType",

@@ -830,7 +830,7 @@ class TestManifestBuilderFunction:
 
     def test_returns_manifest_for_qs_datamaster_provider(self) -> None:
         """qs-datamaster sources must produce a non-None ClickHouseInputManifest."""
-        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 
         # Arrange
         data_service = _make_data_service(provider="qs-datamaster")
@@ -847,7 +847,7 @@ class TestManifestBuilderFunction:
 
         # Assert
         assert result is not None
-        assert isinstance(result, ClickHouseInputManifest)
+        assert isinstance(result, ClickHouseInputManifestV2)
 
     def test_manifest_source_name_matches_dataset(self) -> None:
         """source_name must equal the data_service dataset name."""
@@ -1164,10 +1164,10 @@ class TestManifestBuilderFunction:
         mock_data_service,
     ) -> None:
         """BacktestEngine.__init__ must expose _input_manifest when passed."""
-        from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+        from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 
         # Arrange
-        manifest = ClickHouseInputManifest(
+        manifest = ClickHouseInputManifestV2(
             source_name="qs-datamaster-equity-1d",
             database="market",
             bars_table="as_us_equity_ohlc_daily",

@@ -8,6 +8,7 @@ from qs_trader.cli.commands import (
     data_group,
     init_library_command,
     init_project_command,
+    scan_candidates_command,
     validate_command,
 )
 
@@ -25,6 +26,7 @@ main.add_command(backtest_command)
 main.add_command(init_library_command)
 main.add_command(init_project_command)
 main.add_command(validate_command)
+main.add_command(scan_candidates_command)
 
 
 if __name__ == "__main__":

@@ -111,6 +111,22 @@
             ],
             "format": "date-time",
             "description": "Timestamp of the closing fill. Null for open trades."
+        },
+        "secid": {
+            "type": ["integer", "null"],
+            "description": "Optional stable security identifier from secmaster resolution."
+        },
+        "display_symbol": {
+            "type": ["string", "null"],
+            "description": "Optional preferred display ticker for UI."
+        },
+        "ticker_at_date": {
+            "type": ["string", "null"],
+            "description": "Optional ticker valid on a specific bar date."
+        },
+        "identity_source": {
+            "type": ["string", "null"],
+            "description": "Optional provenance of how identity was resolved (explicit_secid, ticker_point_in_time, legacy_symbol)."
         }
     },
     "additionalProperties": false

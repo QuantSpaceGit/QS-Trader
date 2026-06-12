@@ -11,7 +11,7 @@ from qs_trader.events.price_basis import BarView, PriceBasis
 from qs_trader.libraries.strategies import BarView as StrategyBarView
 from qs_trader.libraries.strategies import PositionState
 from qs_trader.libraries.strategies import PriceBasis as StrategyPriceBasis
-from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 
 
 class TestBarView:
@@ -45,7 +45,7 @@ class TestManifestPriceBasisRoundTrip:
 
     def test_manifest_json_round_trip_preserves_price_basis(self) -> None:
         """Manifest JSON should round-trip `price_basis` without falling back to legacy fields."""
-        manifest = ClickHouseInputManifest(
+        manifest = ClickHouseInputManifestV2(
             source_name="qs-datamaster-equity-1d",
             database="market",
             bars_table="as_us_equity_ohlc_daily",
@@ -62,5 +62,5 @@ class TestManifestPriceBasisRoundTrip:
         assert "strategy_adjustment_mode" not in payload
         assert "portfolio_adjustment_mode" not in payload
 
-        round_tripped = ClickHouseInputManifest.from_json(raw_json)
+        round_tripped = ClickHouseInputManifestV2.from_json(raw_json)
         assert round_tripped.price_basis == PriceBasis.RAW

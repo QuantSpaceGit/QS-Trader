@@ -63,6 +63,22 @@
       "type": ["string", "null"],
       "pattern": "^\\d+(\\.\\d+)?$",
       "description": "Optional take profit price as decimal string. If provided, position should be closed if price reaches this level."
+    },
+    "secid": {
+      "type": ["integer", "null"],
+      "description": "Optional stable security identifier from secmaster resolution."
+    },
+    "display_symbol": {
+      "type": ["string", "null"],
+      "description": "Optional preferred display ticker for UI."
+    },
+    "ticker_at_date": {
+      "type": ["string", "null"],
+      "description": "Optional ticker valid on a specific bar date."
+    },
+    "identity_source": {
+      "type": ["string", "null"],
+      "description": "Optional provenance of how identity was resolved (explicit_secid, ticker_point_in_time, legacy_symbol)."
     }
   },
   "additionalProperties": false

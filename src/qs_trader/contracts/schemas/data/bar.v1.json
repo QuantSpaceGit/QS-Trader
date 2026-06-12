@@ -180,6 +180,25 @@
     "trace_id": {
       "type": ["string", "null"],
       "description": "For distributed tracing."
+    },
+    "secid": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Stable security identifier from the secmaster. Optional — null when identity is not yet resolved."
+    },
+    "display_symbol": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Human-readable display ticker at the time of the bar. Optional."
+    },
+    "ticker_at_date": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Point-in-time ticker symbol active on the bar date. Optional."
+    },
+    "identity_source": {
+      "type": ["string", "null"],
+      "description": "How the identity was resolved (e.g., explicit_secid, ticker_point_in_time, legacy_symbol). Optional."
     }
   },
   "additionalProperties": false

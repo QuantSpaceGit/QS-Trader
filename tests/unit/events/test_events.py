@@ -257,6 +257,79 @@ class TestPriceBarEvent:
         assert reconstructed.volume_raw == 1200
         assert reconstructed.volume_adj == 1000
 
+    def test_price_bar_accepts_identity_fields(self):
+        """PriceBarEvent should accept optional identity fields."""
+        event = PriceBarEvent(
+            source_service="data_service",
+            symbol="AAPL",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            source="test_source",
+            secid=12345,
+            display_symbol="Apple Inc",
+            ticker_at_date="AAPL",
+            identity_source="explicit_secid",
+        )
+
+        assert event.secid == 12345
+        assert event.display_symbol == "Apple Inc"
+        assert event.ticker_at_date == "AAPL"
+        assert event.identity_source == "explicit_secid"
+
+    def test_price_bar_identity_fields_are_optional(self):
+        """PriceBarEvent should work without identity fields (backward compat)."""
+        event = PriceBarEvent(
+            source_service="data_service",
+            symbol="AAPL",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            source="test_source",
+        )
+
+        assert event.secid is None
+        assert event.display_symbol is None
+        assert event.ticker_at_date is None
+        assert event.identity_source is None
+
+    def test_price_bar_identity_fields_roundtrip(self):
+        """Identity fields should survive JSON round-trip."""
+        original = PriceBarEvent(
+            source_service="data_service",
+            symbol="AAPL",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            source="test_source",
+            secid=12345,
+            display_symbol="Apple Inc",
+            ticker_at_date="AAPL",
+            identity_source="explicit_secid",
+        )
+
+        reconstructed = PriceBarEvent.model_validate_json(original.model_dump_json())
+
+        assert reconstructed.secid == 12345
+        assert reconstructed.display_symbol == "Apple Inc"
+        assert reconstructed.ticker_at_date == "AAPL"
+        assert reconstructed.identity_source == "explicit_secid"
+
 
 # ============================================
 # CorporateActionEvent Tests

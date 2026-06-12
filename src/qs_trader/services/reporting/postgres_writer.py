@@ -350,18 +350,26 @@ class PostgreSQLWriter:
                 INSERT INTO run_events (
                     experiment_id, run_id, timestamp, symbol, strategy_id,
                     signal_intention, signal_price, signal_confidence, signal_reason,
+                    signal_secid, signal_display_symbol, signal_ticker_at_date, signal_identity_source,
                     order_side, order_type, order_qty,
+                    order_secid, order_display_symbol, order_ticker_at_date, order_identity_source,
                     fill_qty, fill_price, fill_slippage_bps, commission,
+                    fill_secid, fill_display_symbol, fill_ticker_at_date, fill_identity_source,
                     trade_id, trade_status, trade_side,
                     trade_entry_price, trade_exit_price, trade_realized_pnl,
+                    trade_secid, trade_display_symbol, trade_ticker_at_date, trade_identity_source,
                     indicators_json, features_json
                 ) VALUES (
                     :experiment_id, :run_id, :timestamp, :symbol, :strategy_id,
                     :signal_intention, :signal_price, :signal_confidence, :signal_reason,
+                    :signal_secid, :signal_display_symbol, :signal_ticker_at_date, :signal_identity_source,
                     :order_side, :order_type, :order_qty,
+                    :order_secid, :order_display_symbol, :order_ticker_at_date, :order_identity_source,
                     :fill_qty, :fill_price, :fill_slippage_bps, :commission,
+                    :fill_secid, :fill_display_symbol, :fill_ticker_at_date, :fill_identity_source,
                     :trade_id, :trade_status, :trade_side,
                     :trade_entry_price, :trade_exit_price, :trade_realized_pnl,
+                    :trade_secid, :trade_display_symbol, :trade_ticker_at_date, :trade_identity_source,
                     CAST(:indicators_json AS jsonb), CAST(:features_json AS jsonb)
                 )
                 """

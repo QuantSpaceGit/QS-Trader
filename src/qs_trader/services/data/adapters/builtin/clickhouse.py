@@ -174,11 +174,19 @@ class ClickhouseDataAdapter:
 
         Timestamp is set to market close 16:00 local Eastern time → UTC.
         All adjusted price fields are populated (AlgoSeek provides full OHLC adj).
+        Identity fields (secid, display_symbol, ticker_at_date, identity_source)
+        are populated from the instrument when available.
         """
         market_close_naive = datetime.combine(bar.trade_date, time(16, 0, 0))
         market_close_local = market_close_naive.replace(tzinfo=self.tz)
         market_close_utc = market_close_local.astimezone(timezone.utc)
         timestamp_local = market_close_local.isoformat()
+
+        # Populate identity fields from instrument when available
+        secid: Optional[int] = getattr(self.instrument, "secid", None)
+        display_symbol: Optional[str] = getattr(self.instrument, "display_symbol", None)
+        ticker_at_date: Optional[str] = getattr(self.instrument, "ticker_at_date", None)
+        identity_source: Optional[str] = getattr(self.instrument, "identity_source", None)
 
         return PriceBarEvent(
             symbol=bar.symbol,
@@ -202,6 +210,10 @@ class ClickhouseDataAdapter:
             price_scale=self.price_scale,
             source=self.dataset_name,
             source_service="data_service",
+            secid=secid,
+            display_symbol=display_symbol,
+            ticker_at_date=ticker_at_date,
+            identity_source=identity_source,
         )
 
     def to_corporate_action_event(
@@ -219,17 +231,32 @@ class ClickhouseDataAdapter:
         return datetime.combine(bar.trade_date, time(0, 0, 0))
 
     def get_available_date_range(self) -> tuple[Optional[str], Optional[str]]:
-        """Query ClickHouse for the min/max tradedate for this symbol."""
+        """Query ClickHouse for the min/max tradedate for this symbol.
+
+        Uses secid-based query when instrument.secid is set; falls back to
+        ticker-based query for backward compatibility.
+        """
+        secid = getattr(self.instrument, "secid", None)
         try:
             client = self._get_client()
-            query = f"""
-                SELECT
-                    toString(min(tradedate)) AS min_date,
-                    toString(max(tradedate)) AS max_date
-                FROM {self._database}.{self._bars_table}
-                WHERE ticker = {{symbol:String}}
-                """
-            result = client.query(query, parameters={"symbol": self.instrument.symbol})
+            if secid is not None:
+                query = f"""
+                    SELECT
+                        toString(min(tradedate)) AS min_date,
+                        toString(max(tradedate)) AS max_date
+                    FROM {self._database}.{self._bars_table}
+                    WHERE secid = {{secid:UInt64}}
+                    """
+                result = client.query(query, parameters={"secid": secid})
+            else:
+                query = f"""
+                    SELECT
+                        toString(min(tradedate)) AS min_date,
+                        toString(max(tradedate)) AS max_date
+                    FROM {self._database}.{self._bars_table}
+                    WHERE ticker = {{symbol:String}}
+                    """
+                result = client.query(query, parameters={"symbol": self.instrument.symbol})
             if result.result_rows:
                 row = result.result_rows[0]
                 return (row[0] or None, row[1] or None)
@@ -282,39 +309,68 @@ class ClickhouseDataAdapter:
         """Fetch all bars for this symbol in [start_date, end_date] from ClickHouse.
 
         Returns list sorted by tradedate ascending.
+        Uses secid-based query when instrument.secid is set; falls back to
+        ticker-based query for backward compatibility.
         """
         symbol = self.instrument.symbol
+        secid = getattr(self.instrument, "secid", None)
         try:
             client = self._get_client()
-            query = f"""
-                SELECT
-                    tradedate,
-                    toFloat64(open)     AS open,
-                    toFloat64(high)     AS high,
-                    toFloat64(low)      AS low,
-                    toFloat64(close)    AS close,
-                    toFloat64(openadj)  AS openadj,
-                    toFloat64(highadj)  AS highadj,
-                    toFloat64(lowadj)   AS lowadj,
-                    toFloat64(closeadj) AS closeadj,
-                    toInt64(round(dailyvolume)) AS volume_raw,
-                    toInt64(round(dailyvolumeadj)) AS volume_adj
-                FROM {self._database}.{self._bars_table}
-                WHERE ticker = {{symbol:String}}
-                  AND tradedate >= toDate({{start_date:String}})
-                  AND tradedate <= toDate({{end_date:String}})
-                  AND openadj > 0
-                  AND closeadj > 0
-                ORDER BY tradedate ASC
-            """
-            result = client.query(
-                query,
-                parameters={
+            if secid is not None:
+                query = f"""
+                    SELECT
+                        tradedate,
+                        toFloat64(open)     AS open,
+                        toFloat64(high)     AS high,
+                        toFloat64(low)      AS low,
+                        toFloat64(close)    AS close,
+                        toFloat64(openadj)  AS openadj,
+                        toFloat64(highadj)  AS highadj,
+                        toFloat64(lowadj)   AS lowadj,
+                        toFloat64(closeadj) AS closeadj,
+                        toInt64(round(dailyvolume)) AS volume_raw,
+                        toInt64(round(dailyvolumeadj)) AS volume_adj
+                    FROM {self._database}.{self._bars_table}
+                    WHERE secid = {{secid:UInt64}}
+                      AND tradedate >= toDate({{start_date:String}})
+                      AND tradedate <= toDate({{end_date:String}})
+                      AND openadj > 0
+                      AND closeadj > 0
+                    ORDER BY tradedate ASC
+                """
+                params: dict[str, Any] = {
+                    "secid": secid,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }
+            else:
+                query = f"""
+                    SELECT
+                        tradedate,
+                        toFloat64(open)     AS open,
+                        toFloat64(high)     AS high,
+                        toFloat64(low)      AS low,
+                        toFloat64(close)    AS close,
+                        toFloat64(openadj)  AS openadj,
+                        toFloat64(highadj)  AS highadj,
+                        toFloat64(lowadj)   AS lowadj,
+                        toFloat64(closeadj) AS closeadj,
+                        toInt64(round(dailyvolume)) AS volume_raw,
+                        toInt64(round(dailyvolumeadj)) AS volume_adj
+                    FROM {self._database}.{self._bars_table}
+                    WHERE ticker = {{symbol:String}}
+                      AND tradedate >= toDate({{start_date:String}})
+                      AND tradedate <= toDate({{end_date:String}})
+                      AND openadj > 0
+                      AND closeadj > 0
+                    ORDER BY tradedate ASC
+                """
+                params = {
                     "symbol": symbol,
                     "start_date": start_date,
                     "end_date": end_date,
-                },
-            )
+                }
+            result = client.query(query, parameters=params)
         except Exception as exc:
             logger.error(
                 "clickhouse_adapter.fetch_failed",

@@ -19,6 +19,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
@@ -29,6 +30,10 @@ from qs_trader.events.lifecycle_context import LifecycleRunContext
 from qs_trader.events.lifecycle_events import StrategyDecisionEvent
 from qs_trader.events.price_basis import BarView, PriceBasis
 from qs_trader.services.manager.lifecycle_intent_projection import LifecycleIntentProjection
+from qs_trader.services.strategy.decision_audit import (
+    persist_decisions,
+    persist_decisions_csv,
+)
 from qs_trader.services.strategy.models import (
     LifecycleIntentType,
     PositionState,
@@ -38,6 +43,8 @@ from qs_trader.services.strategy.models import (
 )
 
 if TYPE_CHECKING:
+    from qs_trader.services.data.instrument_resolver import InstrumentResolver
+    from qs_trader.services.data.models import Instrument
     from qs_trader.services.features.service import FeatureService
 
 logger = structlog.get_logger()
@@ -66,6 +73,7 @@ class Context:
         feature_service: Optional["FeatureService"] = None,
         lifecycle_context: Optional[LifecycleRunContext] = None,
         lifecycle_projection: LifecycleIntentProjection | None = None,
+        instrument_resolver: Optional["InstrumentResolver"] = None,
     ):
         """
         Initialize context for a strategy.
@@ -75,6 +83,7 @@ class Context:
             event_bus: Event bus for publishing signals
             max_bars: Maximum bars to cache per symbol (default 500)
             config: Optional strategy configuration dict for feature flags
+            instrument_resolver: Optional resolver for secmaster-backed identity lookups
         """
         self._strategy_id = strategy_id
         self._event_bus = event_bus
@@ -90,6 +99,13 @@ class Context:
         self._feature_service = feature_service
         self._lifecycle_context = lifecycle_context
         self._lifecycle_projection = lifecycle_projection
+
+        # Optional InstrumentResolver for secmaster-backed identity accessors
+        self._instrument_resolver = instrument_resolver
+
+        # Decision audit tracking — Group 8 (secid-first research auditability)
+        self._decisions: list[dict[str, Any]] = []
+        self._audit_output_dir: Path | None = None
 
         # Indicator tracking for automatic event emission: {indicator_name: value}
         # Reset at the start of each bar and emitted automatically at bar end
@@ -709,6 +725,104 @@ class Context:
         self._capture_consumed_features(values)
         return values
 
+    # ------------------------------------------------------------------
+    # Identity accessors (secid-first auditability)
+    # ------------------------------------------------------------------
+
+    def get_instrument(self, symbol: str) -> Optional["Instrument"]:
+        """Return resolved instrument metadata for *symbol*.
+
+        Uses the injected ``InstrumentResolver`` when available.  Falls back
+        to a minimal ``Instrument`` built from the symbol alone when no
+        resolver is configured.
+
+        Args:
+            symbol: Ticker symbol to resolve.
+
+        Returns:
+            ``Instrument`` with identity fields populated when the resolver
+            is available, or a bare ``Instrument(symbol=symbol)`` otherwise.
+        """
+        from qs_trader.services.data.models import Instrument
+
+        if self._instrument_resolver is None:
+            return Instrument(symbol=symbol)
+
+        try:
+            # Use the bar cache to infer a date range for resolution
+            bars = self._bar_cache.get(symbol)
+            if bars:
+                start_date = self._parse_timestamp(bars[0].timestamp).date()
+                end_date = self._parse_timestamp(bars[-1].timestamp).date()
+            else:
+                # Fallback: use a wide default range
+                from datetime import date
+
+                start_date = date(2000, 1, 1)
+                end_date = date(2030, 12, 31)
+
+            resolved = self._instrument_resolver.resolve_by_ticker(
+                symbol,
+                date_range=(start_date, end_date),
+            )
+
+            return Instrument(
+                symbol=symbol,
+                secid=resolved.secid,
+                display_symbol=resolved.display_symbol,
+                ticker_at_date=resolved.ticker_at_date,
+                identity_source=resolved.identity_source,
+            )
+        except Exception:
+            # Resolver failure should not break strategy execution
+            logger.debug(
+                "strategy.context.get_instrument.resolution_failed",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+            )
+            return Instrument(symbol=symbol)
+
+    def get_security_id(self, symbol: str) -> Optional[int]:
+        """Return the resolved secid for *symbol*, or ``None``.
+
+        Args:
+            symbol: Ticker symbol to resolve.
+
+        Returns:
+            secid when available, ``None`` otherwise.
+        """
+        instrument = self.get_instrument(symbol)
+        if instrument is None:
+            return None
+        return instrument.secid
+
+    def get_display_symbol(self, symbol: str, date: Optional[str] = None) -> str:
+        """Return the point-in-time display ticker for *symbol*.
+
+        When a date is provided and an ``InstrumentResolver`` is available,
+        returns the ticker that was active on that date.  Otherwise falls
+        back to the requested symbol.
+
+        Args:
+            symbol: Ticker symbol to resolve.
+            date: Optional trading date ISO string "YYYY-MM-DD".
+
+        Returns:
+            Display ticker string.
+        """
+        instrument = self.get_instrument(symbol)
+        if instrument is None:
+            return symbol
+
+        # If a specific date was given and we have ticker_at_date, prefer it
+        if date is not None and instrument.ticker_at_date is not None:
+            return instrument.ticker_at_date
+
+        if instrument.display_symbol is not None:
+            return instrument.display_symbol
+
+        return symbol
+
     @staticmethod
     def _parse_timestamp(timestamp: str) -> datetime:
         """Parse an event timestamp into a timezone-aware datetime."""
@@ -921,3 +1035,118 @@ class Context:
             feature_count=len(runtime_features),
         )
         return event
+
+    # ------------------------------------------------------------------
+    # Decision audit tracking (Group 8 — secid-first research auditability)
+    # ------------------------------------------------------------------
+
+    def set_audit_output_dir(self, output_dir: Path) -> None:
+        """Set the audit output directory for decision persistence.
+
+        Args:
+            output_dir: Directory where decision CSV/parquet files will be written.
+        """
+        self._audit_output_dir = output_dir
+
+    def track_decision(
+        self,
+        candidate_id: str,
+        decision_status: str,
+        final_action: str,
+        reason_code: str | None = None,
+        gates: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        *,
+        secid: int | None = None,
+        symbol: str = "",
+        date: str = "",
+        strategy_version: str | None = None,
+        parameter_hash: str | None = None,
+        confidence: float | None = None,
+        decision_price: float | None = None,
+        indicator_context: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record a strategy candidate decision for audit persistence.
+
+        All fields beyond the required four are optional to allow graceful
+        degradation when data is unavailable.
+
+        Args:
+            candidate_id: Deterministic candidate identifier (SHA-256).
+            decision_status: High-level status (e.g. "accepted", "rejected", "skipped").
+            final_action: The action taken (e.g. "open_long", "hold", "skip").
+            reason_code: Machine-readable reason code for the decision.
+            gates: Gate evaluation results (pass/fail per gate).
+            diagnostics: Additional diagnostic information.
+            secid: Stable security identifier.
+            symbol: Runtime symbol.
+            date: Trading date ISO string "YYYY-MM-DD".
+            strategy_version: Strategy version string.
+            parameter_hash: Parameter snapshot hash.
+            confidence: Decision confidence [0.0, 1.0].
+            decision_price: Price at decision time.
+            indicator_context: Indicator values at decision time.
+            metadata: Additional metadata.
+
+        Returns:
+            The decision record dict (also appended to internal buffer).
+        """
+        record: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "strategy_id": self._strategy_id,
+            "secid": secid,
+            "symbol": symbol,
+            "date": date,
+            "decision_status": decision_status,
+            "final_action": final_action,
+            "reason_code": reason_code or "",
+            "gates": gates or {},
+            "diagnostics": diagnostics or {},
+            "strategy_version": strategy_version or "",
+            "parameter_hash": parameter_hash or "",
+            "confidence": confidence,
+            "decision_price": decision_price,
+            "indicator_context": indicator_context or {},
+            "metadata": metadata or {},
+            "occurred_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        self._decisions.append(record)
+
+        logger.debug(
+            "strategy.decision.tracked",
+            strategy_id=self._strategy_id,
+            candidate_id=candidate_id,
+            decision_status=decision_status,
+            final_action=final_action,
+            total_decisions=len(self._decisions),
+        )
+
+        return record
+
+    def flush_decisions(self, *, format: str = "csv") -> Path | None:
+        """Persist buffered decisions to the audit output directory.
+
+        Args:
+            format: Output format — "csv" (default) or "parquet".
+
+        Returns:
+            Path to the written file, or None if no decisions buffered.
+        """
+        if not self._decisions:
+            logger.debug("no_decisions_to_flush")
+            return None
+
+        if self._audit_output_dir is None:
+            logger.warning("audit_output_dir_not_set", strategy_id=self._strategy_id)
+            return None
+
+        if format == "parquet":
+            return persist_decisions(self._decisions, self._audit_output_dir)
+        return persist_decisions_csv(self._decisions, self._audit_output_dir)
+
+    @property
+    def decisions(self) -> list[dict[str, Any]]:
+        """Return a copy of the buffered decision records."""
+        return list(self._decisions)

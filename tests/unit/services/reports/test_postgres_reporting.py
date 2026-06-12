@@ -29,7 +29,7 @@ from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.bar_snapshot_collector import collect_run_bar_snapshots
 from qs_trader.services.reporting.event_collector import collect_run_events
 from qs_trader.services.reporting.lifecycle_event_collector import collect_run_lifecycle_events
-from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 from qs_trader.services.reporting.postgres_writer import PostgreSQLWriter
 from qs_trader.services.reporting.service import ReportingService
 from qs_trader.services.reporting.writer_factory import (
@@ -56,8 +56,8 @@ def _make_system_config_mock(
     return mock
 
 
-def _minimal_manifest() -> ClickHouseInputManifest:
-    return ClickHouseInputManifest.model_validate(
+def _minimal_manifest() -> ClickHouseInputManifestV2:
+    return ClickHouseInputManifestV2.model_validate(
         {
             "source_name": "qs-datamaster-equity-1d",
             "database": "market",

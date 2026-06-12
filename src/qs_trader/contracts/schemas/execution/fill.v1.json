@@ -96,6 +96,22 @@
             ],
             "pattern": "^-?\\d+(\\.\\d+)?$",
             "description": "Total cash impact of THIS fill including commission as decimal string. For buys: -(gross_value + commission), for sells: +(gross_value - commission). Null if not calculated."
+        },
+        "secid": {
+            "type": ["integer", "null"],
+            "description": "Optional stable security identifier from secmaster resolution."
+        },
+        "display_symbol": {
+            "type": ["string", "null"],
+            "description": "Optional preferred display ticker for UI."
+        },
+        "ticker_at_date": {
+            "type": ["string", "null"],
+            "description": "Optional ticker valid on a specific bar date."
+        },
+        "identity_source": {
+            "type": ["string", "null"],
+            "description": "Optional provenance of how identity was resolved (explicit_secid, ticker_point_in_time, legacy_symbol)."
         }
     },
     "additionalProperties": false

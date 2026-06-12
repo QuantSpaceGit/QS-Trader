@@ -109,7 +109,7 @@ def _build_clickhouse_manifest(
     # Record the Phase 1 run-level price basis rather than inferring it from
     # source metadata. Compatibility accessors for older reporting code live on
     # the manifest itself until the later migration phases land.
-    from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+    from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 
     # Feature/regime metadata — only populated when a FeatureService is active.
     features_database: str | None = None
@@ -139,7 +139,7 @@ def _build_clickhouse_manifest(
     start_date = start_dt.date() if hasattr(start_dt, "date") else start_dt
     end_date = end_dt.date() if hasattr(end_dt, "date") else end_dt
 
-    return ClickHouseInputManifest(
+    return ClickHouseInputManifestV2(
         source_name=data_service.dataset,
         database=database,
         features_database=features_database,

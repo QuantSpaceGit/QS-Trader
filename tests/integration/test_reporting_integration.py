@@ -30,7 +30,7 @@ from qs_trader.events.events import (
 )
 from qs_trader.events.price_basis import PriceBasis
 from qs_trader.services.reporting.config import ReportingConfig
-from qs_trader.services.reporting.manifest import ClickHouseInputManifest
+from qs_trader.services.reporting.manifest import ClickHouseInputManifestV2
 from qs_trader.services.reporting.service import ReportingService
 
 
@@ -214,8 +214,8 @@ def _integration_manifest(
     *,
     database: str = "market",
     bars_table: str = "as_us_equity_ohlc_daily",
-) -> ClickHouseInputManifest:
-    return ClickHouseInputManifest(
+) -> ClickHouseInputManifestV2:
+    return ClickHouseInputManifestV2(
         source_name="qs-datamaster-equity-1d",
         database=database,
         bars_table=bars_table,
