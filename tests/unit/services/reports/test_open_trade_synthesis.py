@@ -24,7 +24,7 @@ from qs_trader.events.events import (
     StrategyGroup,
     TradeEvent,
 )
-from qs_trader.libraries.performance.models import FullMetrics, TradeRecord
+from qs_trader.libraries.performance.models import TradeRecord
 from qs_trader.services.reporting.config import ReportingConfig
 from qs_trader.services.reporting.service import ReportingService
 
@@ -447,7 +447,6 @@ class TestSynthesizeOpenTrades:
         open_event = _make_trade_event(trade_id="T00001", status="open")
         svc._active_trade_events["T00001"] = open_event
 
-        from qs_trader.events.event_bus import EventBus
 
         closed_event = _make_trade_event(
             trade_id="T00001",
@@ -456,7 +455,6 @@ class TestSynthesizeOpenTrades:
             entry_timestamp=_ENTRY_TS,
         )
         # Manually trigger the handler (the event bus is not wired in this unit test)
-        from qs_trader.events.events import BaseEvent
 
         svc._handle_trade(closed_event)
 

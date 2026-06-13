@@ -8,9 +8,8 @@ Covers:
 
 from datetime import datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from qs_trader.engine.config import BacktestConfig, DataSelectionConfig, DataSourceConfig, RiskPolicyConfig
 from qs_trader.engine.engine import BacktestEngine, BacktestResult

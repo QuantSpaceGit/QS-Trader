@@ -162,6 +162,12 @@ def test_ignores_non_indicator_events() -> None:
             confidence=Decimal("0.85"),
             source_service="strategy_service",
             correlation_id="550e8400-e29b-41d4-a716-446655440041",
+            runtime_symbol="AAPL",
+            secid=1,
+            display_symbol="AAPL",
+            candidate_id="550e8400-e29b-41d4-a716-446655440042",
+            decision_status="not_ready",
+            final_action="open_long",
         )
     )
 

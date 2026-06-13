@@ -52,6 +52,7 @@ def _build_clickhouse_manifest(
     source_symbols: list[str],
     feature_service: Any | None,
     feature_config: Any | None,
+    resolved_instruments: tuple[Any, ...] = (),
 ) -> "ClickHouseInputManifest | None":
     """Build a ClickHouseInputManifest for canonical qs-datamaster runs.
 
@@ -153,6 +154,7 @@ def _build_clickhouse_manifest(
         feature_set_version=feature_set_version,
         regime_version=regime_version,
         feature_columns=tuple(feature_columns) if feature_columns is not None else None,
+        resolved_instruments=resolved_instruments,
     )
 
 
@@ -455,6 +457,7 @@ class BacktestEngine:
         # e.g., "yahoo-us-equity-1d-csv" -> provider="yahoo"
         first_source = config.data.sources[0]
         dataset = first_source.name
+        identity_mode = getattr(first_source, "identity_mode", "legacy")
 
         # Build config dict that from_config() expects
         # Provider will be extracted from dataset name inside from_config()
@@ -462,11 +465,119 @@ class BacktestEngine:
             "dataset": dataset,
         }
 
+        # Pre-resolve instruments for manifest when identity_mode requires resolution
+        resolved_instrument_entries: tuple = ()
+        instrument_resolver_for_service: Any = None
+        if identity_mode in ("resolve", "secid"):
+            ch_client: Any = None
+            try:
+                from clickhouse_connect import get_client
+
+                from qs_trader.services.data.instrument_resolver import InstrumentResolver
+                from qs_trader.services.reporting.manifest import (
+                    ResolvedInstrumentEntry,
+                    TickerHistoryEntry,
+                )
+
+                # Resolve ClickHouse connection from the first data source config
+                ch_connect_kwargs: dict = {}
+                try:
+                    from qs_trader.services.data.adapters.resolver import DataSourceResolver
+
+                    _tmp_resolver = DataSourceResolver(
+                        system_sources_config=(
+                            system_config.data.sources_config if system_config else None
+                        )
+                    )
+                    _src_cfg = _tmp_resolver.get_source_config(dataset)
+                    _ch_cfg = _src_cfg.get("clickhouse", {}) or {}
+                    if _ch_cfg:
+                        ch_connect_kwargs = {
+                            "host": _ch_cfg.get("host", "localhost"),
+                            "port": int(_ch_cfg.get("port", 8123)),
+                            "user": _ch_cfg.get("user", "default"),
+                            "password": _ch_cfg.get("password", ""),
+                            "database": _ch_cfg.get("database", "market"),
+                        }
+                except Exception as _resolver_exc:
+                    if identity_mode == "secid":
+                        raise RuntimeError(
+                            f"identity_mode=secid requires ClickHouse resolution config, "
+                            f"but resolver setup failed: {_resolver_exc}"
+                        ) from _resolver_exc
+                    logger.warning(
+                        "backtest.engine.clickhouse_resolver_for_resolution_failed",
+                        error=str(_resolver_exc),
+                        note="Instrument resolution will be skipped (identity_mode=resolve allows fallback)",
+                    )
+
+                if ch_connect_kwargs:
+                    ch_client = get_client(**ch_connect_kwargs)
+                    instrument_resolver_for_service = InstrumentResolver(
+                        clickhouse_client=ch_client,
+                        database=ch_connect_kwargs.get("database", "market"),
+                        ticker_history_table="as_secmaster_ticker_history",
+                    )
+
+                    # Resolve all symbols in the universe
+                    date_range = (config.start_date.date() if hasattr(config.start_date, "date") else config.start_date,
+                                  config.end_date.date() if hasattr(config.end_date, "date") else config.end_date)
+                    resolved_map = instrument_resolver_for_service.resolve_batch(
+                        list(first_source.universe), date_range=date_range
+                    )
+
+                    resolved_entries = []
+                    for sym, resolved in resolved_map.items():
+                        ticker_history_entries = [
+                            TickerHistoryEntry(
+                                ticker=th.ticker,
+                                start_date=th.start_date,
+                                end_date=th.end_date,
+                            )
+                            for th in resolved.ticker_history
+                        ]
+                        resolved_entries.append(
+                            ResolvedInstrumentEntry(
+                                runtime_symbol=sym,
+                                requested_symbol=sym,
+                                secid=resolved.secid,
+                                display_symbol=resolved.display_symbol,
+                                first_date=resolved.first_date,
+                                last_date=resolved.last_date,
+                                ticker_history=ticker_history_entries,
+                                resolution={
+                                    "identity_source": resolved.identity_source.value,
+                                    "ticker_at_date": resolved.ticker_at_date,
+                                },
+                            )
+                        )
+                    resolved_instrument_entries = tuple(resolved_entries)
+                    logger.info(
+                        "backtest.engine.instruments_resolved_for_manifest",
+                        count=len(resolved_instrument_entries),
+                    )
+            except Exception as _resolution_exc:
+                if identity_mode in ("secid", "resolve"):
+                    raise RuntimeError(
+                        f"identity_mode={identity_mode} requires successful instrument resolution, "
+                        f"but resolution failed: {_resolution_exc}"
+                    ) from _resolution_exc
+                logger.warning(
+                    "backtest.engine.instrument_resolution_for_manifest_failed",
+                    error=str(_resolution_exc),
+                    note="Manifest will be built without resolved_instruments (identity_mode=legacy allows fallback)",
+                )
+            finally:
+                if ch_client is not None:
+                    ch_client.close()
+
         data_service = DataService.from_config(
             config_dict=config_dict,
             dataset=dataset,
             event_bus=event_bus,
             system_config=system_config,
+            identity_mode=identity_mode,
+            instrument_resolver=instrument_resolver_for_service,
         )
 
         # Initialize StrategyService if strategies configured
@@ -777,6 +888,7 @@ class BacktestEngine:
                 source_symbols=list(first_source.universe),
                 feature_service=feature_service,
                 feature_config=getattr(config, "feature_config", None),
+                resolved_instruments=resolved_instrument_entries,
             ),
             effective_execution_spec=effective_execution_spec,
         )

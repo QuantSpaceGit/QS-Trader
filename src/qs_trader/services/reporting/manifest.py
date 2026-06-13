@@ -72,7 +72,7 @@ from __future__ import annotations
 import re
 import warnings
 from datetime import date
-from typing import Any, Literal, Union
+from typing import Any, Literal, TypeAlias, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -337,11 +337,11 @@ class ClickHouseInputManifestV2(BaseModel):
 # Versioned reader (discriminated union)
 # ---------------------------------------------------------------------------
 
-# Type alias for the union of all manifest versions.
-ClickHouseInputManifest = Union[ClickHouseInputManifestV1, ClickHouseInputManifestV2]
+# Type alias for readers that can return any manifest version.
+ClickHouseInputManifestAny: TypeAlias = Union[ClickHouseInputManifestV1, ClickHouseInputManifestV2]
 
 
-def read_manifest(raw: str) -> ClickHouseInputManifest:
+def read_manifest(raw: str) -> ClickHouseInputManifestAny:
     """Deserialise a manifest from JSON, auto-detecting the schema version.
 
     Args:
@@ -387,3 +387,4 @@ def read_manifest(raw: str) -> ClickHouseInputManifest:
 # imports ClickHouseInputManifestV1 or ClickHouseInputManifestV2 continues
 # to work unchanged.
 ClickHouseInputManifestLatest = ClickHouseInputManifestV2
+ClickHouseInputManifest = ClickHouseInputManifestV2

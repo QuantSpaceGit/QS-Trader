@@ -42,13 +42,20 @@ class TestTickerHistoryTable:
 
     def test_resolve_by_ticker_from_history_table(self):
         """Test resolving a ticker via the normalized history table."""
-        # Mock history table query result
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("FB", date(2012, 5, 18), date(2022, 6, 8), "L"),
+                    ("META", date(2022, 6, 9), None, "L"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (3513095, "FB", date(2012, 5, 18), date(2022, 6, 8), "L"),
                 (3513095, "META", date(2022, 6, 9), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         resolved = self.resolver.resolve_by_ticker(
             ticker="META",
@@ -78,12 +85,19 @@ class TestTickerHistoryTable:
     def test_resolve_by_ticker_history_table_anchor_first_in_range(self):
         """Test anchor_first_in_range with history table (ticker reuse)."""
         # ABC ticker used by secid=1 (2020-2021) then secid=2 (2022-)
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("ABC", date(2020, 1, 1), date(2021, 1, 1), "L"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (1, "ABC", date(2020, 1, 1), date(2021, 1, 1), "L"),
                 (2, "ABC", date(2022, 1, 1), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         resolved = self.resolver.resolve_by_ticker(
             ticker="ABC",
@@ -96,12 +110,17 @@ class TestTickerHistoryTable:
 
     def test_resolve_by_ticker_history_table_fail_on_ambiguity(self):
         """Test fail_on_ambiguity with history table."""
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                return MockQueryResult([
+                    ("ABC", date(2020, 1, 1), date(2021, 1, 1), "L"),
+                ])
+            return MockQueryResult([
                 (1, "ABC", date(2020, 1, 1), date(2021, 1, 1), "L"),
                 (2, "ABC", date(2022, 1, 1), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         with pytest.raises(SecmasterAuthorityError) as exc_info:
             self.resolver.resolve_by_ticker(
@@ -116,12 +135,20 @@ class TestTickerHistoryTable:
     def test_resolve_by_ticker_history_table_time_travel(self):
         """Test time-travel: resolve ticker active at a specific historical date."""
         # FB was the ticker in 2020, META from 2022 onward
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("FB", date(2012, 5, 18), date(2022, 6, 8), "L"),
+                    ("META", date(2022, 6, 9), None, "L"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (3513095, "FB", date(2012, 5, 18), date(2022, 6, 8), "L"),
                 (3513095, "META", date(2022, 6, 9), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         # Request FB in 2020 — should resolve to secid 3513095 with ticker_at_date="FB"
         resolved = self.resolver.resolve_by_ticker(
@@ -136,11 +163,18 @@ class TestTickerHistoryTable:
 
     def test_resolve_by_ticker_history_table_current_ticker(self):
         """Test resolving a current ticker (end_date=NULL)."""
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("META", date(2022, 6, 9), None, "L"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (3513095, "META", date(2022, 6, 9), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         resolved = self.resolver.resolve_by_ticker(
             ticker="META",
@@ -249,11 +283,18 @@ class TestTickerHistoryTable:
     def test_history_table_rows_exist_but_no_date_overlap(self):
         """Test error when history table has rows but none overlap the date range."""
         # Ticker existed only in 2015, but query is for 2023-2025
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("OLD", date(2015, 1, 1), date(2015, 12, 31), "D"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (99999, "OLD", date(2015, 1, 1), date(2015, 12, 31), "D"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         with pytest.raises(SecmasterAuthorityError) as exc_info:
             self.resolver.resolve_by_ticker(
@@ -265,11 +306,18 @@ class TestTickerHistoryTable:
 
     def test_history_table_caching(self):
         """Test that history table results are cached."""
-        self.mock_client.query.return_value = MockQueryResult(
-            [
+        def mock_query(query, parameters):
+            if "WHERE secid =" in query:
+                # Second query: full secid history (4 columns)
+                return MockQueryResult([
+                    ("META", date(2022, 6, 9), None, "L"),
+                ])
+            # First query: ticker lookup (5 columns)
+            return MockQueryResult([
                 (3513095, "META", date(2022, 6, 9), None, "L"),
-            ]
-        )
+            ])
+
+        self.mock_client.query.side_effect = mock_query
 
         resolved1 = self.resolver.resolve_by_ticker(
             ticker="META",
@@ -281,6 +329,7 @@ class TestTickerHistoryTable:
             date_range=(date(2023, 1, 1), date(2023, 12, 31)),
         )
 
-        # Should only query once (cached)
-        assert self.mock_client.query.call_count == 1
+        # First resolution makes 2 queries (ticker lookup + full secid history).
+        # Second resolution hits the cache (0 additional queries).
+        assert self.mock_client.query.call_count == 2
         assert resolved1.secid == resolved2.secid

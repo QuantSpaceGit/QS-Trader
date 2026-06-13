@@ -21,7 +21,15 @@
     "decision_type",
     "decision_price",
     "decision_basis",
-    "confidence"
+    "confidence",
+    "runtime_symbol",
+    "secid",
+    "display_symbol",
+    "candidate_id",
+    "decision_status",
+    "final_action",
+    "gates",
+    "diagnostics"
   ],
   "properties": {
     "decision_id": { "type": "string", "format": "uuid" },
@@ -47,7 +55,33 @@
     "confidence": { "$ref": "#/$defs/decimal" },
     "indicator_context": { "type": ["object", "null"], "additionalProperties": true },
     "reason": { "type": ["string", "null"] },
-    "metadata": { "type": ["object", "null"], "additionalProperties": true }
+    "metadata": { "type": ["object", "null"], "additionalProperties": true },
+    "runtime_symbol": { "type": "string", "minLength": 1 },
+    "secid": { "type": "integer", "minimum": 0 },
+    "display_symbol": { "type": "string", "minLength": 1 },
+    "candidate_id": { "type": "string", "minLength": 1 },
+    "decision_status": {
+      "type": "string",
+      "enum": ["accepted", "rejected", "ignored", "not_ready"]
+    },
+    "final_action": {
+      "type": "string",
+      "enum": [
+        "open_long",
+        "close_long",
+        "open_short",
+        "close_short",
+        "none"
+      ]
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    }
   },
   "additionalProperties": false
 }

@@ -33,6 +33,18 @@ logger = structlog.get_logger(__name__)
 
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Far-future sentinel date threshold.  Dates on or after this year in
+# ticker-history end_date are treated as NULL ("current ticker").
+# Live data may use 2299-12-31 or 2999-12-31 as the sentinel.
+_SENTINEL_YEAR_THRESHOLD = 2200
+
+
+def _normalize_sentinel_end_date(end_date: date | None) -> date | None:
+    """Treat far-future sentinel dates as NULL (current ticker)."""
+    if end_date is not None and end_date.year >= _SENTINEL_YEAR_THRESHOLD:
+        return None
+    return end_date
+
 
 class SecmasterAuthorityError(Exception):
     """Raised when a ticker or secid is not found in secmaster.
@@ -660,6 +672,9 @@ class InstrumentResolver:
             start_date = self._parse_date(start_str)
             end_date = self._parse_date(end_str) if end_str else None
 
+            # Treat far-future sentinel dates as NULL (current ticker)
+            end_date = _normalize_sentinel_end_date(end_date)
+
             history.append(
                 TickerHistory(
                     ticker=ticker,
@@ -806,6 +821,8 @@ class InstrumentResolver:
         secid_to_history: Dict[int, List[TickerHistory]] = {}
         for row in result.result_rows:
             secid, row_ticker, row_start, row_end, _liststatus = row
+            # Normalize far-future sentinel end_date to NULL
+            row_end = _normalize_sentinel_end_date(row_end)
             th = TickerHistory(
                 ticker=row_ticker,
                 start_date=row_start,
@@ -867,19 +884,81 @@ class InstrumentResolver:
                     f"Candidates: {[(c.secid, str(c.first_date), str(c.last_date)) for c in candidates]}",
                     ticker=ticker,
                 )
-            return self._build_resolved_instrument(
-                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, (start_date, end_date)
-            )
+            winning = candidates[0]
         elif policy == "anchor_first_in_range":
             candidates.sort(key=lambda c: c.first_date)
-            return self._build_resolved_instrument(
-                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, (start_date, end_date)
+            winning = candidates[0]
+        else:
+            raise ValueError(
+                f"Invalid policy '{policy}'. "
+                f"Must be 'anchor_first_in_range' or 'fail_on_ambiguity'."
             )
 
-        raise ValueError(
-            f"Invalid policy '{policy}'. "
-            f"Must be 'anchor_first_in_range' or 'fail_on_ambiguity'."
+        # Second query: fetch ALL ticker history rows for the resolved secid
+        # so that ticker_history includes the complete record (e.g. FB→META).
+        full_history = self._fetch_full_secid_history(winning.secid)
+        if full_history is not None:
+            winning = CandidateMapping(
+                secid=winning.secid,
+                first_date=winning.first_date,
+                last_date=winning.last_date,
+                ticker_history=full_history,
+            )
+
+        return self._build_resolved_instrument(
+            winning, ticker, IdentitySource.TICKER_POINT_IN_TIME, (start_date, end_date)
         )
+
+    def _fetch_full_secid_history(
+        self, secid: int
+    ) -> Optional[List[TickerHistory]]:
+        """Fetch ALL ticker history rows for a secid.
+
+        Used after initial resolution to populate the complete ticker history
+        (e.g. FB→META) rather than only the rows matching the requested ticker.
+
+        Returns ``None`` when the history table is not configured or the query
+        fails, signalling that the caller should keep the existing history.
+        """
+        table = self._ticker_history_table
+        if table is None:
+            return None
+
+        query = f"""
+            SELECT ticker, start_date, end_date, liststatus
+            FROM {self._database}.{table}
+            WHERE secid = %(secid)s
+            ORDER BY start_date
+        """
+
+        try:
+            result = self._client.query(query, parameters={"secid": secid})
+        except Exception as e:
+            logger.warning(
+                "Full secid history query failed",
+                secid=secid,
+                table=table,
+                error=str(e),
+            )
+            return None
+
+        if not result.result_rows:
+            return None
+
+        history = []
+        for row in result.result_rows:
+            row_ticker, row_start, row_end, _liststatus = row
+            # Normalize far-future sentinel end_date to NULL
+            row_end = _normalize_sentinel_end_date(row_end)
+            history.append(
+                TickerHistory(
+                    ticker=row_ticker,
+                    start_date=row_start,
+                    end_date=row_end,
+                )
+            )
+
+        return history
 
     def _get_from_cache(
         self, cache_key: Tuple[str, date, date, str]

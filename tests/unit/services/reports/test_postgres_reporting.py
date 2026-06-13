@@ -274,6 +274,12 @@ def _build_lifecycle_event_store() -> InMemoryEventStore:
         confidence=Decimal("0.85"),
         source_service="strategy_service",
         correlation_id=decision_id,
+        runtime_symbol="AAPL",
+        secid=1,
+        display_symbol="AAPL",
+        candidate_id=decision_id,
+        decision_status="not_ready",
+        final_action="open_long",
     )
     order_lifecycle = OrderLifecycleEvent(
         experiment_id="exp",

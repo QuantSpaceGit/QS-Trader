@@ -117,7 +117,7 @@ def test_duplicate_same_side_open_is_suppressed_during_pending_fill_latency() ->
     projection = LifecycleIntentProjection()
     projection.bind(event_bus)
 
-    manager = ManagerService.from_config(
+    _ = ManagerService.from_config(
         {"name": "naive", "config": {}},
         event_bus,
         lifecycle_context=lifecycle_context,

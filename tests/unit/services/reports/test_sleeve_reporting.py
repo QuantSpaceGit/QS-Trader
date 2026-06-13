@@ -170,6 +170,12 @@ def test_lifecycle_rows_include_sleeve_id_column_when_present() -> None:
             confidence=Decimal("0.90"),
             source_service="strategy_service",
             correlation_id="550e8400-e29b-41d4-a716-446655440402",
+            runtime_symbol="AAPL",
+            secid=1,
+            display_symbol="AAPL",
+            candidate_id="550e8400-e29b-41d4-a716-446655440401",
+            decision_status="not_ready",
+            final_action="open_long",
         )
     )
 
@@ -238,6 +244,12 @@ def test_postgresql_writer_passes_sleeve_id_for_lifecycle_rows() -> None:
             confidence=Decimal("0.90"),
             source_service="strategy_service",
             correlation_id="550e8400-e29b-41d4-a716-446655440404",
+            runtime_symbol="AAPL",
+            secid=1,
+            display_symbol="AAPL",
+            candidate_id="550e8400-e29b-41d4-a716-446655440403",
+            decision_status="not_ready",
+            final_action="open_long",
         )
     )
 

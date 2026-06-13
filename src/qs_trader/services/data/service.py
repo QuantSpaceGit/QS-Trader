@@ -7,7 +7,7 @@ data streaming from vendor adapters via EventBus.
 import heapq
 import time
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import structlog
 
@@ -19,6 +19,9 @@ from qs_trader.services.data.config import DataConfig
 from qs_trader.services.data.config import DataConfig as ServiceDataConfig
 from qs_trader.services.data.models import Instrument
 from qs_trader.services.data.source_selector import AssetClass, DataSourceSelector
+
+if TYPE_CHECKING:
+    from qs_trader.services.data.instrument_resolver import InstrumentResolver
 
 logger = structlog.get_logger()
 
@@ -90,6 +93,8 @@ class DataService:
         dataset: str,
         resolver: Optional[DataSourceResolver] = None,
         event_bus: Optional[IEventBus] = None,
+        identity_mode: str = "legacy",
+        instrument_resolver: Optional["InstrumentResolver"] = None,
     ):
         """
         Initialize data service.
@@ -100,21 +105,18 @@ class DataService:
             resolver: Data source resolver (creates default if None)
             event_bus: Optional EventBus for publishing PriceBarEvent and CorporateActionEvent.
                       If None, DataService operates in non-event mode (pull-based).
-
-        Examples:
-            >>> # With EventBus (event-driven mode)
-            >>> from qs_trader.events.event_bus import EventBus
-            >>> bus = EventBus()
-            >>> service = DataService(config, dataset="yahoo-us-equity-1d-csv", event_bus=bus)
-            >>>
-            >>> # With custom resolver
-            >>> resolver = DataSourceResolver("config/custom_sources.yaml")
-            >>> service = DataService(config, dataset="yahoo-us-equity-1d-csv", resolver=resolver)
+            identity_mode: Instrument identity mode — "legacy" (default, ticker-only),
+                          "resolve" (resolve then load, fallback on failure),
+                          or "secid" (require secid, fail if unavailable).
+            instrument_resolver: Optional InstrumentResolver for secmaster-backed identity
+                                resolution when identity_mode is "secid".
         """
         self.config = config
         self.resolver = resolver or DataSourceResolver()
         self._event_bus = event_bus
         self.dataset = dataset
+        self.identity_mode = identity_mode
+        self._instrument_resolver = instrument_resolver
 
         # Validate dataset exists
         if self.dataset not in self.resolver.sources:
@@ -141,6 +143,8 @@ class DataService:
         event_bus: Optional[IEventBus] = None,
         timezone: Optional[str] = None,
         system_config: Optional[Any] = None,
+        identity_mode: str = "legacy",
+        instrument_resolver: Optional["InstrumentResolver"] = None,
     ) -> "DataService":
         """
         Factory method to create DataService from backtest configuration.
@@ -251,14 +255,22 @@ class DataService:
             dataset=dataset,
             resolver=resolver,
             event_bus=event_bus,
+            identity_mode=identity_mode,
+            instrument_resolver=instrument_resolver,
         )
 
-    def _create_adapter(self, symbol: str):
+    def _create_adapter(
+        self,
+        symbol: str,
+        date_range: Optional[Tuple[date, date]] = None,
+    ):
         """
         Create adapter for symbol using resolver.
 
         Args:
             symbol: Ticker symbol
+            date_range: Optional (start_date, end_date) for secid resolution
+                       when identity_mode is "secid".
 
         Returns:
             Configured adapter instance (type depends on dataset configuration)
@@ -266,8 +278,49 @@ class DataService:
         Raises:
             ValueError: If adapter configuration missing or dataset not found
         """
-        # Create minimal instrument (just symbol)
-        instrument = Instrument(symbol=symbol)
+        # Resolve instrument identity when identity_mode requires resolution
+        if (
+            self.identity_mode in ("resolve", "secid")
+            and self._instrument_resolver is not None
+            and date_range is not None
+        ):
+            try:
+                resolved = self._instrument_resolver.resolve_by_ticker(
+                    symbol, date_range=date_range
+                )
+                instrument = Instrument(
+                    symbol=symbol,
+                    secid=resolved.secid,
+                    display_symbol=resolved.display_symbol,
+                    ticker_at_date=resolved.ticker_at_date,
+                    identity_source=resolved.identity_source,
+                )
+                logger.info(
+                    "data_service.instrument_resolved",
+                    ticker=symbol,
+                    secid=resolved.secid,
+                    display_symbol=resolved.display_symbol,
+                )
+            except Exception as e:
+                if self.identity_mode in ("secid", "resolve"):
+                    logger.error(
+                        "data_service.instrument_resolution_failed_hard_fail",
+                        ticker=symbol,
+                        error=str(e),
+                        note=f"identity_mode={self.identity_mode} requires successful resolution; not falling back",
+                    )
+                    raise
+                # identity_mode="legacy" allows fallback
+                logger.warning(
+                    "data_service.instrument_resolution_failed",
+                    ticker=symbol,
+                    error=str(e),
+                    note="Falling back to ticker-only instrument (identity_mode=legacy)",
+                )
+                instrument = Instrument(symbol=symbol)
+        else:
+            # identity_mode="legacy" (or missing resolver/date_range): ticker-only
+            instrument = Instrument(symbol=symbol)
 
         # Use resolver to create appropriate adapter for the dataset
         if not self.dataset:
@@ -348,7 +401,7 @@ class DataService:
         )
 
         # Create adapter directly (bypass loader/series/iterator layers)
-        adapter = self._create_adapter(symbol)
+        adapter = self._create_adapter(symbol, date_range=(start, end))
 
         # Stream bars directly from adapter
         bar_count = 0
@@ -479,7 +532,7 @@ class DataService:
 
         for symbol in symbols:
             try:
-                adapter = self._create_adapter(symbol)
+                adapter = self._create_adapter(symbol, date_range=(start, end))
                 adapters[symbol] = adapter
             except (ValueError, FileNotFoundError) as e:
                 logger.warning("data_service.stream_universe.adapter_failed", symbol=symbol, error=str(e))
@@ -883,7 +936,7 @@ class DataService:
         )
 
         # Create adapter for this symbol using resolver
-        adapter = self._create_adapter(symbol)
+        adapter = self._create_adapter(symbol, date_range=(start_date, end_date))
 
         # Check if adapter supports corporate actions
         if not hasattr(adapter, "get_corporate_actions"):

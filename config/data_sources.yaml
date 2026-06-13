@@ -1,0 +1,15 @@
+data_sources:
+  yahoo-us-equity-1d-csv:
+    provider: yahoo
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjusted: false
+    timezone: America/New_York
+    price_currency: USD
+    price_scale: 2
+    synthetic_adjust_ohlc: true
+    adapter: yahoo_csv
+    root_path: tests/fixtures/data/us-equity-yahoo-csv
+    path_template: "{root_path}/{symbol}.csv"

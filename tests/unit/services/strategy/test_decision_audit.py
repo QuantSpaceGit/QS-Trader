@@ -4,9 +4,7 @@ Tests StrategyDecisionEvent validation, Context.track_decision,
 deterministic candidate_id, and CSV persistence.
 """
 
-import json
 import tempfile
-from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -39,6 +37,12 @@ def _make_decision_event(**overrides: object) -> StrategyDecisionEvent:
         "confidence": Decimal("0.85"),
         "experiment_id": "test-experiment",
         "run_id": "test-run",
+        "runtime_symbol": "AAPL",
+        "secid": 12345,
+        "display_symbol": "AAPL",
+        "candidate_id": "abc123",
+        "decision_status": "accepted",
+        "final_action": "open_long",
     }
     kwargs.update(overrides)
     return StrategyDecisionEvent(**kwargs)
@@ -54,6 +58,27 @@ class TestStrategyDecisionEvent:
         assert event.decision_id == "00000000-0000-0000-0000-000000000001"
         assert event.strategy_id == "test_strategy"
         assert event.symbol == "AAPL"
+
+    def test_legacy_event_constructor_defaults_candidate_audit_fields(self):
+        event = StrategyDecisionEvent(
+            decision_id="00000000-0000-0000-0000-000000000001",
+            strategy_id="test_strategy",
+            symbol="AAPL",
+            bar_timestamp="2024-01-15T16:00:00Z",
+            decision_type="hold",
+            decision_price=Decimal("150.25"),
+            decision_basis="adjusted",
+            confidence=Decimal("0.85"),
+            experiment_id="test-experiment",
+            run_id="test-run",
+        )
+
+        assert event.runtime_symbol == "AAPL"
+        assert event.display_symbol == "AAPL"
+        assert event.secid == 0
+        assert event.candidate_id == "00000000-0000-0000-0000-000000000001"
+        assert event.decision_status == "not_ready"
+        assert event.final_action == "none"
 
     def test_optional_audit_fields(self):
         event = _make_decision_event(
@@ -159,9 +184,9 @@ class TestContextTrackDecision:
         record = context.track_decision(
             candidate_id=candidate_id,
             decision_status="rejected",
-            final_action="skip",
+            final_action="none",
             reason_code="gate_failed",
-            gates={"momentum": "fail", "volatility": "pass"},
+            gates={"momentum": False, "volatility": True},
             diagnostics={"momentum_score": -0.1},
             secid=12345,
             symbol="AAPL",
@@ -170,7 +195,7 @@ class TestContextTrackDecision:
             decision_price=150.25,
         )
 
-        assert record["gates"] == {"momentum": "fail", "volatility": "pass"}
+        assert record["gates"] == {"momentum": False, "volatility": True}
         assert record["diagnostics"] == {"momentum_score": -0.1}
         assert record["secid"] == 12345
         assert record["symbol"] == "AAPL"
@@ -246,7 +271,7 @@ class TestPersistDecisionsCsv:
                 "decision_status": "accepted",
                 "final_action": "open_long",
                 "reason_code": "signal",
-                "gates": {"gate1": "pass"},
+                "gates": {"gate1": True},
                 "diagnostics": {},
                 "strategy_version": "1.0",
                 "parameter_hash": "hash1",
@@ -285,7 +310,7 @@ class TestPersistDecisionsCsv:
                 "decision_status": "accepted",
                 "final_action": "open_long",
                 "reason_code": "signal",
-                "gates": {"momentum": "pass", "volatility": "fail"},
+                "gates": {"momentum": True, "volatility": False},
                 "diagnostics": {"score": 0.85},
                 "strategy_version": "1.0",
                 "parameter_hash": "hash1",
@@ -303,4 +328,4 @@ class TestPersistDecisionsCsv:
 
             content = path.read_text()
             # Complex types should be JSON serialized
-            assert '"momentum": "pass"' in content or "momentum" in content
+            assert '"momentum": true' in content or "momentum" in content

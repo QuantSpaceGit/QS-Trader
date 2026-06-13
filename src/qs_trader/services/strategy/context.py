@@ -208,6 +208,14 @@ class Context:
             else:
                 occurred_at_dt = occurred_at_dt.astimezone(timezone.utc)
 
+            decision_type = self._map_intention_to_decision_type(intention, normalized_intent_type)
+            # Map to a valid final_action value per OpenSpec candidate-decision contract.
+            # decision_type may include scale_in/scale_out/hold/skip/reverse, but
+            # final_action is restricted to the canonical candidate-decision actions.
+            _VALID_FINAL_ACTIONS = frozenset({
+                "open_long", "close_long", "open_short", "close_short", "none",
+            })
+            final_action = decision_type if decision_type in _VALID_FINAL_ACTIONS else "none"
             decision_event = StrategyDecisionEvent(
                 experiment_id=self._lifecycle_context.experiment_id,
                 run_id=self._lifecycle_context.run_id,
@@ -217,7 +225,7 @@ class Context:
                 strategy_id=self._strategy_id,
                 symbol=symbol,
                 bar_timestamp=timestamp,
-                decision_type=self._map_intention_to_decision_type(intention, normalized_intent_type),
+                decision_type=decision_type,
                 decision_price=price,
                 decision_basis=self._lifecycle_context.decision_basis,
                 confidence=confidence,
@@ -226,6 +234,12 @@ class Context:
                 metadata=metadata,
                 source_service="strategy_service",
                 correlation_id=correlation_id,
+                runtime_symbol=symbol,
+                secid=0,
+                display_symbol=symbol,
+                candidate_id=decision_id,
+                decision_status="not_ready",
+                final_action=final_action,
             )
             self._event_bus.publish(decision_event)
         else:
@@ -1072,10 +1086,14 @@ class Context:
         All fields beyond the required four are optional to allow graceful
         degradation when data is unavailable.
 
+        When a ``LifecycleRunContext`` is available, this method also publishes
+        a ``StrategyDecisionEvent`` to the event bus automatically so that the
+        decision is captured in the append-only ledger.
+
         Args:
             candidate_id: Deterministic candidate identifier (SHA-256).
             decision_status: High-level status (e.g. "accepted", "rejected", "skipped").
-            final_action: The action taken (e.g. "open_long", "hold", "skip").
+            final_action: The action taken (e.g. "open_long", "close_long", "none").
             reason_code: Machine-readable reason code for the decision.
             gates: Gate evaluation results (pass/fail per gate).
             diagnostics: Additional diagnostic information.
@@ -1113,6 +1131,58 @@ class Context:
         }
 
         self._decisions.append(record)
+
+        # Publish to event bus when lifecycle context is available
+        if self._lifecycle_context is not None:
+            # Map to a valid final_action value per OpenSpec candidate-decision contract.
+            _VALID_FINAL_ACTIONS = frozenset({
+                "open_long", "close_long", "open_short", "close_short", "none",
+            })
+            safe_final_action = final_action if final_action in _VALID_FINAL_ACTIONS else "none"
+
+            # Generate a proper UUID for the decision event (not the candidate_id)
+            decision_event_id = str(uuid.uuid4())
+
+            # Ensure bar_timestamp is a full datetime, not date-only
+            if date:
+                # If date is date-only (YYYY-MM-DD), append time component
+                bar_ts = date if "T" in date else f"{date}T00:00:00+00:00"
+            else:
+                bar_ts = datetime.now(timezone.utc).isoformat()
+
+            # decision_type must always be a valid schema enum value.
+            # final_action may be "none" (rejected/no-action), but "none" is
+            # NOT a valid decision_type — map it to "hold" instead.
+            _DECISION_TYPE_FALLBACK = "hold"
+            safe_decision_type = final_action if final_action != "none" else _DECISION_TYPE_FALLBACK
+
+            decision_event = StrategyDecisionEvent(
+                experiment_id=self._lifecycle_context.experiment_id,
+                run_id=self._lifecycle_context.run_id,
+                sleeve_id=self._lifecycle_context.sleeve_id,
+                occurred_at=datetime.now(timezone.utc),
+                decision_id=decision_event_id,
+                strategy_id=self._strategy_id,
+                symbol=symbol or "",
+                bar_timestamp=bar_ts,
+                decision_type=safe_decision_type,
+                decision_price=Decimal(str(decision_price)) if decision_price is not None else Decimal("0"),
+                decision_basis=self._lifecycle_context.decision_basis,
+                confidence=Decimal(str(confidence)) if confidence is not None else Decimal("0"),
+                indicator_context=indicator_context,
+                reason=reason_code,
+                metadata=metadata,
+                source_service="strategy_service",
+                runtime_symbol=symbol or "",
+                secid=secid if secid is not None else 0,
+                display_symbol=(metadata.get("display_symbol") if metadata else None) or symbol or "",
+                candidate_id=candidate_id,
+                decision_status=decision_status,
+                final_action=safe_final_action,
+                gates=gates if gates is not None else {},
+                diagnostics=diagnostics if diagnostics is not None else {},
+            )
+            self._event_bus.publish(decision_event)
 
         logger.debug(
             "strategy.decision.tracked",

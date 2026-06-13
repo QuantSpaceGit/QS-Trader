@@ -22,15 +22,55 @@ from qs_trader.events.price_basis import PriceBasis
 from qs_trader.libraries.risk.models import SleeveBudget, SleeveId
 
 
+class ResolutionConfig(BaseModel):
+    """Resolution policy for ticker-to-secid mapping."""
+
+    ticker_policy: str = Field(
+        default="anchor_first_in_range",
+        description="Policy for ambiguous ticker resolution: "
+        "'anchor_first_in_range' (default, pick earliest secid in range) "
+        "or 'fail_on_ambiguity' (raise error when ticker maps to multiple secids).",
+    )
+
+
 class DataSourceConfig(BaseModel):
     """Configuration for a single data source with its universe.
 
     Allows specifying different symbols for different data sources.
     Example: Load AAPL prices from one source, AAPL news from another.
+
+    Identity modes:
+    - ``legacy``: Ticker-only identity (original behavior, no resolution).
+    - ``resolve``: Resolve ticker to secid via InstrumentResolver, then load bars.
+      Falls back to ticker-only if resolution fails.
+    - ``secid``: Require secid identity; raise if resolution fails (no fallback).
     """
 
     name: str = Field(..., description="Data source name from data_sources.yaml")
     universe: list[str] = Field(..., description="Symbols to load from this data source")
+    identity_mode: str = Field(
+        default="legacy",
+        description="Instrument identity mode: 'legacy' (ticker-only, backward compatible, default), "
+        "'resolve' (resolve then load, fallback on failure), "
+        "or 'secid' (require secid, fail if unavailable).",
+    )
+    resolution: ResolutionConfig | None = Field(
+        default=None,
+        description="Optional resolution policy configuration. "
+        "When omitted, uses default anchor_first_in_range policy.",
+    )
+
+
+    @field_validator("identity_mode")
+    @classmethod
+    def validate_identity_mode(cls, v: str) -> str:
+        """Restrict identity_mode to the supported set."""
+        allowed = {"legacy", "resolve", "secid"}
+        if v not in allowed:
+            raise ValueError(
+                f"identity_mode must be one of {sorted(allowed)}, got {v!r}"
+            )
+        return v
 
 
 class DataSelectionConfig(BaseModel):

@@ -6,10 +6,8 @@ and ticker compatibility views.
 
 import json
 import tempfile
-from datetime import date
 from pathlib import Path
 
-import pytest
 
 from qs_trader.services.reporting.reporting_persistence import (
     build_ticker_compatibility_view,

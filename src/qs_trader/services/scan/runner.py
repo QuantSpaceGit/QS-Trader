@@ -111,13 +111,14 @@ class ScanRunner:
 
     def run(
         self,
-        tickers: list[str],
-        date_range: tuple[date, date],
-        output_dir: Path,
+        tickers: list[str] | None = None,
+        date_range: tuple[date, date] | None = None,
+        output_dir: Path | None = None,
         filename: str = "candidate_scan_results.csv",
         ticker_policy: str = "anchor_first_in_range",
+        secids: list[int] | None = None,
     ) -> tuple[list[ScanResult], ScanSummary]:
-        """Execute the scan over the given tickers and date range.
+        """Execute the scan over the given tickers or secids and date range.
 
         Args:
             tickers: List of ticker symbols to scan.
@@ -125,15 +126,24 @@ class ScanRunner:
             output_dir: Directory to write results.
             filename: Output CSV filename.
             ticker_policy: Resolution policy for InstrumentResolver.
+            secids: List of secids to scan directly (bypasses ticker resolution).
 
         Returns:
             (results, summary) tuple.
         """
-        results: list[ScanResult] = []
-        summary = ScanSummary(total_instruments=len(tickers))
+        if tickers is None:
+            tickers = []
+        if date_range is None:
+            raise ValueError("date_range is required")
+        if output_dir is None:
+            raise ValueError("output_dir is required")
 
-        # Batch resolve tickers
-        resolved = self._resolve_batch(tickers, date_range, ticker_policy, summary)
+        results: list[ScanResult] = []
+        summary = ScanSummary()
+
+        # Resolve instruments: secids directly, tickers via resolver
+        resolved = self._resolve_instruments(tickers, secids, date_range, ticker_policy, summary)
+        summary.total_instruments = len(resolved)
 
         for ticker, instrument in resolved.items():
             try:
@@ -163,40 +173,58 @@ class ScanRunner:
 
         return results, summary
 
-    def _resolve_batch(
+    def _resolve_instruments(
         self,
         tickers: list[str],
+        secids: list[int] | None,
         date_range: tuple[date, date],
         policy: str,
         summary: ScanSummary,
     ) -> dict[str, Any]:
-        """Resolve tickers to instruments via InstrumentResolver."""
-        if self._resolver is None:
-            # Fallback: create minimal resolved instruments without secid
-            return {
-                t: _MinimalInstrument(
-                    secid=None,
-                    display_symbol=t,
-                    ticker_at_date=t,
-                    runtime_symbol=t,
-                )
-                for t in tickers
-            }
+        """Resolve tickers and/or secids to instruments."""
+        resolved: dict[str, Any] = {}
 
-        try:
-            return self._resolver.resolve_batch(tickers, date_range, policy)
-        except Exception as e:
-            logger.error("scan.batch_resolution_failed", error=str(e))
-            # Fall back to unresolved
-            return {
-                t: _MinimalInstrument(
-                    secid=None,
-                    display_symbol=t,
-                    ticker_at_date=t,
-                    runtime_symbol=t,
+        # Resolve secids directly
+        if secids:
+            if self._resolver is None:
+                raise RuntimeError(
+                    "InstrumentResolver is required for secid resolution. "
+                    "Provide --data-source or configure an InstrumentResolver."
                 )
-                for t in tickers
-            }
+            for secid in secids:
+                try:
+                    instrument = self._resolver.resolve_by_secid(secid, date_range)
+                    resolved[str(secid)] = instrument
+                except Exception as e:
+                    summary.instruments_failed += 1
+                    summary.failures.append(f"secid:{secid}: {e}")
+                    logger.error(
+                        "scan.secid_resolution_failed",
+                        secid=secid,
+                        error=str(e),
+                    )
+
+        # Resolve tickers via batch resolution
+        if tickers:
+            if self._resolver is None:
+                raise RuntimeError(
+                    "InstrumentResolver is required for candidate scan. "
+                    "Provide --data-source or configure an InstrumentResolver."
+                )
+            try:
+                ticker_resolved = self._resolver.resolve_batch(tickers, date_range, policy)
+                resolved.update(ticker_resolved)
+            except Exception as e:
+                summary.instruments_failed += len(tickers)
+                for ticker in tickers:
+                    summary.failures.append(f"{ticker}: {e}")
+                logger.error(
+                    "scan.ticker_batch_resolution_failed",
+                    tickers=tickers,
+                    error=str(e),
+                )
+
+        return resolved
 
     def _scan_instrument(
         self,
@@ -215,16 +243,26 @@ class ScanRunner:
         lows = data.get("lows", [])
         dates = data.get("dates", [])
 
+        # Identify feature columns (keys that are not core OHLCV/date fields)
+        _core_keys = {"closes", "highs", "lows", "dates", "opens"}
+        feature_keys = [k for k in data if k not in _core_keys]
+
         results = []
         for i, bar_date in enumerate(dates):
             date_str = str(bar_date)
 
-            # Evaluate candidate rule
-            features: dict[str, Any] = {}
+            # Extract per-bar feature values from parallel arrays
+            bar_features: dict[str, Any] = {}
+            for fk in feature_keys:
+                col = data[fk]
+                if isinstance(col, list) and i < len(col):
+                    bar_features[fk] = col[i]
+
+            # Evaluate candidate rule with actual feature values
             status, reason_code, score, gates, features = self._candidate_rule(
                 secid or 0,
                 date_str,
-                features,
+                bar_features,
             )
 
             # Compute scan metrics

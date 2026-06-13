@@ -129,6 +129,9 @@ class StrategyDecisionEvent(LifecycleValidatedEvent):
     SCHEMA_BASE: ClassVar[Optional[str]] = "lifecycle/strategy_decision"
     TYPE_FIELD: ClassVar[str] = "decision_type"
     PRICE_BASIS_FIELD: ClassVar[str | None] = "decision_basis"
+    VALID_FINAL_ACTIONS: ClassVar[frozenset[str]] = frozenset(
+        {"open_long", "close_long", "open_short", "close_short"}
+    )
 
     event_type: str = "strategy_decision"
 
@@ -144,9 +147,45 @@ class StrategyDecisionEvent(LifecycleValidatedEvent):
     reason: str | None = None
     metadata: dict[str, Any] | None = None
 
+    # Candidate-decision audit fields (Group 17 — external review remediation)
+    runtime_symbol: str
+    secid: int
+    display_symbol: str
+    candidate_id: str
+    decision_status: str
+    final_action: str
+    gates: dict[str, bool] = Field(default_factory=dict)
+    diagnostics: dict[str, float] = Field(default_factory=dict)
+
     @field_serializer("decision_price", "confidence")
     def _serialize_decimals(self, value: Decimal) -> str:
         return _serialize_required_decimal(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_candidate_audit_fields(cls, data: Any) -> Any:
+        """Populate secid-first audit fields for legacy lifecycle producers."""
+        if not isinstance(data, dict):
+            return data
+
+        values = dict(data)
+        symbol = str(values.get("symbol") or values.get("runtime_symbol") or "")
+        decision_id = str(values.get("decision_id") or "")
+        decision_type = str(values.get("decision_type") or "")
+
+        values.setdefault("runtime_symbol", symbol)
+        values.setdefault("display_symbol", symbol)
+        values.setdefault("secid", 0)
+        values.setdefault("candidate_id", decision_id)
+        values.setdefault(
+            "decision_status",
+            "accepted" if decision_type in cls.VALID_FINAL_ACTIONS else "not_ready",
+        )
+        values.setdefault(
+            "final_action",
+            decision_type if decision_type in cls.VALID_FINAL_ACTIONS else "none",
+        )
+        return values
 
 
 class OrderIntentEvent(LifecycleValidatedEvent):

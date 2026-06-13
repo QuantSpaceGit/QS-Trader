@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from qs_trader.events.event_bus import EventBus
 from qs_trader.services.reporting.config import ReportingConfig

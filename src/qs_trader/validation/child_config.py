@@ -53,5 +53,4 @@ def derive_child_config(
     return base_config.model_copy(update={
         "start_date": start_dt,
         "end_date": end_dt,
-        "backtest_id": plan.strategy_experiment,
     })

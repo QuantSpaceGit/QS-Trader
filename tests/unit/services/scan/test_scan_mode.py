@@ -255,7 +255,7 @@ class TestScanRunner:
             assert csv_path.exists()
 
     def test_run_no_resolver(self):
-        """Test with None resolver (fallback to minimal instruments)."""
+        """Test that RuntimeError is raised when resolver is missing."""
         data_loader = self._make_data_loader()
         candidate_rule = self._make_candidate_rule()
 
@@ -267,14 +267,12 @@ class TestScanRunner:
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            results, summary = runner.run(
-                tickers=["AAPL"],
-                date_range=(date(2024, 1, 1), date(2024, 1, 31)),
-                output_dir=Path(tmpdir),
-            )
-
-            assert summary.instruments_processed == 1
-            assert summary.total_rows == 6
+            with pytest.raises(RuntimeError, match="InstrumentResolver is required"):
+                runner.run(
+                    tickers=["AAPL"],
+                    date_range=(date(2024, 1, 1), date(2024, 1, 31)),
+                    output_dir=Path(tmpdir),
+                )
 
     def test_run_with_failure(self):
         """Test error handling for individual instrument failures."""
@@ -338,6 +336,71 @@ class TestScanRunner:
             assert "secid" in content
             assert "12345" in content
             assert "0.01" in content
+
+    def test_run_passes_features_from_data_loader(self):
+        """Test that feature columns from the data loader are extracted per-bar
+        and passed to the candidate rule, then persisted in features_json."""
+        captured_features: list[dict] = []
+
+        def feature_loader(identifier):
+            return {
+                "closes": [100.0, 101.0, 102.0],
+                "highs": [100.0, 101.0, 102.0],
+                "lows": [100.0, 101.0, 102.0],
+                "dates": [
+                    date(2024, 1, 15),
+                    date(2024, 1, 16),
+                    date(2024, 1, 17),
+                ],
+                "momentum": [0.1, 0.2, 0.3],
+                "volatility": [0.05, 0.06, 0.07],
+            }
+
+        def rule_with_capture(secid, date_str, features):
+            captured_features.append(dict(features))
+            return "candidate", "default", 0.5, {}, features
+
+        # Resolver with only one instrument
+        resolver = MagicMock()
+
+        class ResolvedInstrument:
+            def __init__(self, secid, display_symbol, ticker_at_date):
+                self.secid = secid
+                self.display_symbol = display_symbol
+                self.ticker_at_date = ticker_at_date
+
+        resolver.resolve_batch.return_value = {
+            "AAPL": ResolvedInstrument(12345, "AAPL", "AAPL"),
+        }
+
+        runner = ScanRunner(
+            instrument_resolver=resolver,
+            data_loader=feature_loader,
+            candidate_rule=rule_with_capture,
+            strategy_id="test_strategy",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            results, summary = runner.run(
+                tickers=["AAPL"],
+                date_range=(date(2024, 1, 1), date(2024, 1, 31)),
+                output_dir=Path(tmpdir),
+            )
+
+            assert summary.instruments_processed == 1
+            assert summary.total_rows == 3
+
+            # Verify features were captured per-bar
+            assert len(captured_features) == 3
+            assert captured_features[0] == {"momentum": 0.1, "volatility": 0.05}
+            assert captured_features[1] == {"momentum": 0.2, "volatility": 0.06}
+            assert captured_features[2] == {"momentum": 0.3, "volatility": 0.07}
+
+            # Verify features_json is populated in CSV
+            csv_path = Path(tmpdir) / "candidate_scan_results.csv"
+            content = csv_path.read_text()
+            assert "momentum" in content
+            assert "volatility" in content
 
 
 # ---------------------------------------------------------------------------

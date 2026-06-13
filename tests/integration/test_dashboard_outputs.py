@@ -453,7 +453,7 @@ class TestDecisionAuditDashboardFields:
                 "symbol": "AAPL",
                 "date": "2024-01-02",
                 "decision_status": "rejected",
-                "final_action": "skip",
+                "final_action": "none",
                 "reason_code": "risk_gate_failed",
                 "gates": {"risk": "fail"},
                 "diagnostics": {"risk_score": 0.95},

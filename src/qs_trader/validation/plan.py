@@ -649,6 +649,12 @@ def _base_config_to_canonical_dict(config: Any) -> dict[str, Any]:
     d: dict[str, Any] = config.model_dump(mode="json")
     for key in ("run_id", "job_group_id", "submission_source"):
         d.pop(key, None)
+    for source in d.get("data", {}).get("sources", []):
+        if isinstance(source, dict):
+            if source.get("identity_mode") == "legacy":
+                source.pop("identity_mode", None)
+            if source.get("resolution") is None:
+                source.pop("resolution", None)
     return d
 
 
