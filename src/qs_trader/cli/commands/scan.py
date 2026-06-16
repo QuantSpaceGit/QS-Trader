@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -14,14 +16,14 @@ console = Console()
 
 
 def _default_candidate_rule(
-    secid: int,
-    date_str: str,
-    features: dict[str, Any],
+    context: Any,
 ) -> tuple[str, str, float | None, dict[str, Any], dict[str, Any]]:
     """Default candidate rule: accept all with score=0.5.
 
     This is a pass-through rule; users should provide their own via config.
+    Supports both the new context contract and legacy tuple-return.
     """
+    features = getattr(context, "features", {}) if not isinstance(context, tuple) else {}
     return "candidate", "default_rule", 0.5, {}, features or {}
 
 
@@ -30,7 +32,34 @@ def _default_data_loader(identifier: int | str) -> dict[str, Any]:
 
     In production, this would load from ClickHouse or parquet files.
     """
-    return {"closes": [], "highs": [], "lows": [], "dates": []}
+    return {
+        "closes": [],
+        "highs": [],
+        "lows": [],
+        "dates": [],
+        "opens": [],
+        "volumes": [],
+    }
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(name: str, value: str) -> str:
+    """Validate a ClickHouse identifier for safe SQL construction.
+
+    Identifiers must start with a letter or underscore, matching the
+    canonical adapter pattern ``^[A-Za-z_][A-Za-z0-9_]*$``.
+    """
+    if not value:
+        raise ValueError(f"{name} must not be empty.")
+    if not _IDENTIFIER_RE.match(value):
+        raise ValueError(
+            f"Invalid {name}: {value!r}. "
+            "Identifiers must start with a letter or underscore and contain "
+            "only letters, numbers, and underscores."
+        )
+    return value
 
 
 def _build_data_loader(
@@ -38,6 +67,7 @@ def _build_data_loader(
     start_date: str | None = None,
     end_date: str | None = None,
     feature_columns: list[str] | None = None,
+    price_basis: str | None = None,
 ) -> Callable[[int | str], dict[str, Any]]:
     """Build a data loader for the candidate scan.
 
@@ -47,6 +77,11 @@ def _build_data_loader(
     """
     if data_source is None:
         return _default_data_loader
+
+    # Resolve price basis to column mapping
+    from qs_trader.services.scan.models import resolve_price_basis
+
+    basis_name, col_map = resolve_price_basis(price_basis)
 
     def _clickhouse_loader(identifier: int | str) -> dict[str, Any]:
         """Load OHLCV data from ClickHouse for a secid."""
@@ -63,17 +98,34 @@ def _build_data_loader(
         try:
             bars_table = __import__("os").environ.get("CLICKHOUSE_BARS_TABLE", "as_us_equity_ohlc_daily")
 
-            # Build column list: always include core OHLCV, optionally add feature columns
-            base_columns = "tradedate, open, high, low, close, dailyvolume"
+            # Validate identifiers for safe SQL construction
+            safe_database = _validate_identifier("database", database)
+            safe_bars_table = _validate_identifier("bars_table", bars_table)
+
+            # Build column list using price basis mapping
+            # Map standard names to ClickHouse column names with aliases
+            select_parts = [
+                f"tradedate",
+                f"{col_map['open']} AS open",
+                f"{col_map['high']} AS high",
+                f"{col_map['low']} AS low",
+                f"{col_map['close']} AS close",
+                f"{col_map['volume']} AS volume",
+            ]
+
+            # Validate and add feature columns
             if feature_columns:
-                extra_cols = ", " + ", ".join(feature_columns)
-                select_columns = base_columns + extra_cols
-            else:
-                select_columns = base_columns
+                from qs_trader.services.scan.models import validate_feature_columns
+
+                validated_features = validate_feature_columns(feature_columns)
+                for col in validated_features:
+                    select_parts.append(col)
+
+            select_columns = ", ".join(select_parts)
 
             query = f"""
                 SELECT {select_columns}
-                FROM {database}.{bars_table}
+                FROM {safe_database}.{safe_bars_table}
                 WHERE secid = %(secid)s
                   AND tradedate >= %(start_date)s
                   AND tradedate <= %(end_date)s
@@ -93,21 +145,25 @@ def _build_data_loader(
             highs = []
             lows = []
             closes = []
+            volumes = []
             features: dict[str, list] = {}
             if feature_columns:
                 for col in feature_columns:
                     features[col] = []
 
+            # Determine how many core columns we have (6: date + OHLCV)
+            core_count = 6
             for row in result.result_rows:
-                ts, o, h, low_val, c, _v = row[:6]
+                ts, o, h, low_val, c, v = row[:core_count]
                 dates.append(ts.date() if hasattr(ts, "date") else ts)
                 opens.append(float(o))
                 highs.append(float(h))
                 lows.append(float(low_val))
                 closes.append(float(c))
+                volumes.append(float(v))
                 if feature_columns:
                     for idx, col in enumerate(feature_columns):
-                        features[col].append(row[6 + idx])
+                        features[col].append(row[core_count + idx])
 
             return {
                 "closes": closes,
@@ -115,6 +171,7 @@ def _build_data_loader(
                 "lows": lows,
                 "dates": dates,
                 "opens": opens,
+                "volumes": volumes,
                 **features,
             }
         finally:
@@ -192,6 +249,22 @@ def _build_data_loader(
     default=None,
     help="Comma-separated feature columns to load from ClickHouse (e.g., momentum,volatility).",
 )
+@click.option(
+    "--price-basis",
+    default=None,
+    help="Price basis for OHLCV columns (default: adjusted_ohlc_adj_columns).",
+)
+@click.option(
+    "--params-json",
+    default=None,
+    help="Rule parameters as a JSON string (e.g., '{\"lookback\": 20}').",
+)
+@click.option(
+    "--params-file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Rule parameters as a JSON file path.",
+)
 def scan_candidates_command(
     tickers: tuple[str, ...],
     secid: tuple[int, ...],
@@ -205,6 +278,9 @@ def scan_candidates_command(
     data_source: str | None,
     rule: str | None,
     feature_columns: str | None,
+    price_basis: str | None,
+    params_json: str | None,
+    params_file: Path | None,
 ):
     """Scan instruments for candidate evaluation with forward returns and MFE/MAE.
 
@@ -230,6 +306,16 @@ def scan_candidates_command(
         qs-trader scan-candidates --tickers AAPL \\
             --start-date 2023-01-01 --end-date 2023-12-31 \\
             --rule my_rules.momentum_rule --feature-columns momentum,volatility
+
+        # Scan with rule parameters
+        qs-trader scan-candidates --tickers AAPL \\
+            --start-date 2023-01-01 --end-date 2023-12-31 \\
+            --params-json '{"lookback": 20, "threshold": 0.5}'
+
+        # Scan with parameters from file
+        qs-trader scan-candidates --tickers AAPL \\
+            --start-date 2023-01-01 --end-date 2023-12-31 \\
+            --params-file params.json
     """
     try:
         console.rule("[bold blue]QS-Trader Candidate Scan[/bold blue]")
@@ -251,13 +337,44 @@ def scan_candidates_command(
         all_tickers = list(tickers)
         all_secids = list(secid)
 
+        # Parse rule parameters
+        parameters: dict[str, Any] = {}
+        if params_json is not None and params_file is not None:
+            console.print("[bold red]✗ Cannot use both --params-json and --params-file.[/bold red]")
+            sys.exit(1)
+
+        if params_json is not None:
+            try:
+                parameters = json.loads(params_json)
+                if not isinstance(parameters, dict):
+                    raise ValueError("Parameters must be a JSON object.")
+            except json.JSONDecodeError as e:
+                console.print(f"[bold red]✗ Invalid --params-json: {e}[/bold red]")
+                sys.exit(1)
+
+        if params_file is not None:
+            try:
+                parameters = json.loads(params_file.read_text(encoding="utf-8"))
+                if not isinstance(parameters, dict):
+                    raise ValueError("Parameters file must contain a JSON object.")
+            except json.JSONDecodeError as e:
+                console.print(f"[bold red]✗ Invalid JSON in --params-file: {e}[/bold red]")
+                sys.exit(1)
+
+        # Resolve default price basis before passing to ScanRunner
+        from qs_trader.services.scan.models import DEFAULT_PRICE_BASIS
+
+        resolved_price_basis = price_basis if price_basis else DEFAULT_PRICE_BASIS
+
         console.print(f"[cyan]Tickers:[/cyan]     {all_tickers}")
         console.print(f"[cyan]Secids:[/cyan]      {all_secids}")
         console.print(f"[cyan]Date Range:[/cyan]  {start_date.date()} to {end_date.date()}")
         console.print(f"[cyan]Strategy:[/cyan]    {strategy_id}")
         console.print(f"[cyan]Horizons:[/cyan]    {horizon_list}")
         console.print(f"[cyan]Data Source:[/cyan] {data_source or '(default)'}")
+        console.print(f"[cyan]Price Basis:[/cyan] {resolved_price_basis}")
         console.print(f"[cyan]Features:[/cyan]    {feature_col_list or '(none)'}")
+        console.print(f"[cyan]Parameters:[/cyan]  {parameters or '(none)'}")
         console.print(f"[cyan]Output:[/cyan]      {output_dir}")
         console.print()
 
@@ -294,12 +411,13 @@ def scan_candidates_command(
                 console.print(f"[yellow]Warning: InstrumentResolver not available: {e}[/yellow]")
                 console.print("[yellow]  Scan will proceed without secid resolution.[/yellow]")
 
-        # Build data loader with date range and optional feature columns
+        # Build data loader with date range, optional feature columns, and price basis
         data_loader = _build_data_loader(
             data_source,
             start_date=start_date.date().isoformat(),
             end_date=end_date.date().isoformat(),
             feature_columns=feature_col_list,
+            price_basis=price_basis,
         )
 
         # Build candidate rule
@@ -316,6 +434,17 @@ def scan_candidates_command(
                 console.print(f"[yellow]Warning: Could not load rule '{rule}': {e}[/yellow]")
                 console.print("[yellow]  Using default candidate rule.[/yellow]")
 
+        # Determine database and bars_table for manifest metadata
+        import os
+
+        ch_database = os.environ.get("CLICKHOUSE_DATABASE", "market")
+        ch_bars_table = os.environ.get("CLICKHOUSE_BARS_TABLE", "as_us_equity_ohlc_daily")
+
+        # Resolve source columns from price basis mapping for manifest
+        from qs_trader.services.scan.models import PRICE_BASIS_COLUMNS
+
+        source_columns = PRICE_BASIS_COLUMNS.get(resolved_price_basis, {})
+
         # Run scan
         runner = ScanRunner(
             instrument_resolver=resolver,
@@ -323,6 +452,13 @@ def scan_candidates_command(
             candidate_rule=candidate_rule,
             strategy_id=strategy_id,
             horizons=horizon_list,
+            data_source=data_source or "",
+            price_basis=resolved_price_basis,
+            parameters=parameters,
+            rule_import_path=rule or "qs_trader.cli.commands.scan:_default_candidate_rule",
+            database=ch_database,
+            bars_table=ch_bars_table,
+            source_columns=source_columns,
         )
 
         try:
@@ -347,6 +483,7 @@ def scan_candidates_command(
         console.print(f"[cyan]Failed:[/cyan]         {summary.instruments_failed}")
         console.print(f"[cyan]Total Rows:[/cyan]     {summary.total_rows}")
         console.print(f"[cyan]Output:[/cyan]         {output_dir / 'candidate_scan_results.csv'}")
+        console.print(f"[cyan]Manifest:[/cyan]       {output_dir / 'scan_manifest.json'}")
 
         if summary.failures:
             console.print()
