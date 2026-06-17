@@ -314,6 +314,24 @@ class TestSecidList:
             assert "Invalid secid" in result.output
             assert "not_a_number" in result.output
 
+    def test_secid_list_invalid_integer_includes_line_number(self, cli_runner, mock_scan_runner):
+        """Invalid secid error includes the line number of the offending entry."""
+        with cli_runner.isolated_filesystem():
+            secid_file = Path("secids.txt")
+            secid_file.write_text("33449\nnot_a_number\n67890\n")
+
+            result = cli_runner.invoke(
+                scan_candidates_command,
+                [
+                    "--secid-list", str(secid_file),
+                    "--start-date", "2024-01-01",
+                    "--end-date", "2024-01-31",
+                ],
+            )
+            assert result.exit_code == 1
+            assert "line 2" in result.output
+            assert "not_a_number" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Test 2.2: --secid-all and --universe-as-of-date CLI options
@@ -395,3 +413,59 @@ class TestSecidAll:
             )
             assert result.exit_code == 1
             assert "mutually exclusive with --secid-list" in result.output
+
+    def test_secid_list_wildcard_alias_resolves_and_scans(self, cli_runner, mock_scan_runner):
+        """--secid-list '*' aliases full-universe scanning."""
+        from qs_trader.services.data.instrument_resolver import InstrumentResolver
+
+        mock_resolver = InstrumentResolver.return_value
+        mock_resolver.resolve_all_secids.return_value = [
+            MinimalInstrument(secid=1, display_symbol="AAPL"),
+            MinimalInstrument(secid=2, display_symbol="MSFT"),
+        ]
+
+        with cli_runner.isolated_filesystem():
+            result = cli_runner.invoke(
+                scan_candidates_command,
+                [
+                    "--secid-list", "*",
+                    "--universe-as-of-date", "2024-01-01",
+                    "--start-date", "2024-01-01",
+                    "--end-date", "2024-01-31",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "Resolved 2 active instruments" in result.output
+            mock_resolver.resolve_all_secids.assert_called_once()
+
+    def test_secid_list_wildcard_without_universe_date_fails(self, cli_runner, mock_scan_runner):
+        """--secid-list '*' without --universe-as-of-date exits with code 1."""
+        with cli_runner.isolated_filesystem():
+            result = cli_runner.invoke(
+                scan_candidates_command,
+                [
+                    "--secid-list", "*",
+                    "--start-date", "2024-01-01",
+                    "--end-date", "2024-01-31",
+                ],
+            )
+            assert result.exit_code == 1
+            assert "--secid-list '*'" in result.output
+            assert "requires --universe-as-of-date" in result.output
+
+    def test_secid_list_wildcard_mutually_exclusive_with_secid(self, cli_runner, mock_scan_runner):
+        """--secid-list '*' with --secid exits with code 1."""
+        with cli_runner.isolated_filesystem():
+            result = cli_runner.invoke(
+                scan_candidates_command,
+                [
+                    "--secid-list", "*",
+                    "--secid", "12345",
+                    "--universe-as-of-date", "2024-01-01",
+                    "--start-date", "2024-01-01",
+                    "--end-date", "2024-01-31",
+                ],
+            )
+            assert result.exit_code == 1
+            assert "--secid-list '*'" in result.output
+            assert "mutually exclusive with --secid" in result.output

@@ -62,6 +62,27 @@ def _validate_identifier(name: str, value: str) -> str:
     return value
 
 
+def _parse_secid_list_option(
+    _ctx: click.Context,
+    _param: click.Parameter,
+    value: str | None,
+) -> str | Path | None:
+    """Parse ``--secid-list`` input, accepting either a file path or ``*``.
+
+    Returns:
+        ``"*"``, a validated ``Path``, or ``None``.
+    """
+    if value is None:
+        return None
+    if value == "*":
+        return value
+
+    path = Path(value)
+    if not path.is_file():
+        raise click.BadParameter(f"File does not exist: {value}")
+    return path
+
+
 def _build_data_loader(
     data_source: str | None,
     start_date: str | None = None,
@@ -197,9 +218,14 @@ def _build_data_loader(
 @click.option(
     "--secid-list",
     "secid_list_path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=str,
+    callback=_parse_secid_list_option,
     default=None,
-    help="Path to a file containing one secid per line (blank lines and # comments ignored).",
+    help=(
+        "Path to a file containing one secid per line "
+        "(blank lines and # comments ignored), or '*' to scan "
+        "the full secmaster universe for --universe-as-of-date."
+    ),
 )
 @click.option(
     "--secid-all",
@@ -291,7 +317,7 @@ def _build_data_loader(
 def scan_candidates_command(
     tickers: tuple[str, ...],
     secid: tuple[int, ...],
-    secid_list_path: Path | None,
+    secid_list_path: str | Path | None,
     secid_all: bool,
     universe_as_of_date: datetime | None,
     start_date: datetime,
@@ -329,6 +355,10 @@ def scan_candidates_command(
 
         # Scan all secids active on a universe date
         qs-trader scan-candidates --secid-all --universe-as-of-date 2023-01-01 \\
+            --start-date 2023-01-01 --end-date 2023-12-31
+
+        # Equivalent wildcard alias for all secids
+        qs-trader scan-candidates --secid-list '*' --universe-as-of-date 2023-01-01 \\
             --start-date 2023-01-01 --end-date 2023-12-31
 
         # Scan all secids plus additional tickers
@@ -376,10 +406,12 @@ def scan_candidates_command(
         all_tickers = list(tickers)
         all_secids = list(secid)
 
+        secid_list_is_wildcard = secid_list_path == "*"
+
         # Parse secid list from file
-        if secid_list_path is not None:
+        if isinstance(secid_list_path, Path):
             secid_list_from_file: list[int] = []
-            for line in secid_list_path.read_text(encoding="utf-8").splitlines():
+            for line_num, line in enumerate(secid_list_path.read_text(encoding="utf-8").splitlines(), start=1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
@@ -387,22 +419,29 @@ def scan_candidates_command(
                     secid_list_from_file.append(int(stripped))
                 except ValueError:
                     console.print(
-                        f"[bold red]✗ Invalid secid in --secid-list file: {stripped!r}[/bold red]"
+                        f"[bold red]✗ Invalid secid in --secid-list file at line {line_num}: {stripped!r}[/bold red]"
                     )
                     sys.exit(1)
             all_secids.extend(secid_list_from_file)
             console.print(f"[green]✓ Loaded {len(secid_list_from_file)} secids from {secid_list_path}[/green]")
 
-        # Validate --secid-all mutual exclusivity with --secid and --secid-list
+        # Treat --secid-list '*' as an alias for --secid-all
+        if secid_list_is_wildcard:
+            secid_all = True
+
+        # Validate full-universe mutual exclusivity with --secid and file-backed --secid-list
         if secid_all:
             if secid:
-                console.print("[bold red]✗ --secid-all is mutually exclusive with --secid.[/bold red]")
+                option_name = "--secid-list '*'" if secid_list_is_wildcard else "--secid-all"
+                console.print(f"[bold red]✗ {option_name} is mutually exclusive with --secid.[/bold red]")
                 sys.exit(1)
-            if secid_list_path is not None:
-                console.print("[bold red]✗ --secid-all is mutually exclusive with --secid-list.[/bold red]")
+            if isinstance(secid_list_path, Path):
+                option_name = "--secid-list '*'" if secid_list_is_wildcard else "--secid-all"
+                console.print(f"[bold red]✗ {option_name} is mutually exclusive with --secid-list.[/bold red]")
                 sys.exit(1)
             if universe_as_of_date is None:
-                console.print("[bold red]✗ --secid-all requires --universe-as-of-date.[/bold red]")
+                option_name = "--secid-list '*'" if secid_list_is_wildcard else "--secid-all"
+                console.print(f"[bold red]✗ {option_name} requires --universe-as-of-date.[/bold red]")
                 sys.exit(1)
 
         # Parse rule parameters
