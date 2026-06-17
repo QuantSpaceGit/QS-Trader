@@ -195,6 +195,29 @@ def _build_data_loader(
     help="Secids to scan directly (repeatable, bypasses ticker resolution).",
 )
 @click.option(
+    "--secid-list",
+    "secid_list_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to a file containing one secid per line (blank lines and # comments ignored).",
+)
+@click.option(
+    "--secid-all",
+    is_flag=True,
+    default=False,
+    help=(
+        "Scan all secids active on --universe-as-of-date. "
+        "Mutually exclusive with --secid and --secid-list. "
+        "Can be combined with --tickers."
+    ),
+)
+@click.option(
+    "--universe-as-of-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Universe date for --secid-all resolution (YYYY-MM-DD).",
+)
+@click.option(
     "--start-date",
     required=True,
     type=click.DateTime(formats=["%Y-%m-%d"]),
@@ -268,6 +291,9 @@ def _build_data_loader(
 def scan_candidates_command(
     tickers: tuple[str, ...],
     secid: tuple[int, ...],
+    secid_list_path: Path | None,
+    secid_all: bool,
+    universe_as_of_date: datetime | None,
     start_date: datetime,
     end_date: datetime,
     strategy_id: str,
@@ -295,6 +321,19 @@ def scan_candidates_command(
 
         # Scan by secid directly
         qs-trader scan-candidates --secid 12345 --secid 67890 \\
+            --start-date 2023-01-01 --end-date 2023-12-31
+
+        # Scan secids from a file (one per line, # comments and blanks ignored)
+        qs-trader scan-candidates --secid-list secids.txt \\
+            --start-date 2023-01-01 --end-date 2023-12-31
+
+        # Scan all secids active on a universe date
+        qs-trader scan-candidates --secid-all --universe-as-of-date 2023-01-01 \\
+            --start-date 2023-01-01 --end-date 2023-12-31
+
+        # Scan all secids plus additional tickers
+        qs-trader scan-candidates --secid-all --universe-as-of-date 2023-01-01 \\
+            --tickers SPY --tickers QQQ \\
             --start-date 2023-01-01 --end-date 2023-12-31
 
         # Scan with ClickHouse data source
@@ -336,6 +375,35 @@ def scan_candidates_command(
         # Combine tickers and secids
         all_tickers = list(tickers)
         all_secids = list(secid)
+
+        # Parse secid list from file
+        if secid_list_path is not None:
+            secid_list_from_file: list[int] = []
+            for line in secid_list_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                try:
+                    secid_list_from_file.append(int(stripped))
+                except ValueError:
+                    console.print(
+                        f"[bold red]✗ Invalid secid in --secid-list file: {stripped!r}[/bold red]"
+                    )
+                    sys.exit(1)
+            all_secids.extend(secid_list_from_file)
+            console.print(f"[green]✓ Loaded {len(secid_list_from_file)} secids from {secid_list_path}[/green]")
+
+        # Validate --secid-all mutual exclusivity with --secid and --secid-list
+        if secid_all:
+            if secid:
+                console.print("[bold red]✗ --secid-all is mutually exclusive with --secid.[/bold red]")
+                sys.exit(1)
+            if secid_list_path is not None:
+                console.print("[bold red]✗ --secid-all is mutually exclusive with --secid-list.[/bold red]")
+                sys.exit(1)
+            if universe_as_of_date is None:
+                console.print("[bold red]✗ --secid-all requires --universe-as-of-date.[/bold red]")
+                sys.exit(1)
 
         # Parse rule parameters
         parameters: dict[str, Any] = {}
@@ -384,7 +452,7 @@ def scan_candidates_command(
         # Build instrument resolver — needed for EITHER ticker or secid scans
         resolver = None
         ch_client = None
-        if all_tickers or all_secids:
+        if all_tickers or all_secids or secid_all:
             try:
                 from clickhouse_connect import get_client
 
@@ -404,12 +472,20 @@ def scan_candidates_command(
                 )
                 console.print(f"[green]✓ InstrumentResolver connected to {host}:{port}[/green]")
             except Exception as e:
-                if all_secids:
+                if all_secids or secid_all:
                     console.print(f"[bold red]✗ InstrumentResolver required for --secid scans but failed: {e}[/bold red]")
                     console.print("[red]  Cannot proceed without secid resolution.[/red]")
                     sys.exit(1)
                 console.print(f"[yellow]Warning: InstrumentResolver not available: {e}[/yellow]")
                 console.print("[yellow]  Scan will proceed without secid resolution.[/yellow]")
+
+        # Resolve all secids when --secid-all is specified
+        if secid_all and universe_as_of_date is not None:
+            universe_date = universe_as_of_date.date()
+            console.print(f"[cyan]Resolving all secids active on {universe_date}...[/cyan]")
+            instruments = resolver.resolve_all_secids(universe_date)
+            all_secids = [inst.secid for inst in instruments]
+            console.print(f"[green]✓ Resolved {len(all_secids)} active instruments[/green]")
 
         # Build data loader with date range, optional feature columns, and price basis
         data_loader = _build_data_loader(

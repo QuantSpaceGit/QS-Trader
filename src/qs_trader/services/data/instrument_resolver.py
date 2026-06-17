@@ -135,6 +135,22 @@ class ResolvedInstrument:
     candidates: Optional[List[CandidateMapping]] = None
 
 
+@dataclass
+class MinimalInstrument:
+    """Minimal instrument identity for universe listing.
+
+    Lighter than :class:`ResolvedInstrument` — only the fields needed
+    for scanning entire universes: stable identifier and display name.
+
+    Attributes:
+        secid: Stable security identifier.
+        display_symbol: Preferred display ticker.
+    """
+
+    secid: int
+    display_symbol: str
+
+
 class InstrumentResolver:
     """Secmaster-authoritative instrument resolution.
 
@@ -624,6 +640,126 @@ class InstrumentResolver:
             results[ticker] = resolved
 
         return results
+
+    def resolve_all_secids(
+        self,
+        universe_date: date,
+    ) -> List[MinimalInstrument]:
+        """Resolve all distinct secids active on a given universe date.
+
+        Queries the secmaster table for every secid whose ticker history
+        overlaps with ``universe_date``.  Returns minimal instrument objects
+        suitable for universe-wide scanning.
+
+        When ``ticker_history_table`` is configured the method pushes date
+        filtering to the database via a ``WHERE`` clause on the normalized
+        history table, avoiding a full secmaster scan.  Falls back to the
+        secmaster array-parsing path when the history table is unavailable
+        or the query fails.
+
+        Args:
+            universe_date: The date for which to find active instruments.
+
+        Returns:
+            List of :class:`MinimalInstrument` objects with ``secid`` and
+            ``display_symbol``.  Returns an empty list when the secmaster
+            table is empty (e.g. unpopulated environment).
+
+        Example:
+            >>> instruments = resolver.resolve_all_secids(date(2023, 1, 1))
+            >>> for inst in instruments:
+            ...     print(inst.secid, inst.display_symbol)
+        """
+        if self._ticker_history_table is not None:
+            try:
+                return self._resolve_all_secids_from_history(universe_date)
+            except Exception:
+                logger.warning(
+                    "Ticker history table query failed for resolve_all_secids, "
+                    "falling back to secmaster",
+                    table=self._ticker_history_table,
+                    universe_date=str(universe_date),
+                    exc_info=True,
+                )
+
+        return self._resolve_all_secids_from_secmaster(universe_date)
+
+    def _resolve_all_secids_from_history(
+        self,
+        universe_date: date,
+    ) -> List[MinimalInstrument]:
+        """Resolve all secids active on a date using the normalized ticker history table.
+
+        Pushes date filtering to ClickHouse via a ``WHERE`` clause so that
+        only rows overlapping ``universe_date`` are returned.
+        """
+        table = self._ticker_history_table
+        query = f"""
+            SELECT secid, ticker
+            FROM {self._database}.{table}
+            WHERE start_date <= %(universe_date)s
+              AND (end_date IS NULL OR end_date >= %(universe_date)s)
+            ORDER BY secid, start_date DESC
+        """
+
+        result = self._client.query(
+            query, parameters={"universe_date": universe_date}
+        )
+
+        if not result.result_rows:
+            return []
+
+        instruments: List[MinimalInstrument] = []
+        seen_secids: set[int] = set()
+        for row in result.result_rows:
+            secid, ticker = row
+            # ORDER BY secid, start_date DESC ensures the first row per secid
+            # is the most recently started ticker on universe_date.
+            if secid not in seen_secids:
+                seen_secids.add(secid)
+                instruments.append(
+                    MinimalInstrument(secid=secid, display_symbol=ticker)
+                )
+
+        return instruments
+
+    def _resolve_all_secids_from_secmaster(
+        self,
+        universe_date: date,
+    ) -> List[MinimalInstrument]:
+        """Resolve all secids active on a date from the raw secmaster table.
+
+        Scan the full secmaster table and filter in Python.  Prefer
+        :meth:`_resolve_all_secids_from_history` when the normalized
+        ticker history table is available.
+        """
+        query = f"""
+            SELECT secid, tickers, tickersstarttoenddate
+            FROM {self._database}.as_secmaster
+            ORDER BY secid
+        """
+
+        result = self._client.query(query)
+
+        if not result.result_rows:
+            return []
+
+        instruments: List[MinimalInstrument] = []
+        for row in result.result_rows:
+            secid, tickers_str, dates_str = row
+            ticker_history = self._parse_ticker_history(tickers_str, dates_str)
+
+            # Check whether any ticker period covers universe_date
+            for th in ticker_history:
+                start = th.start_date
+                end = th.end_date if th.end_date is not None else date.max
+                if start <= universe_date <= end:
+                    instruments.append(
+                        MinimalInstrument(secid=secid, display_symbol=th.ticker)
+                    )
+                    break  # One match per secid is enough
+
+        return instruments
 
     def clear_cache(self) -> None:
         """Clear the resolution cache."""
