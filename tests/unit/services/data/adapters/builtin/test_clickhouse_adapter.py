@@ -493,3 +493,107 @@ def test_to_price_bar_event_identity_fields_are_none_when_instrument_lacks_them(
     assert event.display_symbol is None
     assert event.ticker_at_date is None
     assert event.identity_source is None
+
+
+# ============================================================================
+# Retry Logic Tests
+# ============================================================================
+
+
+class TestClickHouseRetry:
+    """Tests for ClickHouse adapter retry with exponential backoff."""
+
+    def test_is_retryable_error_connection(self, ch_config):
+        """Connection errors should be retryable."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+
+        assert adapter._is_retryable_error(ConnectionError("connection refused")) is True
+        assert adapter._is_retryable_error(TimeoutError("timed out")) is True
+        assert adapter._is_retryable_error(OSError("network unreachable")) is True
+
+    def test_is_retryable_error_permanent(self, ch_config):
+        """Auth and syntax errors should NOT be retryable."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+
+        assert adapter._is_retryable_error(Exception("authentication failed")) is False
+        assert adapter._is_retryable_error(Exception("syntax error in query")) is False
+        assert adapter._is_retryable_error(Exception("unknown table foo")) is False
+        assert adapter._is_retryable_error(Exception("access denied")) is False
+
+    def test_is_retryable_error_generic_with_retryable_keyword(self, ch_config):
+        """Generic exceptions with retryable keywords should be retried."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+
+        assert adapter._is_retryable_error(Exception("connection reset by peer")) is True
+        assert adapter._is_retryable_error(Exception("server timeout")) is True
+
+    def test_retry_succeeds_after_transient_failures(self, ch_config):
+        """Should succeed when transient failures are followed by success."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+
+        call_count = 0
+
+        def flaky_operation():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise ConnectionError("connection refused")
+            return "success"
+
+        result = adapter._retry_with_backoff("test_op", flaky_operation)
+        assert result == "success"
+        assert call_count == 3
+
+    def test_retry_exhaustion_raises_last_exception(self, ch_config):
+        """Should raise the last exception after all retries exhausted."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+        adapter._max_retries = 2
+        adapter._retry_base_delay = 0.01  # Fast for testing
+
+        def always_fail():
+            raise ConnectionError("persistent failure")
+
+        import pytest
+        with pytest.raises(ConnectionError, match="persistent failure"):
+            adapter._retry_with_backoff("test_op", always_fail)
+
+    def test_no_retry_on_permanent_error(self, ch_config):
+        """Should raise immediately on permanent (non-retryable) errors."""
+        from types import SimpleNamespace
+        adapter = ClickhouseDataAdapter(ch_config, SimpleNamespace(symbol="AAPL"))
+        adapter._max_retries = 3
+
+        call_count = 0
+
+        def auth_fail():
+            nonlocal call_count
+            call_count += 1
+            raise Exception("authentication failed")
+
+        import pytest
+        with pytest.raises(Exception, match="authentication failed"):
+            adapter._retry_with_backoff("test_op", auth_fail)
+
+        assert call_count == 1  # Only one attempt, no retries
+
+    def test_custom_retry_config_from_ch_config(self):
+        """Adapter should read max_retries and retry_base_delay from config."""
+        from types import SimpleNamespace
+        config = {
+            "clickhouse": {
+                "host": "localhost",
+                "port": 8123,
+                "password": "",
+                "database": "market",
+                "max_retries": 5,
+                "retry_base_delay": 2.0,
+            }
+        }
+        adapter = ClickhouseDataAdapter(config, SimpleNamespace(symbol="AAPL"))
+        assert adapter._max_retries == 5
+        assert adapter._retry_base_delay == 2.0

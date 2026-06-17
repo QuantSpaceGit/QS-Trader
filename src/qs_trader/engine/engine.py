@@ -719,7 +719,10 @@ class BacktestEngine:
                     strategy_count=len(strategy_instances),
                 )
             else:
-                logger.warning("backtest.engine.no_strategies_loaded")
+                raise RuntimeError(
+                    "Strategies are configured in backtest config but none could be loaded. "
+                    "Check strategy_id values and custom library paths."
+                )
 
         # Initialize ManagerService if risk_policy configured
         manager_service: ManagerService | None = None
@@ -749,17 +752,13 @@ class BacktestEngine:
                     risk_policy=config.risk_policy.name,
                 )
             except Exception as e:
-                logger.error(
-                    "backtest.engine.manager_service_failed",
-                    risk_policy=config.risk_policy.name,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    exc_info=True,  # Include full traceback
-                )
-                # Don't fail the entire backtest if manager service fails to load
-                manager_service = None
+                raise RuntimeError(
+                    f"risk_policy={config.risk_policy.name!r} is configured but ManagerService "
+                    f"could not be created: {e}"
+                ) from e
 
         # Initialize PortfolioService (Phase 5)
+        # Required: backtest cannot produce meaningful results without portfolio tracking
         portfolio_service: PortfolioService | None = None
         try:
             portfolio_config = PortfolioConfig(
@@ -777,14 +776,12 @@ class BacktestEngine:
                 price_basis=str(config.price_basis),
             )
         except Exception as e:
-            logger.error(
-                "backtest.engine.portfolio_service_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            portfolio_service = None
+            raise RuntimeError(
+                f"PortfolioService is required but could not be created: {e}"
+            ) from e
 
         # Initialize ExecutionService (Phase 5)
+        # Required: backtest cannot process signals without execution
         execution_service: ExecutionService | None = None
         try:
             execution_config = ExecutionConfig()  # Uses system config defaults
@@ -799,12 +796,9 @@ class BacktestEngine:
                 price_basis=str(config.price_basis),
             )
         except Exception as e:
-            logger.error(
-                "backtest.engine.execution_service_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            execution_service = None
+            raise RuntimeError(
+                f"ExecutionService is required but could not be created: {e}"
+            ) from e
 
         # Initialize ReportingService if reporting configured (optional)
         reporting_service: ReportingService | None = None

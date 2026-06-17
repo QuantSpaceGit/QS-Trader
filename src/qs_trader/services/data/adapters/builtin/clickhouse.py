@@ -38,7 +38,9 @@ Example:
 
 from __future__ import annotations
 
+import random
 import re
+import time as time_module
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -128,6 +130,10 @@ class ClickhouseDataAdapter:
 
         # Lazy-initialised ClickHouse client
         self._client: Any = None
+
+        # Retry configuration for transient connection/query failures
+        self._max_retries: int = int(ch_cfg.get("max_retries", 3))
+        self._retry_base_delay: float = float(ch_cfg.get("retry_base_delay", 1.0))
 
         # In-memory bar cache: loaded once per read_bars() call
         self._bar_cache: list[ClickhouseBar] = []
@@ -279,8 +285,55 @@ class ClickhouseDataAdapter:
     # Private helpers
     # =========================================================
 
+    @staticmethod
+    def _is_retryable_error(exc: Exception) -> bool:
+        """Determine if an exception is transient and worth retrying.
+
+        Retryable: connection errors, timeouts, network issues.
+        Not retryable: auth failures, SQL syntax errors, missing tables.
+        """
+        msg = str(exc).lower()
+        # Permanent failures — never retry
+        permanent_keywords = [
+            "authentication", "auth failed", "access denied",
+            "syntax error", "unknown table", "unknown database",
+            "unknown identifier", "illegal column", "type mismatch",
+        ]
+        if any(kw in msg for kw in permanent_keywords):
+            return False
+        # Connection/network errors are retryable
+        retryable_types = (ConnectionError, TimeoutError, OSError)
+        if isinstance(exc, retryable_types):
+            return True
+        # clickhouse-connect wraps errors in various types; check message
+        retryable_keywords = ["connection", "timeout", "reset", "refused", "unreachable", "network"]
+        return any(kw in msg for kw in retryable_keywords)
+
+    def _retry_with_backoff(self, operation_name: str, func: Any, *args: Any, **kwargs: Any) -> Any:
+        """Execute func with exponential backoff retry for transient failures."""
+        last_exc: Exception | None = None
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                last_exc = exc
+                if attempt == self._max_retries or not self._is_retryable_error(exc):
+                    raise
+                delay = self._retry_base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                logger.warning(
+                    "clickhouse_adapter.retry",
+                    operation=operation_name,
+                    attempt=attempt,
+                    max_retries=self._max_retries,
+                    delay_seconds=round(delay, 2),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                time_module.sleep(delay)
+        raise last_exc  # pragma: no cover
+
     def _get_client(self) -> Any:
-        """Return (or create) a ClickHouse HTTP client."""
+        """Return (or create) a ClickHouse HTTP client with retry on transient failures."""
         if self._client is None:
             try:
                 import clickhouse_connect  # type: ignore[import-untyped]
@@ -290,14 +343,17 @@ class ClickhouseDataAdapter:
                     "Install it with: pip install clickhouse-connect>=0.7"
                 ) from exc
 
-            self._client = clickhouse_connect.get_client(
-                host=self._host,
-                port=self._port,
-                username=self._username,
-                password=self._password,
-                connect_timeout=10,
-                query_retries=1,
-            )
+            def _connect() -> Any:
+                return clickhouse_connect.get_client(
+                    host=self._host,
+                    port=self._port,
+                    username=self._username,
+                    password=self._password,
+                    connect_timeout=10,
+                    query_retries=1,
+                )
+
+            self._client = self._retry_with_backoff("connect", _connect)
             logger.debug(
                 "clickhouse_adapter.client_connected",
                 host=self._host,
@@ -370,7 +426,9 @@ class ClickhouseDataAdapter:
                     "start_date": start_date,
                     "end_date": end_date,
                 }
-            result = client.query(query, parameters=params)
+            result = self._retry_with_backoff(
+                "fetch_bars", client.query, query, parameters=params
+            )
         except Exception as exc:
             logger.error(
                 "clickhouse_adapter.fetch_failed",

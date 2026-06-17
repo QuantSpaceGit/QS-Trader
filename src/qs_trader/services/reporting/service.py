@@ -268,7 +268,6 @@ class ReportingService:
 
         # Trade tracking state
         self._positions: dict[str, Decimal] = {}  # symbol → net quantity
-        self._open_trades: dict[str, dict[str, Any]] = {}  # symbol → entry info
 
         # Open-trade synthesis state (populated during bar loop from TradeEvents)
         self._active_trade_events: dict[str, TradeEvent] = {}  # trade_id → TradeEvent (open trades only)
@@ -585,103 +584,6 @@ class ReportingService:
             open_trade_count=len(self._open_trade_records),
         )
 
-    def _handle_fill(self, event: BaseEvent) -> None:
-        """
-        Handle FillEvent: track position state and detect completed trades.
-
-        A completed trade is defined as a position that goes to flat (zero quantity).
-        Tracks entry price, exit price, P&L, and duration for each completed trade.
-
-        Args:
-            event: FillEvent from execution
-        """
-        if not isinstance(event, FillEvent):
-            return
-
-        symbol = event.symbol
-
-        # Calculate position quantity change (buy = positive, sell = negative)
-        quantity_delta = event.filled_quantity if event.side == "buy" else -event.filled_quantity
-
-        # Get current position
-        current_qty = self._positions.get(symbol, Decimal("0"))
-        new_qty = current_qty + quantity_delta
-
-        # Check if this fill closes a position (goes to flat)
-        position_closed = current_qty != 0 and new_qty == 0
-
-        if position_closed and symbol in self._open_trades:
-            # Trade completed - calculate metrics and add to statistics
-            trade_entry = self._open_trades[symbol]
-
-            # Calculate P&L
-            entry_price = trade_entry["entry_price"]
-            exit_price = event.fill_price
-            quantity_abs = abs(current_qty)  # Absolute quantity
-
-            # P&L depends on whether we were long or short
-            side: Literal["long", "short"]
-            if current_qty > 0:  # Closing long position
-                pnl = (exit_price - entry_price) * quantity_abs
-                side = "long"
-                quantity_signed = int(quantity_abs)
-            else:  # Closing short position
-                pnl = (entry_price - exit_price) * quantity_abs
-                side = "short"
-                quantity_signed = -int(quantity_abs)
-
-            # Calculate P&L percentage
-            pnl_pct = (pnl / (entry_price * quantity_abs)) * Decimal("100")
-
-            # Calculate duration
-            entry_time = datetime.fromisoformat(trade_entry["entry_time"].replace("Z", "+00:00"))
-            exit_time = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
-            duration_seconds = int((exit_time - entry_time).total_seconds())
-
-            # Create TradeRecord for statistics calculator
-            trade_record = TradeRecord(
-                trade_id=str(uuid.uuid4()),  # Generate temporary UUID for now (will use TradeEvent.trade_id later)
-                strategy_id=event.strategy_id or "unknown",
-                symbol=symbol,
-                entry_timestamp=entry_time,
-                exit_timestamp=exit_time,
-                entry_price=entry_price,
-                exit_price=exit_price,
-                quantity=quantity_signed,
-                side=side,
-                pnl=pnl,
-                pnl_pct=pnl_pct,
-                commission=event.commission,
-                duration_seconds=duration_seconds,
-            )
-
-            # Add to trade statistics
-            self._trade_stats_calc.add_trade(trade_record)
-
-            # Add to period aggregation
-            self._period_calc.add_trade(trade_record)
-
-            # Add to strategy performance tracking
-            if self._strategy_perf_calc:
-                self._strategy_perf_calc.add_trade(trade_record)
-
-            # Remove from tracking
-            del self._open_trades[symbol]
-
-        # Update position tracking
-        if new_qty == 0:
-            # Position flat - remove from tracking
-            self._positions.pop(symbol, None)
-        else:
-            # Position still open or just opened
-            self._positions[symbol] = new_qty
-
-            # Track entry if opening a new position
-            if symbol not in self._open_trades:
-                self._open_trades[symbol] = {
-                    "entry_time": event.timestamp,
-                    "entry_price": event.fill_price,
-                }
 
     def _handle_corporate_action(self, event: BaseEvent) -> None:
         """
@@ -724,9 +626,9 @@ class ReportingService:
                 new_qty=float(new_qty),
             )
 
-        # Note: Entry price in _open_trades doesn't need adjustment
-        # because we calculate P&L using actual fill prices from events
-        # The split-adjusted prices are already reflected in the exit fill event
+        # Note: Trade entry prices don't need split adjustment here because
+        # PortfolioService handles lot-level split adjustments and emits
+        # TradeEvents with corrected prices.
 
     def _update_calculators(self, event: PortfolioStateEvent) -> None:
         """

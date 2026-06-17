@@ -92,14 +92,7 @@ def sample_backtest_config() -> BacktestConfig:
                 )
             ]
         ),
-        strategies=[
-            StrategyConfigItem(
-                strategy_id="test_strategy",
-                universe=["AAPL"],
-                data_sources=["test-source"],
-                config={},
-            )
-        ],
+        strategies=[],
         risk_policy=RiskPolicyConfig(name="naive", config={}),
     )
 
@@ -244,6 +237,7 @@ class TestBacktestEngineInit:
 class TestBacktestEngineFromConfig:
     """Test suite for BacktestEngine.from_config factory method."""
 
+    @patch("qs_trader.engine.engine.ManagerService")
     @patch("qs_trader.engine.engine.get_system_config")
     @patch("qs_trader.system.log_system.LoggerFactory")
     @patch("qs_trader.engine.engine.DataService")
@@ -256,6 +250,7 @@ class TestBacktestEngineFromConfig:
         mock_data_service_class,
         mock_logger_factory,
         mock_get_system_config,
+        mock_manager_service,
         sample_backtest_config: BacktestConfig,
         mock_system_config,
         tmp_path: Path,
@@ -338,6 +333,7 @@ class TestBacktestEngineFromConfig:
         execution_service.enable_lifecycle_tracking.assert_called_once_with(lifecycle_context)
         assert isinstance(engine, BacktestEngine)
 
+    @patch("qs_trader.engine.engine.ManagerService")
     @patch("qs_trader.engine.engine.get_system_config")
     @patch("qs_trader.system.log_system.LoggerFactory")
     @patch("qs_trader.engine.engine.DataService")
@@ -350,6 +346,7 @@ class TestBacktestEngineFromConfig:
         mock_data_service_class,
         mock_logger_factory,
         mock_get_system_config,
+        mock_manager_service,
         sample_backtest_config: BacktestConfig,
         mock_system_config,
         tmp_path: Path,
@@ -375,6 +372,7 @@ class TestBacktestEngineFromConfig:
         assert engine._results_dir is not None
         assert engine._results_dir.exists()
 
+    @patch("qs_trader.engine.engine.ManagerService")
     @patch("qs_trader.engine.engine.get_system_config")
     @patch("qs_trader.system.log_system.LoggerFactory")
     @patch("qs_trader.engine.engine.DataService")
@@ -387,6 +385,7 @@ class TestBacktestEngineFromConfig:
         mock_data_service_class,
         mock_logger_factory,
         mock_get_system_config,
+        mock_manager_service,
         sample_backtest_config: BacktestConfig,
         mock_system_config,
         tmp_path: Path,
@@ -409,6 +408,7 @@ class TestBacktestEngineFromConfig:
         assert engine._event_store is not None
         mock_memory_store.assert_called_once()
 
+    @patch("qs_trader.engine.engine.ManagerService")
     @patch("qs_trader.engine.engine.get_system_config")
     @patch("qs_trader.system.log_system.LoggerFactory")
     @patch("qs_trader.engine.engine.DataService")
@@ -421,6 +421,7 @@ class TestBacktestEngineFromConfig:
         mock_data_service_class,
         mock_logger_factory,
         mock_get_system_config,
+        mock_manager_service,
         mock_system_config,
         tmp_path: Path,
     ) -> None:
@@ -436,14 +437,7 @@ class TestBacktestEngineFromConfig:
                     DataSourceConfig(name="source1", universe=["AAPL", "MSFT"]),
                 ]
             ),
-            strategies=[
-                StrategyConfigItem(
-                    strategy_id="test",
-                    universe=["AAPL"],
-                    data_sources=["source1"],
-                    config={},
-                )
-            ],
+            strategies=[],
             risk_policy=RiskPolicyConfig(name="naive", config={}),
         )
 
