@@ -249,3 +249,39 @@ tests/validation/fixtures/wf_test/
 # Only plan .yaml files should be committed; never runtime outputs (summary.json,
 # report.html, effective_plan.yaml, audit/, folds/).
 src/qs_trader/scaffold/experiments/*/validations/*/
+
+# ── GSD / AI agent tooling ──
+.gsd
+.gsd-id
+.agents/
+skills-lock.json
+.mcp.json
+.bg-shell/
+.DS_Store
+Thumbs.db
+nul
+nul.*
+con
+con.*
+prn
+prn.*
+aux
+aux.*
+com[1-9]
+com[1-9].*
+lpt[1-9]
+lpt[1-9].*
+*.swp
+*.swo
+.idea/
+*.code-workspace
+.env.*
+!.env.example
+node_modules/
+.next/
+*.pyc
+.venv/
+vendor/
+coverage/
+.cache/
+tmp/
