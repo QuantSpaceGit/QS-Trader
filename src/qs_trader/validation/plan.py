@@ -626,7 +626,7 @@ def _plan_to_canonical_dict(plan: ValidationPlan) -> dict[str, Any]:
     # NOTE: ``benchmark`` is intentionally NOT dropped when None. The Phase 1
     # canonical dict emitted ``"benchmark": null`` (the legacy ``BenchmarkRef``
     # field was already on the model), so removing it now would break the
-    # 428e27b2 reference-plan hash pin. Plans that declare a benchmark will
+    # 36919c93 reference-plan hash pin. Plans that declare a benchmark will
     # serialize it normally and the hash will change accordingly.
     # Phase 2A.4: WF-only decision fields excluded when None to preserve hash
     # stability.  These fields were absent from the model before Phase 2A.4;

@@ -50,7 +50,9 @@ def derive_child_config(
     start_dt = datetime.combine(split.test_range.start_date, time.min)
     end_dt = datetime.combine(split.test_range.end_date, time.min)
 
-    return base_config.model_copy(update={
-        "start_date": start_dt,
-        "end_date": end_dt,
-    })
+    return base_config.model_copy(
+        update={
+            "start_date": start_dt,
+            "end_date": end_dt,
+        }
+    )

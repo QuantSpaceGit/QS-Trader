@@ -6,7 +6,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [0.2.0-beta.11] - 2026-06-29
+
 ### Fixed
+
+- **Production-readiness hardening (M001 S01-S04)**: Core engine services now fail fast when required service initialization fails instead of silently degrading to `None`. Portfolio and execution service initialization failures raise, manager initialization raises when a configured risk policy cannot load, and strategy initialization raises when configured strategies cannot load. Reporting remains optional and continues to warn.
+
+- **ClickHouse adapter transient retry handling**: ClickHouse client creation and bar fetching now retry transient failures with exponential backoff and jitter. Permanent errors fail immediately, and retry behavior is covered by focused adapter tests.
+
+- **Trade tracking cleanup**: Removed the dead `_handle_fill` / `_open_trades` reporting path so trade tracking flows only through the canonical `TradeEvent` handling path.
 
 - **ReportingService SystemConfig injection**: `ReportingService` now accepts an optional `system_config` parameter in its constructor. When provided, the injected `SystemConfig` is used in `_write_outputs()` and `_write_metadata()` instead of the global `get_system_config()` singleton. This eliminates a config bypass bug where the validation manager's override to `filesystem` mode was ignored by the reporting service. The `BacktestEngine.from_config()` factory method now passes the injected `system_config` through to `ReportingService`. Backward compatible — all existing callers continue to work unchanged.
 
@@ -14,15 +22,25 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- **Secid-first instrument resolution and auditability**: Added `InstrumentResolver`, `ResolvedInstrument`, ticker-history support, ambiguity handling, secid-based ClickHouse loading, manifest v2 identity metadata, event identity fields, and strategy decision audit outputs for stable research audit trails across ticker changes.
+
+- **Candidate scan mode**: Added the `qs-trader scan-candidates` CLI and scan service path for candidate research without running a full portfolio backtest. The mode supports ticker/secid inputs, full-universe secid list expansion, custom scan rules, parameter snapshots, forward returns, MFE/MAE calculations, and reproducible CSV/manifest outputs.
+
+- **Secid universe scan CLI support**: Added explicit secid universe scan options, including `--secid-list '*'` as a full-universe alias and improved invalid-line reporting for file-backed secid lists.
+
+- **OOS Validation Framework (Phase 2A.5 — HTML walk-forward reporting)**: Validation HTML reports now include walk-forward sections and equity overlay PNG charts for easier fold-level inspection.
+
+- **OOS Validation Framework (Phase 2A.4 — walk-forward execution, aggregation, and rules)**: Live `walk_forward` validation execution is supported with OOS fold aggregation, fold pass counts, median/IQR/min/max metrics, and walk-forward decision rules (`min_pass_folds_fraction`, `median_oos_sharpe_min`, `worst_oos_max_drawdown_max`). Benchmark deltas for walk-forward plans now use aggregate OOS metrics instead of the first OOS fold.
+
 - **OOS Validation Framework (Phase 2A.3 — engine-driven benchmark overlay)**: Synthetic buy-and-hold benchmark child run integrated into the validation runner
 
   - New `BuyAndHoldStrategy` registered under `qs_trader.strategies.buy_and_hold` (single-instrument, single-open-trade, optional `reinvest_dividends`).
-  - `BenchmarkRef` replaced by `BenchmarkSpec` (Pydantic v2, frozen, `extra="forbid"`): `instrument: str` (must match `^[A-Za-z0-9._-]+$`), `strategy: Literal["buy_and_hold"]` (default `"buy_and_hold"`), `reinvest_dividends: bool` (default `True`). A backwards-compatible `BenchmarkRef = BenchmarkSpec` alias keeps the previous public symbol importable. The plan canonical-dict shape is unchanged when `benchmark` is `None` (the existing `428e27b2` static plan hash pin is preserved).
+  - `BenchmarkRef` replaced by `BenchmarkSpec` (Pydantic v2, frozen, `extra="forbid"`): `instrument: str` (must match `^[A-Za-z0-9._-]+$`), `strategy: Literal["buy_and_hold"]` (default `"buy_and_hold"`), `reinvest_dividends: bool` (default `True`). A backwards-compatible `BenchmarkRef = BenchmarkSpec` alias keeps the previous public symbol importable. The plan canonical-dict shape is unchanged when `benchmark` is `None` (the existing `36919c93` static plan hash pin is preserved).
   - New `qs_trader.validation.benchmark` module with `BenchmarkDataUnavailableError`, `benchmark_full_range`, `derive_benchmark_child_config` (pure derivation: overrides the universe with the benchmark instrument, swaps strategies to buy-and-hold, sets `backtest_id` suffix `__benchmark`, clears sleeve/split metadata — base config never mutated), and `check_benchmark_data_availability` (pre-flight with an injectable `BenchmarkBarLoader`).
   - `SequentialValidationRunner.run_benchmark()` executes the synthetic buy-and-hold child over the plan's full validation range and writes artifacts to `<validation_dir>/benchmark/`. The returned `ChildRunRef` carries `fold_id="benchmark"` / `role="benchmark"` and never raises on engine failure.
   - CLI integration: `--dry-run` adds a `Benchmark:` line (instrument / strategy / reinvest_dividends); the runner pre-flights data availability before any fold launches and exits `3` with `benchmark_data_unavailable:<instrument>` when the declared instrument lacks coverage for the full range; on benchmark child failure the top-level outcome flips to `Invalid` with reason code `benchmark_run_failed`. On success, `summary.json` gains a `benchmark` block with the instrument, the benchmark child's metrics dict, and a `strategy_minus_benchmark` delta (Sharpe + total return) versus the OOS fold.
   - `effective_plan.yaml` drops `benchmark` when null (mirrors the `description` / `cost_scenarios` exclusion pattern).
-  - Walk-forward note: `strategy_minus_benchmark` uses the first OOS fold's metrics. A cross-fold OOS aggregate for the delta is deferred to Phase 2A.4.
+  - Walk-forward benchmark deltas now use the Phase 2A.4 aggregate OOS metrics when available.
 
 - **OOS Validation Framework (Phase 2A.2 — cost scenarios)**: Per-scenario cost-sensitivity matrix on top of the validation runner
 
@@ -31,9 +49,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   - Plan-load schema validation walks each override path against the live `BacktestConfig` Pydantic schema (descending into nested `BaseModel` fields and unwrapping `Optional`). Unknown paths raise `ValidationError` with reason code `unknown_override_key:<path>` and exit code `3`.
   - Runner executes the full `scenario × fold` matrix when `cost_scenarios` is declared, preserving `fail_fast` / `continue` semantics across scenarios; per-fold run IDs become `val_{vid}__{scenario}__f{n}__{role}`.
   - On-disk layout adds a `scenarios/<name>/folds/<fold_id>/` tier when `cost_scenarios` is declared. When omitted, the legacy `folds/<fold_id>/` layout is preserved byte-identically.
-  - `summary.json` gains a top-level `cost_scenarios` list (only when scenarios are declared); each entry carries `name`, per-scenario `decision`, `reason_codes`, and per-fold status. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The top-level `comparison` remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only. Per-scenario *aggregate metrics* across folds are deferred to Phase 2A.4. Two reason-code carve-outs keep the stream clean: a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker, and under `on_child_failure: fail_fast` scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the `cost_scenarios` block.
+  - `summary.json` gains a top-level `cost_scenarios` list (only when scenarios are declared); each entry carries `name`, per-scenario `decision`, `reason_codes`, and per-fold status. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The top-level `comparison` remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only. Two reason-code carve-outs keep the stream clean: a plan declaring exactly one scenario named `base` suppresses the redundant `cost_scenario_failed:base` marker, and under `on_child_failure: fail_fast` scenarios that never ran (no fold ref emitted) are omitted from both the top-level reason codes and the `cost_scenarios` block.
   - CLI `--dry-run` now prints a `Cost scenarios:` expansion table under the splits list when the plan declares scenarios.
-  - `effective_plan.yaml` drops `cost_scenarios` when null (mirrors the `description` exclusion pattern), preserving the pinned static plan hash prefix `428e27b2`.
+  - `effective_plan.yaml` drops `cost_scenarios` when null (mirrors the `description` exclusion pattern), preserving the pinned static plan hash prefix `36919c93`.
 
 - **OOS Validation Framework (Phase 2A.1)**: Walk-forward split generator and dry-run preview
 
@@ -57,6 +75,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 
 - **OOS Validation Framework**: `ValidationPlan` root model now uses Pydantic `extra="forbid"`, rejecting unknown top-level keys at load time (e.g. future Phase 2 fields on a `static_is_oos` plan).
+
+- **GSD and AI-agent artifact ignores**: `.gitignore` now excludes generated local GSD and agent workspace artifacts.
+
+______________________________________________________________________
+
+## [0.2.0-beta.10] - 2026-04-28
+
+### Added
 
 - **Backtest audit export**: QS-Trader can now emit a database-backed audit export bundle that packages summary metadata, runtime bars, and derived observability rows for persisted runs
 

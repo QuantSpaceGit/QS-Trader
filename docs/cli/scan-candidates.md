@@ -1,19 +1,16 @@
 # Candidate Scan Mode
 
-QS-Trader's candidate scan mode provides a dedicated execution path for evaluating
-instruments against candidate rules without requiring a full portfolio backtest. It
-is the primary tool for research that needs rolling OHLCV access, stable identity,
-and reproducible parameter metadata.
+QS-Trader's candidate scan mode provides a dedicated execution path for evaluating instruments against candidate rules without requiring a full portfolio backtest. It is the primary tool for research that needs rolling OHLCV access, stable identity, and reproducible parameter metadata.
 
 ## Overview
 
 The scan mode:
 
 1. Resolves tickers or secids to instruments via `InstrumentResolver`.
-2. Loads OHLCV data from ClickHouse or a pass-through loader.
-3. Builds a `ScanRuleContext` for each bar and passes it to the candidate rule.
-4. Computes forward returns, MFE, and MAE for each bar.
-5. Persists results to `candidate_scan_results.csv` and a `scan_manifest.json`.
+1. Loads OHLCV data from ClickHouse or a pass-through loader.
+1. Builds a `ScanRuleContext` for each bar and passes it to the candidate rule.
+1. Computes forward returns, MFE, and MAE for each bar.
+1. Persists results to `candidate_scan_results.csv` and a `scan_manifest.json`.
 
 ## Scan Rule Contract
 
@@ -78,14 +75,14 @@ if context.bar_index >= 5:
 
 A `ScanDecision` has these fields:
 
-| Field | Type | Description |
-|---|---|---|
-| `candidate_status` | str | One of: `accepted`, `rejected`, `ignored`, `not_ready` |
-| `reason_code` | str | Machine-readable reason for the decision |
-| `score` | float \| None | Optional numeric score |
-| `gates` | dict | Named gate results (e.g. `{"volume_gate": True}`) |
-| `diagnostics` | dict | Numeric/contextual values explaining the decision |
-| `features` | dict | Feature values used at evaluation time |
+| Field              | Type          | Description                                            |
+| ------------------ | ------------- | ------------------------------------------------------ |
+| `candidate_status` | str           | One of: `accepted`, `rejected`, `ignored`, `not_ready` |
+| `reason_code`      | str           | Machine-readable reason for the decision               |
+| `score`            | float \| None | Optional numeric score                                 |
+| `gates`            | dict          | Named gate results (e.g. `{"volume_gate": True}`)      |
+| `diagnostics`      | dict          | Numeric/contextual values explaining the decision      |
+| `features`         | dict          | Feature values used at evaluation time                 |
 
 ### Tuple-Return Adaptation (Legacy)
 
@@ -97,8 +94,7 @@ def legacy_rule(context):
     return ("candidate", "default", 0.5, {}, context.features)
 ```
 
-The adapter maps the legacy `"candidate"` status to `"accepted"`. Other statuses
-are passed through. Diagnostics are set to `{}` for legacy tuples.
+The adapter maps the legacy `"candidate"` status to `"accepted"`. Other statuses are passed through. Diagnostics are set to `{}` for legacy tuples.
 
 ## CLI Usage
 
@@ -157,8 +153,7 @@ Note: `--params-json` and `--params-file` are mutually exclusive.
 
 ### Price Basis
 
-The scan loader uses an explicit price basis, defaulting to the canonical adjusted
-series used by the ClickHouse backtest adapter:
+The scan loader uses an explicit price basis, defaulting to the canonical adjusted series used by the ClickHouse backtest adapter:
 
 ```bash
 # Default: adjusted_ohlc_adj_columns (uses openadj, highadj, etc.)
@@ -179,25 +174,25 @@ qs-trader scan-candidates --tickers AAPL \
 
 The default row output. Columns include:
 
-| Column | Description |
-|---|---|
-| `date` | Evaluation date |
-| `secid` | Resolved security ID |
-| `display_symbol` | Display-friendly symbol |
-| `ticker_at_date` | Ticker valid at the date |
-| `runtime_symbol` | Symbol used for data loading |
-| `strategy_id` | Strategy identifier |
-| `candidate_status` | accepted, rejected, ignored, or not_ready |
-| `reason_code` | Machine-readable reason |
-| `score` | Optional numeric score |
-| `gates_json` | JSON-encoded gate results |
-| `features_json` | JSON-encoded feature values |
-| `diagnostics_json` | JSON-encoded diagnostic values |
-| `forward_return_5d` | 5-day forward log return |
-| `forward_return_10d` | 10-day forward log return |
-| `forward_return_20d` | 20-day forward log return |
-| `mfe_20d` | 20-day Max Favorable Excursion |
-| `mae_20d` | 20-day Max Adverse Excursion |
+| Column               | Description                               |
+| -------------------- | ----------------------------------------- |
+| `date`               | Evaluation date                           |
+| `secid`              | Resolved security ID                      |
+| `display_symbol`     | Display-friendly symbol                   |
+| `ticker_at_date`     | Ticker valid at the date                  |
+| `runtime_symbol`     | Symbol used for data loading              |
+| `strategy_id`        | Strategy identifier                       |
+| `candidate_status`   | accepted, rejected, ignored, or not_ready |
+| `reason_code`        | Machine-readable reason                   |
+| `score`              | Optional numeric score                    |
+| `gates_json`         | JSON-encoded gate results                 |
+| `features_json`      | JSON-encoded feature values               |
+| `diagnostics_json`   | JSON-encoded diagnostic values            |
+| `forward_return_5d`  | 5-day forward log return                  |
+| `forward_return_10d` | 10-day forward log return                 |
+| `forward_return_20d` | 20-day forward log return                 |
+| `mfe_20d`            | 20-day Max Favorable Excursion            |
+| `mae_20d`            | 20-day Max Adverse Excursion              |
 
 ### scan_manifest.json
 
@@ -242,9 +237,7 @@ Written alongside the CSV. Contains run metadata for reproducibility:
 
 ## Deferred Work
 
-Strategy-specific Qullamaggie breakout research is deferred until this scanner
-upgrade is complete. The following work will happen in QS-Research after this
-change is available:
+Strategy-specific Qullamaggie breakout research is deferred until this scanner upgrade is complete. The following work will happen in QS-Research after this change is available:
 
 - Building the Qullamaggie candidate research experiment.
 - Defining and tuning Qullamaggie breakout gates.

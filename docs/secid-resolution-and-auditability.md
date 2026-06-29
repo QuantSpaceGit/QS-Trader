@@ -12,13 +12,13 @@ The `InstrumentResolver` resolves tickers and secids to stable instrument identi
 
 ### Core Classes
 
-| Class | Purpose |
-|---|---|
-| `SecmasterAuthorityError` | Raised when a ticker or secid is not found in secmaster |
-| `TickerHistory` | Historical ticker usage for a secid (ticker, start_date, end_date) |
-| `CandidateMapping` | Candidate secid mapping when ambiguity is detected |
-| `ResolvedInstrument` | Full resolved instrument identity with secid, display_symbol, ticker_at_date, identity_source, ticker_history |
-| `InstrumentResolver` | Main resolver with caching, batch resolution, and ticker history table support |
+| Class                     | Purpose                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `SecmasterAuthorityError` | Raised when a ticker or secid is not found in secmaster                                                       |
+| `TickerHistory`           | Historical ticker usage for a secid (ticker, start_date, end_date)                                            |
+| `CandidateMapping`        | Candidate secid mapping when ambiguity is detected                                                            |
+| `ResolvedInstrument`      | Full resolved instrument identity with secid, display_symbol, ticker_at_date, identity_source, ticker_history |
+| `InstrumentResolver`      | Main resolver with caching, batch resolution, and ticker history table support                                |
 
 ### Resolution Policies
 
@@ -87,20 +87,20 @@ identity_source = getattr(self.instrument, "identity_source", None)
 
 All event types carry optional identity fields for stable audit trails across ticker changes:
 
-| Field | Type | Description |
-|---|---|---|
-| `secid` | `Optional[int]` | Stable security identifier from secmaster |
-| `display_symbol` | `Optional[str]` | Preferred display ticker |
-| `ticker_at_date` | `Optional[str]` | Ticker valid on the event date |
-| `identity_source` | `Optional[str]` | How identity was resolved |
+| Field             | Type            | Description                               |
+| ----------------- | --------------- | ----------------------------------------- |
+| `secid`           | `Optional[int]` | Stable security identifier from secmaster |
+| `display_symbol`  | `Optional[str]` | Preferred display ticker                  |
+| `ticker_at_date`  | `Optional[str]` | Ticker valid on the event date            |
+| `identity_source` | `Optional[str]` | How identity was resolved                 |
 
 ### Identity Source Values
 
-| Value | Meaning |
-|---|---|
-| `explicit_secid` | Resolved from explicit secid input |
-| `ticker_point_in_time` | Resolved from ticker with date-range anchoring |
-| `legacy_symbol` | Fallback to original symbol (no secid resolution) |
+| Value                  | Meaning                                           |
+| ---------------------- | ------------------------------------------------- |
+| `explicit_secid`       | Resolved from explicit secid input                |
+| `ticker_point_in_time` | Resolved from ticker with date-range anchoring    |
+| `legacy_symbol`        | Fallback to original symbol (no secid resolution) |
 
 ### Event Types with Identity Fields
 
@@ -125,31 +125,31 @@ The ClickHouse input manifest describes the canonical data a backtest run consum
 
 ### Schema v2 Fields
 
-| Field | Type | Description |
-|---|---|---|
-| `schema_version` | `Literal[2]` | Schema version discriminator |
-| `source_kind` | `Literal["clickhouse"]` | Data source kind |
-| `source_name` | `str` | Source identifier (e.g., "qs-datamaster") |
-| `database` | `str` | ClickHouse database name |
-| `bars_table` | `str` | OHLC bars table name |
-| `symbols` | `tuple[str, ...]` | Original symbol list |
-| `start_date` | `date` | Backtest start date |
-| `end_date` | `date` | Backtest end date |
-| `price_basis` | `PriceBasis` | Raw or adjusted price basis |
-| `resolved_instruments` | `tuple[ResolvedInstrumentEntry, ...]` | Full identity metadata per instrument |
+| Field                  | Type                                  | Description                               |
+| ---------------------- | ------------------------------------- | ----------------------------------------- |
+| `schema_version`       | `Literal[2]`                          | Schema version discriminator              |
+| `source_kind`          | `Literal["clickhouse"]`               | Data source kind                          |
+| `source_name`          | `str`                                 | Source identifier (e.g., "qs-datamaster") |
+| `database`             | `str`                                 | ClickHouse database name                  |
+| `bars_table`           | `str`                                 | OHLC bars table name                      |
+| `symbols`              | `tuple[str, ...]`                     | Original symbol list                      |
+| `start_date`           | `date`                                | Backtest start date                       |
+| `end_date`             | `date`                                | Backtest end date                         |
+| `price_basis`          | `PriceBasis`                          | Raw or adjusted price basis               |
+| `resolved_instruments` | `tuple[ResolvedInstrumentEntry, ...]` | Full identity metadata per instrument     |
 
 ### ResolvedInstrumentEntry Fields
 
-| Field | Type | Description |
-|---|---|---|
-| `runtime_symbol` | `str` | Symbol used at runtime |
-| `requested_symbol` | `str` | Symbol originally requested |
-| `secid` | `int \| None` | Resolved security identifier |
-| `display_symbol` | `str \| None` | Preferred display ticker |
-| `first_date` | `date \| None` | First available date |
-| `last_date` | `date \| None` | Last available date |
-| `ticker_history` | `list[TickerHistoryEntry]` | Historical ticker changes |
-| `resolution` | `dict[str, Any]` | Resolution metadata |
+| Field              | Type                       | Description                  |
+| ------------------ | -------------------------- | ---------------------------- |
+| `runtime_symbol`   | `str`                      | Symbol used at runtime       |
+| `requested_symbol` | `str`                      | Symbol originally requested  |
+| `secid`            | `int \| None`              | Resolved security identifier |
+| `display_symbol`   | `str \| None`              | Preferred display ticker     |
+| `first_date`       | `date \| None`             | First available date         |
+| `last_date`        | `date \| None`             | Last available date          |
+| `ticker_history`   | `list[TickerHistoryEntry]` | Historical ticker changes    |
+| `resolution`       | `dict[str, Any]`           | Resolution metadata          |
 
 ### Reading Manifests
 
@@ -194,25 +194,25 @@ candidate_id = compute_candidate_id(
 
 ### Decision Columns
 
-| Column | Type | Description |
-|---|---|---|
-| `candidate_id` | `str` | Deterministic SHA-256 hex digest |
-| `strategy_id` | `str` | Strategy identifier |
-| `secid` | `int \| None` | Security identifier |
-| `symbol` | `str` | Symbol at decision time |
-| `date` | `str` | Trading date ISO string |
-| `decision_status` | `str` | Candidate status |
-| `final_action` | `str` | Action taken |
-| `reason_code` | `str` | Reason for decision |
-| `gates` | `JSONB` | Gate evaluation results |
-| `diagnostics` | `JSONB` | Diagnostic context |
-| `strategy_version` | `str` | Strategy version |
-| `parameter_hash` | `str` | Parameter snapshot hash |
-| `confidence` | `float` | Decision confidence |
-| `decision_price` | `float` | Price at decision time |
-| `indicator_context` | `JSONB` | Indicator values |
-| `metadata` | `JSONB` | Additional metadata |
-| `occurred_at` | `datetime` | Event timestamp |
+| Column              | Type          | Description                      |
+| ------------------- | ------------- | -------------------------------- |
+| `candidate_id`      | `str`         | Deterministic SHA-256 hex digest |
+| `strategy_id`       | `str`         | Strategy identifier              |
+| `secid`             | `int \| None` | Security identifier              |
+| `symbol`            | `str`         | Symbol at decision time          |
+| `date`              | `str`         | Trading date ISO string          |
+| `decision_status`   | `str`         | Candidate status                 |
+| `final_action`      | `str`         | Action taken                     |
+| `reason_code`       | `str`         | Reason for decision              |
+| `gates`             | `JSONB`       | Gate evaluation results          |
+| `diagnostics`       | `JSONB`       | Diagnostic context               |
+| `strategy_version`  | `str`         | Strategy version                 |
+| `parameter_hash`    | `str`         | Parameter snapshot hash          |
+| `confidence`        | `float`       | Decision confidence              |
+| `decision_price`    | `float`       | Price at decision time           |
+| `indicator_context` | `JSONB`       | Indicator values                 |
+| `metadata`          | `JSONB`       | Additional metadata              |
+| `occurred_at`       | `datetime`    | Event timestamp                  |
 
 ### Persistence Targets
 
@@ -271,38 +271,38 @@ qs-trader scan-candidates \
 
 ### CLI Options
 
-| Option | Required | Default | Description |
-|---|---|---|---|
-| `--tickers` | Yes | — | Ticker symbols to scan (repeatable) |
-| `--start-date` | Yes | — | Start date (YYYY-MM-DD) |
-| `--end-date` | Yes | — | End date (YYYY-MM-DD) |
-| `--strategy-id` | No | `scan` | Strategy identifier for attribution |
-| `--output-dir` | No | `./scan_output` | Output directory for results |
-| `--horizons` | No | `5,10,20` | Comma-separated forward return horizons in bars |
-| `--ticker-policy` | No | `anchor_first_in_range` | Resolution policy for ambiguous tickers |
-| `--config` | No | — | Optional config file for data source and rule configuration |
+| Option            | Required | Default                 | Description                                                 |
+| ----------------- | -------- | ----------------------- | ----------------------------------------------------------- |
+| `--tickers`       | Yes      | —                       | Ticker symbols to scan (repeatable)                         |
+| `--start-date`    | Yes      | —                       | Start date (YYYY-MM-DD)                                     |
+| `--end-date`      | Yes      | —                       | End date (YYYY-MM-DD)                                       |
+| `--strategy-id`   | No       | `scan`                  | Strategy identifier for attribution                         |
+| `--output-dir`    | No       | `./scan_output`         | Output directory for results                                |
+| `--horizons`      | No       | `5,10,20`               | Comma-separated forward return horizons in bars             |
+| `--ticker-policy` | No       | `anchor_first_in_range` | Resolution policy for ambiguous tickers                     |
+| `--config`        | No       | —                       | Optional config file for data source and rule configuration |
 
 ### Scan Output
 
 Results are persisted to `candidate_scan_results.csv` with one row per `(secid, date)`:
 
-| Column | Description |
-|---|---|
-| `date` | Trading date |
-| `secid` | Security identifier |
-| `display_symbol` | Display ticker |
-| `ticker_at_date` | Ticker active on this date |
-| `strategy_id` | Strategy identifier |
-| `candidate_status` | Candidate evaluation result |
-| `reason_code` | Reason for decision |
-| `score` | Candidate score |
-| `gates_json` | Gate evaluation results (JSON) |
-| `features_json` | Feature values (JSON) |
-| `forward_return_5d` | 5-day forward log return |
-| `forward_return_10d` | 10-day forward log return |
-| `forward_return_20d` | 20-day forward log return |
-| `mfe_20d` | Max favorable excursion (20 bars) |
-| `mae_20d` | Max adverse excursion (20 bars) |
+| Column               | Description                       |
+| -------------------- | --------------------------------- |
+| `date`               | Trading date                      |
+| `secid`              | Security identifier               |
+| `display_symbol`     | Display ticker                    |
+| `ticker_at_date`     | Ticker active on this date        |
+| `strategy_id`        | Strategy identifier               |
+| `candidate_status`   | Candidate evaluation result       |
+| `reason_code`        | Reason for decision               |
+| `score`              | Candidate score                   |
+| `gates_json`         | Gate evaluation results (JSON)    |
+| `features_json`      | Feature values (JSON)             |
+| `forward_return_5d`  | 5-day forward log return          |
+| `forward_return_10d` | 10-day forward log return         |
+| `forward_return_20d` | 20-day forward log return         |
+| `mfe_20d`            | Max favorable excursion (20 bars) |
+| `mae_20d`            | Max adverse excursion (20 bars)   |
 
 ### Known Limitations
 
@@ -314,17 +314,17 @@ The `run_events` table is created by Alembic migration `004_run_events_audit_exp
 
 For **existing** `run_events` tables (created before the secid-first identity fields were added to the migration), the 16 new columns are **not** present and must be added manually:
 
-| Prefix | Columns |
-|---|---|
+| Prefix    | Columns                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------ |
 | `signal_` | `signal_secid`, `signal_display_symbol`, `signal_ticker_at_date`, `signal_identity_source` |
-| `order_` | `order_secid`, `order_display_symbol`, `order_ticker_at_date`, `order_identity_source` |
-| `fill_` | `fill_secid`, `fill_display_symbol`, `fill_ticker_at_date`, `fill_identity_source` |
-| `trade_` | `trade_secid`, `trade_display_symbol`, `trade_ticker_at_date`, `trade_identity_source` |
+| `order_`  | `order_secid`, `order_display_symbol`, `order_ticker_at_date`, `order_identity_source`     |
+| `fill_`   | `fill_secid`, `fill_display_symbol`, `fill_ticker_at_date`, `fill_identity_source`         |
+| `trade_`  | `trade_secid`, `trade_display_symbol`, `trade_ticker_at_date`, `trade_identity_source`     |
 
 ### Options for Existing Tables
 
 1. **Recreate the table** — drop and let the Alembic migration recreate it on the next `alembic upgrade head` run (loses historical data).
-2. **ALTER TABLE** — add the missing columns manually:
+1. **ALTER TABLE** — add the missing columns manually:
 
 ```sql
 ALTER TABLE run_events

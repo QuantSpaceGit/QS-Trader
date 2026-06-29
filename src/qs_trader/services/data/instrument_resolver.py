@@ -250,9 +250,7 @@ class InstrumentResolver:
         # Try ticker history table first if configured
         if self._ticker_history_table is not None:
             try:
-                resolved = self._resolve_by_ticker_from_history(
-                    ticker, start_date, end_date, policy
-                )
+                resolved = self._resolve_by_ticker_from_history(ticker, start_date, end_date, policy)
                 if resolved is not None:
                     self._add_to_cache(cache_key, resolved)
                     return resolved
@@ -311,9 +309,7 @@ class InstrumentResolver:
 
             # Get first and last dates for this secid in the range
             first_date = min(th.start_date for th in relevant_history)
-            last_date = max(
-                th.end_date if th.end_date else end_date for th in relevant_history
-            )
+            last_date = max(th.end_date if th.end_date else end_date for th in relevant_history)
 
             candidates.append(
                 CandidateMapping(
@@ -333,8 +329,7 @@ class InstrumentResolver:
                 policy=policy,
             )
             raise SecmasterAuthorityError(
-                f"Ticker '{ticker}' found in secmaster but no valid mappings "
-                f"in date range [{start_date}, {end_date}].",
+                f"Ticker '{ticker}' found in secmaster but no valid mappings in date range [{start_date}, {end_date}].",
                 ticker=ticker,
             )
 
@@ -370,10 +365,7 @@ class InstrumentResolver:
                 candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
             )
         else:
-            raise ValueError(
-                f"Invalid policy '{policy}'. "
-                f"Must be 'anchor_first_in_range' or 'fail_on_ambiguity'."
-            )
+            raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
 
         self._add_to_cache(cache_key, resolved)
         return resolved
@@ -421,8 +413,7 @@ class InstrumentResolver:
                 date_range=(str(start_date), str(end_date)),
             )
             raise SecmasterAuthorityError(
-                f"Secid {secid} not found in secmaster. "
-                f"Secmaster is the authoritative identity source.",
+                f"Secid {secid} not found in secmaster. Secmaster is the authoritative identity source.",
                 secid=secid,
             )
 
@@ -431,11 +422,7 @@ class InstrumentResolver:
         ticker_history = self._parse_ticker_history(tickers_str, dates_str)
 
         # Find the ticker active in the date range
-        active_tickers = [
-            th
-            for th in ticker_history
-            if self._overlaps_date_range(th, start_date, end_date)
-        ]
+        active_tickers = [th for th in ticker_history if self._overlaps_date_range(th, start_date, end_date)]
 
         if not active_tickers:
             logger.error(
@@ -446,8 +433,7 @@ class InstrumentResolver:
                 ticker_history_count=len(ticker_history),
             )
             raise SecmasterAuthorityError(
-                f"Secid {secid} found in secmaster but no tickers active "
-                f"in date range [{start_date}, {end_date}].",
+                f"Secid {secid} found in secmaster but no tickers active in date range [{start_date}, {end_date}].",
                 secid=secid,
             )
 
@@ -460,9 +446,7 @@ class InstrumentResolver:
         )
         display_ticker = active_tickers_sorted[0].ticker
         first_date = min(th.start_date for th in active_tickers)
-        last_date = max(
-            th.end_date if th.end_date else end_date for th in active_tickers
-        )
+        last_date = max(th.end_date if th.end_date else end_date for th in active_tickers)
 
         resolved = ResolvedInstrument(
             secid=secid,
@@ -573,9 +557,7 @@ class InstrumentResolver:
                     continue
 
                 first_date = min(th.start_date for th in relevant_history)
-                last_date = max(
-                    th.end_date if th.end_date else end_date for th in relevant_history
-                )
+                last_date = max(th.end_date if th.end_date else end_date for th in relevant_history)
 
                 ticker_to_candidates[ticker].append(
                     CandidateMapping(
@@ -599,8 +581,7 @@ class InstrumentResolver:
                     policy=policy,
                 )
                 raise SecmasterAuthorityError(
-                    f"Ticker '{ticker}' not found in secmaster. "
-                    f"Secmaster is the authoritative identity source.",
+                    f"Ticker '{ticker}' not found in secmaster. Secmaster is the authoritative identity source.",
                     ticker=ticker,
                 )
 
@@ -631,10 +612,7 @@ class InstrumentResolver:
                     candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
                 )
             else:
-                raise ValueError(
-                    f"Invalid policy '{policy}'. "
-                    f"Must be 'anchor_first_in_range' or 'fail_on_ambiguity'."
-                )
+                raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
 
             self._add_to_cache(cache_key, resolved)
             results[ticker] = resolved
@@ -675,8 +653,7 @@ class InstrumentResolver:
                 return self._resolve_all_secids_from_history(universe_date)
             except Exception:
                 logger.warning(
-                    "Ticker history table query failed for resolve_all_secids, "
-                    "falling back to secmaster",
+                    "Ticker history table query failed for resolve_all_secids, falling back to secmaster",
                     table=self._ticker_history_table,
                     universe_date=str(universe_date),
                     exc_info=True,
@@ -702,9 +679,7 @@ class InstrumentResolver:
             ORDER BY secid, start_date DESC
         """
 
-        result = self._client.query(
-            query, parameters={"universe_date": universe_date}
-        )
+        result = self._client.query(query, parameters={"universe_date": universe_date})
 
         if not result.result_rows:
             return []
@@ -717,9 +692,7 @@ class InstrumentResolver:
             # is the most recently started ticker on universe_date.
             if secid not in seen_secids:
                 seen_secids.add(secid)
-                instruments.append(
-                    MinimalInstrument(secid=secid, display_symbol=ticker)
-                )
+                instruments.append(MinimalInstrument(secid=secid, display_symbol=ticker))
 
         return instruments
 
@@ -754,9 +727,7 @@ class InstrumentResolver:
                 start = th.start_date
                 end = th.end_date if th.end_date is not None else date.max
                 if start <= universe_date <= end:
-                    instruments.append(
-                        MinimalInstrument(secid=secid, display_symbol=th.ticker)
-                    )
+                    instruments.append(MinimalInstrument(secid=secid, display_symbol=th.ticker))
                     break  # One match per secid is enough
 
         return instruments
@@ -767,9 +738,7 @@ class InstrumentResolver:
         self._cache_timestamps.clear()
         logger.info("Instrument resolver cache cleared")
 
-    def _parse_ticker_history(
-        self, tickers_str: str, dates_str: str
-    ) -> List[TickerHistory]:
+    def _parse_ticker_history(self, tickers_str: str, dates_str: str) -> List[TickerHistory]:
         """Parse semicolon-delimited ticker history from secmaster.
 
         Args:
@@ -829,9 +798,7 @@ class InstrumentResolver:
             int(date_str[6:8]),
         )
 
-    def _overlaps_date_range(
-        self, ticker_history: TickerHistory, start: date, end: date
-    ) -> bool:
+    def _overlaps_date_range(self, ticker_history: TickerHistory, start: date, end: date) -> bool:
         """Check if a ticker history entry overlaps with a date range.
 
         Args:
@@ -876,9 +843,7 @@ class InstrumentResolver:
         ticker_at_date = display_ticker
         if candidate.ticker_history:
             active_tickers = [
-                th
-                for th in candidate.ticker_history
-                if self._overlaps_date_range(th, start_date, end_date)
+                th for th in candidate.ticker_history if self._overlaps_date_range(th, start_date, end_date)
             ]
             if active_tickers:
                 # Use the first active ticker in the range
@@ -969,16 +934,13 @@ class InstrumentResolver:
         candidates = []
         for secid, history in secid_to_history.items():
             relevant = [
-                th for th in history
-                if th.ticker == ticker and self._overlaps_date_range(th, start_date, end_date)
+                th for th in history if th.ticker == ticker and self._overlaps_date_range(th, start_date, end_date)
             ]
             if not relevant:
                 continue
 
             first_date = min(th.start_date for th in relevant)
-            last_date = max(
-                th.end_date if th.end_date else end_date for th in relevant
-            )
+            last_date = max(th.end_date if th.end_date else end_date for th in relevant)
 
             candidates.append(
                 CandidateMapping(
@@ -1025,10 +987,7 @@ class InstrumentResolver:
             candidates.sort(key=lambda c: c.first_date)
             winning = candidates[0]
         else:
-            raise ValueError(
-                f"Invalid policy '{policy}'. "
-                f"Must be 'anchor_first_in_range' or 'fail_on_ambiguity'."
-            )
+            raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
 
         # Second query: fetch ALL ticker history rows for the resolved secid
         # so that ticker_history includes the complete record (e.g. FB→META).
@@ -1045,9 +1004,7 @@ class InstrumentResolver:
             winning, ticker, IdentitySource.TICKER_POINT_IN_TIME, (start_date, end_date)
         )
 
-    def _fetch_full_secid_history(
-        self, secid: int
-    ) -> Optional[List[TickerHistory]]:
+    def _fetch_full_secid_history(self, secid: int) -> Optional[List[TickerHistory]]:
         """Fetch ALL ticker history rows for a secid.
 
         Used after initial resolution to populate the complete ticker history
@@ -1096,9 +1053,7 @@ class InstrumentResolver:
 
         return history
 
-    def _get_from_cache(
-        self, cache_key: Tuple[str, date, date, str]
-    ) -> Optional[ResolvedInstrument]:
+    def _get_from_cache(self, cache_key: Tuple[str, date, date, str]) -> Optional[ResolvedInstrument]:
         """Get a cached resolution result if valid."""
         if cache_key not in self._cache:
             return None
@@ -1112,9 +1067,7 @@ class InstrumentResolver:
 
         return self._cache[cache_key]
 
-    def _add_to_cache(
-        self, cache_key: Tuple[str, date, date, str], resolved: ResolvedInstrument
-    ) -> None:
+    def _add_to_cache(self, cache_key: Tuple[str, date, date, str], resolved: ResolvedInstrument) -> None:
         """Add a resolution result to the cache."""
         self._cache[cache_key] = resolved
         self._cache_timestamps[cache_key] = time.time()

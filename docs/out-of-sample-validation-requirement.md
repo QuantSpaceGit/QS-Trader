@@ -581,7 +581,7 @@ Phase 1 (static IS/OOS validation) is **implemented and committed** in QS-Trader
 
 ## Phase 2A.1 Implementation
 
-Phase 2A.1 (walk-forward split generation — preview only) is **implemented and committed** in QS-Trader. Live execution of walk-forward plans is phase-gated until Phase 2A.2.
+Phase 2A.1 (walk-forward split generation — preview only) is **implemented and committed** in QS-Trader. At the time this phase landed, live execution of walk-forward plans was phase-gated; current live execution support is documented in Phase 2A.4 below.
 
 ### What Phase 2A.1 delivers
 
@@ -590,7 +590,7 @@ Phase 2A.1 (walk-forward split generation — preview only) is **implemented and
 - `WalkForwardSplitGenerator` produces alternating `train`/`oos` splits for each fold under both anchored and rolling styles, honoring `embargo` and stopping when the test window would exceed `total_range`.
 - `min_fold_bars` enforcement marks short test windows with `status='invalid'` and `reason='insufficient_history_for_fold:<n>'` instead of raising.
 - `qs-trader validate <plan> --dry-run` prints generated splits with `[INVALID: <reason>]` tags for invalid folds.
-- `qs-trader validate <plan>` (non-dry-run) on a `walk_forward` plan exits with code `3` (`Invalid`) and an explanatory message until Phase 2A.2 runner support lands.
+- At the Phase 2A.1 checkpoint, `qs-trader validate <plan>` (non-dry-run) on a `walk_forward` plan exited with code `3` (`Invalid`) and an explanatory message until runner support landed.
   > **Note:** Live execution of `walk_forward` plans is fully supported as of Phase 2A.4. This Phase 2A.1 restriction was lifted incrementally: runner support landed in Phase 2A.2, aggregation rules in Phase 2A.4.
 - `ValidationPlan` is now strict: `extra="forbid"` at the root rejects unknown top-level keys (e.g. Phase 2 fields on a `static_is_oos` plan).
 - `description` is an accepted optional root field (human-readable label); it is excluded from the plan SHA-256 so existing static plan hashes are preserved, and is omitted from `effective_plan.yaml` when not set.
@@ -620,12 +620,12 @@ Phase 2A.1 (walk-forward split generation — preview only) is **implemented and
 
 ## Phase 2A.2 Implementation
 
-Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemented** in QS-Trader. Walk-forward non-dry-run execution (the other Phase 2A.2 work item) remains tracked separately and is still gated.
+Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemented** in QS-Trader. At this checkpoint, walk-forward non-dry-run execution remained tracked separately; current support is documented in Phase 2A.4 below.
 
 ### What Phase 2A.2 (cost scenarios) delivers
 
 - New `CostScenarioSpec` (Pydantic v2, frozen + `extra="forbid"`): `name: str` matching `^[A-Za-z0-9_-]+$`, `overrides: dict[str, Any]` (default `{}`). Duplicate scenario names are rejected at plan-load.
-- New optional `ValidationPlan.cost_scenarios: list[CostScenarioSpec] | None` root field. When `None` the field is dropped from the canonical plan dict and from `effective_plan.yaml`, preserving the pinned static plan hash prefix `428e27b2`.
+- New optional `ValidationPlan.cost_scenarios: list[CostScenarioSpec] | None` root field. When `None` the field is dropped from the canonical plan dict and from `effective_plan.yaml`, preserving the pinned static plan hash prefix `36919c93`.
 - New module `qs_trader.validation.cost_scenarios` with:
   - `validate_override_path(model_cls, path)` — walks a dot-path through Pydantic `BaseModel` fields, unwrapping `Optional[...]`. Raises `ValueError("unknown_override_key:<path> …")` for unknown fields or for descending below non-`BaseModel` leaves.
   - `apply_scenario_overrides(base_config, overrides)` — returns the input instance unchanged when `overrides` is empty; otherwise `model_dump(mode="python")` → deep-merge → `BacktestConfig.model_validate(...)`. The base config is never mutated.
@@ -636,13 +636,13 @@ Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemente
   - `validation_context` injected into each child run gains `scenario` only when set.
   - `ChildRunRef` gained a trailing `scenario: str | None = None` field (backward compatible with all existing positional construction).
 - On-disk layout when `cost_scenarios` is declared: `validations/<vid>/scenarios/<name>/folds/<fold_id>/…`. When omitted, the Phase 2A.1 layout (`validations/<vid>/folds/<fold_id>/…`) is preserved byte-identically.
-- `summary.json` gains a top-level `cost_scenarios` list **only** when scenarios are declared. Each entry has `name`, per-scenario `decision`, `reason_codes`, and per-fold `{fold_id, role, status}`. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The lone-`base` scenario case (a single scenario named `base`) suppresses the `cost_scenario_failed:base` prefix to avoid noise (per-fold reason codes already carry the full story). Under `fail_fast`, scenarios that never executed are omitted from both the top-level aggregation and the `cost_scenarios` block. The top-level `comparison` block remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only — it does not drive the decision. Per-scenario fold-aggregate metrics (median, IQR, etc.) are deferred to Phase 2A.4 alongside the walk-forward aggregator.
+- `summary.json` gains a top-level `cost_scenarios` list **only** when scenarios are declared. Each entry has `name`, per-scenario `decision`, `reason_codes`, and per-fold `{fold_id, role, status}`. The top-level `outcome` aggregates per-scenario decisions by worst severity (`Fail > ReviewRequired > Invalid > Pass`); for every non-Pass scenario a `cost_scenario_failed:<scenario_name>` reason code is appended to the top-level `reason_codes`, and the CLI exit code follows the aggregated outcome. The lone-`base` scenario case (a single scenario named `base`) suppresses the `cost_scenario_failed:base` prefix to avoid noise (per-fold reason codes already carry the full story). Under `fail_fast`, scenarios that never executed are omitted from both the top-level aggregation and the `cost_scenarios` block. The top-level `comparison` block remains anchored to the first declared scenario (typically `base`) and is a presentation artefact only — it does not drive the decision. At this checkpoint, per-scenario fold-aggregate metrics (median, IQR, etc.) were deferred to Phase 2A.4 alongside the walk-forward aggregator.
 - CLI `--dry-run` prints a `Cost scenarios:` expansion table under the splits list when the plan declares scenarios. Scenario names are column-aligned.
 
 ### What Phase 2A.2 (cost scenarios) explicitly defers
 
 - Per-scenario fold-aggregate metrics (median / IQR / min / max / `count_pass_folds` per scenario) — Phase 2A.4 alongside the walk-forward aggregator. A `TODO` in `reporting/summary.py` flags the placeholder.
-- Walk-forward non-dry-run execution (a separate Phase 2A.2 work item, tracked under T2.6+) — still exits `Invalid` (code 3) for non-dry-run `walk_forward` plans.
+- Walk-forward non-dry-run execution (a separate Phase 2A.2 work item, tracked under T2.6+) — deferred at this checkpoint and later delivered in Phase 2A.4.
 - Benchmark overlay child run / equity overlay chart — Phase 2A.3.
 - Walk-forward aggregation rules — Phase 2A.4.
 - Walk-forward HTML reporter and equity overlay PNG — Phase 2A.5.
@@ -654,7 +654,7 @@ Phase 2A.2 (cost-sensitivity scenarios — subtasks T2.1–T2.5) is **implemente
 - Linting: **ruff check clean**; **ruff format --check clean**.
 - Type checking: **mypy clean** (16 source files, `--ignore-missing-imports`).
 - Documentation: this file, `docs/validation-framework.md`, `docs/cli/validate.md`, `README.md`, and `CHANGELOG.md` updated.
-- Static plan hash prefix pin `428e27b2` is preserved (verified by `TestCanonicalDictStability::test_static_plan_hash_unchanged`).
+- Static plan hash prefix pin `36919c93` is preserved (verified by `TestCanonicalDictStability::test_static_plan_hash_unchanged`).
 
 ## Phase 2A.3 Implementation
 
@@ -665,14 +665,14 @@ This section documents what landed in Phase 2A.3 — engine-driven benchmark ove
 - **T3.1 — Buy-and-hold benchmark strategy.** New `BuyAndHoldStrategy` (registered as `buy_and_hold`) emits a single `OPEN_LONG` on the first bar for a single instrument and never closes; `reinvest_dividends` is forwarded as a config flag for future dividend-aware variants.
 - **T3.2 — Engine-driven config derivation.** `derive_benchmark_child_config(plan, full_range, base_config)` returns a fresh `BacktestConfig` that reuses the base config's calendar, data-source name, cost model, risk policy, and reporting block while overriding the universe (single benchmark instrument), strategy list (single buy-and-hold entry), `start_date` / `end_date` (the full validation range), and `backtest_id` (suffix `__benchmark`). Sleeve and IS/OOS split metadata are cleared. The input base config is never mutated.
 - **T3.3 — Pre-flight data-availability check.** `check_benchmark_data_availability(...)` runs before any fold launches; it raises a typed `BenchmarkDataUnavailableError` when the declared instrument has no data or only partial coverage for the full range. The CLI catches the error, echoes `benchmark_data_unavailable:<instrument>` to stderr, and exits `3` without writing anything to disk. The check accepts an injectable `BenchmarkBarLoader` so tests can stub the data layer.
-- **T3.4 — Summary block + strategy-minus-benchmark delta.** `summary.json` gains an optional `benchmark` block (`instrument`, `metrics`, `strategy_minus_benchmark`). The delta is the strategy OOS metric minus the benchmark metric for Sharpe and total return. For walk-forward plans the first OOS fold is used as the strategy-side source; a cross-fold OOS aggregate is deferred to Phase 2A.4 (tracked in `compute_strategy_minus_benchmark` as a `TODO`).
+- **T3.4 — Summary block + strategy-minus-benchmark delta.** `summary.json` gains an optional `benchmark` block (`instrument`, `metrics`, `strategy_minus_benchmark`). The delta is the strategy OOS metric minus the benchmark metric for Sharpe and total return. At the Phase 2A.3 checkpoint, walk-forward plans used the first OOS fold as the strategy-side source; that was resolved in Phase 2A.4 by using aggregate OOS metrics when available.
 - **T3.5 — Runner integration.** `SequentialValidationRunner.run_benchmark()` writes artifacts to `<validation_dir>/benchmark/` and returns a `ChildRunRef` with `fold_id="benchmark"` and `role="benchmark"`. It never raises on engine failure; failure surfaces in the CLI as top-level `Invalid` plus `benchmark_run_failed`. Pre-flight failures and engine failures are reported through distinct reason codes so downstream tooling can disambiguate.
 
 ### Schema migration: `BenchmarkSpec`
 
 - The legacy `BenchmarkRef` (Phase 1 declarative metadata) is replaced by `BenchmarkSpec` with fields `instrument: str`, `strategy: Literal["buy_and_hold"]`, `reinvest_dividends: bool`. `BenchmarkRef = BenchmarkSpec` is exported as a backwards-compatible alias.
 - Instrument values must match `^[A-Za-z0-9._-]+$`. Empty / whitespace-only values are rejected at load time.
-- The plan canonical-dict shape for `benchmark=None` is **unchanged**: the field continues to serialise as `"benchmark": null`, preserving the `428e27b2` static reference-plan hash pin (the legacy field was already optional on the Phase 1 model, so dropping it from the canonical dict would have broken the pin). Plans that declare a benchmark naturally change the hash because the value is no longer null.
+- The plan canonical-dict shape for `benchmark=None` is **unchanged**: the field continues to serialise as `"benchmark": null`, preserving the `36919c93` static reference-plan hash pin (the legacy field was already optional on the Phase 1 model, so dropping it from the canonical dict would have broken the pin). Plans that declare a benchmark naturally change the hash because the value is no longer null.
 - `effective_plan.yaml` drops `benchmark` when null (mirroring `description` / `cost_scenarios`), so on-disk byte-equivalence for Phase 1 / Phase 2A.1 / Phase 2A.2 plans is preserved.
 
 ### Output layout
@@ -701,7 +701,7 @@ validations/<vid>/
 - Linting: **ruff check clean**; **ruff format --check clean** (validation, strategies, tests).
 - Type checking: **mypy clean** under `src/qs_trader/validation/` with `--ignore-missing-imports`.
 - Documentation: this file, `docs/validation-framework.md`, `docs/cli/validate.md`, `README.md`, and `CHANGELOG.md` updated.
-- Static plan hash prefix pin `428e27b2` is preserved (verified by `TestReferencePlanContract::test_static_is_oos_plan_hash_is_stable` and `TestPlanHashStabilityForBenchmark::test_static_reference_plan_hash_pin_unchanged`).
+- Static plan hash prefix pin `36919c93` is preserved (verified by `TestReferencePlanContract::test_static_is_oos_plan_hash_is_stable` and `TestPlanHashStabilityForBenchmark::test_static_reference_plan_hash_pin_unchanged`).
 
 ### Deferred items
 
@@ -739,4 +739,4 @@ Phase 2A.4 (walk-forward aggregation and decision rules — subtasks T4, T4.1–
 - Linting: **ruff check clean**; **ruff format --check clean**.
 - Type checking: **mypy clean** (`src/qs_trader/validation/` with `--ignore-missing-imports`).
 - Formatting: **mdformat clean** on all documentation files.
-- Static plan hash prefix pin `428e27b2` is preserved.
+- Static plan hash prefix pin `36919c93` is preserved.

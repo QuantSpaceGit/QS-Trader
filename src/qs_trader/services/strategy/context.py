@@ -212,9 +212,15 @@ class Context:
             # Map to a valid final_action value per OpenSpec candidate-decision contract.
             # decision_type may include scale_in/scale_out/hold/skip/reverse, but
             # final_action is restricted to the canonical candidate-decision actions.
-            _VALID_FINAL_ACTIONS = frozenset({
-                "open_long", "close_long", "open_short", "close_short", "none",
-            })
+            _VALID_FINAL_ACTIONS = frozenset(
+                {
+                    "open_long",
+                    "close_long",
+                    "open_short",
+                    "close_short",
+                    "none",
+                }
+            )
             final_action = decision_type if decision_type in _VALID_FINAL_ACTIONS else "none"
             decision_event = StrategyDecisionEvent(
                 experiment_id=self._lifecycle_context.experiment_id,
@@ -1135,9 +1141,15 @@ class Context:
         # Publish to event bus when lifecycle context is available
         if self._lifecycle_context is not None:
             # Map to a valid final_action value per OpenSpec candidate-decision contract.
-            _VALID_FINAL_ACTIONS = frozenset({
-                "open_long", "close_long", "open_short", "close_short", "none",
-            })
+            _VALID_FINAL_ACTIONS = frozenset(
+                {
+                    "open_long",
+                    "close_long",
+                    "open_short",
+                    "close_short",
+                    "none",
+                }
+            )
             safe_final_action = final_action if final_action in _VALID_FINAL_ACTIONS else "none"
 
             # Generate a proper UUID for the decision event (not the candidate_id)

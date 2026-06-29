@@ -295,9 +295,15 @@ class ClickhouseDataAdapter:
         msg = str(exc).lower()
         # Permanent failures — never retry
         permanent_keywords = [
-            "authentication", "auth failed", "access denied",
-            "syntax error", "unknown table", "unknown database",
-            "unknown identifier", "illegal column", "type mismatch",
+            "authentication",
+            "auth failed",
+            "access denied",
+            "syntax error",
+            "unknown table",
+            "unknown database",
+            "unknown identifier",
+            "illegal column",
+            "type mismatch",
         ]
         if any(kw in msg for kw in permanent_keywords):
             return False
@@ -330,7 +336,9 @@ class ClickhouseDataAdapter:
                     error_type=type(exc).__name__,
                 )
                 time_module.sleep(delay)
-        raise last_exc  # pragma: no cover
+        if last_exc is not None:  # pragma: no cover
+            raise last_exc
+        raise RuntimeError(f"{operation_name} failed without an exception")  # pragma: no cover
 
     def _get_client(self) -> Any:
         """Return (or create) a ClickHouse HTTP client with retry on transient failures."""
@@ -426,9 +434,7 @@ class ClickhouseDataAdapter:
                     "start_date": start_date,
                     "end_date": end_date,
                 }
-            result = self._retry_with_backoff(
-                "fetch_bars", client.query, query, parameters=params
-            )
+            result = self._retry_with_backoff("fetch_bars", client.query, query, parameters=params)
         except Exception as exc:
             logger.error(
                 "clickhouse_adapter.fetch_failed",

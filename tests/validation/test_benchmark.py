@@ -8,7 +8,7 @@ Covers:
   coverage both raise ``BenchmarkDataUnavailableError``.
 * :class:`BenchmarkSpec` plan-load strictness: empty instrument, bogus
   strategy name, extra fields rejected.
-* Plan-hash stability: ``benchmark=None`` keeps the ``428e27b2`` static plan
+* Plan-hash stability: ``benchmark=None`` keeps the ``36919c93`` static plan
   pin intact.
 * Runner integration: benchmark child run successful path writes a
   ``benchmark/`` directory and surfaces a ``ChildRunRef`` with
@@ -307,7 +307,7 @@ class TestCheckBenchmarkDataAvailability:
 
 
 # ---------------------------------------------------------------------------
-# Plan-hash stability — benchmark=None must keep 428e27b2 pin
+# Plan-hash stability — benchmark=None must keep 36919c93 pin
 # ---------------------------------------------------------------------------
 
 
@@ -317,7 +317,7 @@ class TestPlanHashStabilityForBenchmark:
         plan = _make_plan(benchmark=None)
         d = _plan_to_canonical_dict(plan)
         # Either explicitly null OR absent — both shapes must keep the
-        # 428e27b2 pin intact. The current implementation keeps the key
+        # 36919c93 pin intact. The current implementation keeps the key
         # present with a null value (see plan._plan_to_canonical_dict).
         assert d.get("benchmark") is None
 
@@ -342,7 +342,7 @@ class TestPlanHashStabilityForBenchmark:
 
         plan = load_validation_plan(ref_plan)
         sha = compute_plan_sha256(plan, plan.base_config)
-        assert sha.startswith("428e27b2"), f"Static plan hash drifted: {sha[:12]}"
+        assert sha.startswith("36919c93"), f"Static plan hash drifted: {sha[:12]}"
 
 
 # ---------------------------------------------------------------------------

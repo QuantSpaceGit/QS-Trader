@@ -98,8 +98,7 @@ class ScanDecision:
     def __post_init__(self) -> None:
         if self.candidate_status not in VALID_STATUSES:
             raise ValueError(
-                f"Unsupported candidate_status: {self.candidate_status!r}. "
-                f"Must be one of {sorted(VALID_STATUSES)}."
+                f"Unsupported candidate_status: {self.candidate_status!r}. Must be one of {sorted(VALID_STATUSES)}."
             )
 
 
@@ -287,8 +286,5 @@ def resolve_price_basis(price_basis: str | None) -> tuple[str, dict[str, str]]:
     """
     resolved = price_basis or DEFAULT_PRICE_BASIS
     if resolved not in PRICE_BASIS_COLUMNS:
-        raise ValueError(
-            f"Unsupported price basis: {resolved!r}. "
-            f"Supported: {sorted(PRICE_BASIS_COLUMNS.keys())}."
-        )
+        raise ValueError(f"Unsupported price basis: {resolved!r}. Supported: {sorted(PRICE_BASIS_COLUMNS.keys())}.")
     return resolved, PRICE_BASIS_COLUMNS[resolved]

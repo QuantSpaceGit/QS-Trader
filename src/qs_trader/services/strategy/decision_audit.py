@@ -199,15 +199,12 @@ def _build_postgres_url() -> str | None:
     password = os.getenv("RESEARCH_POSTGRES_PASSWORD")
     sslmode = os.getenv("RESEARCH_POSTGRES_SSLMODE", "disable")
 
-    if not all([host, db, user, password]):
+    if host is None or db is None or user is None or password is None:
         return None
 
     from urllib.parse import quote_plus
 
-    return (
-        f"postgresql+psycopg://{user}:{quote_plus(password)}"
-        f"@{host}:{port}/{db}?sslmode={sslmode}"
-    )
+    return f"postgresql+psycopg://{user}:{quote_plus(password)}@{host}:{port}/{db}?sslmode={sslmode}"
 
 
 def persist_decisions_db(
@@ -246,9 +243,9 @@ def persist_decisions_db(
 
     engine = create_engine(url, pool_pre_ping=True)
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for decision in decisions:
-        row = {}
+        row: dict[str, Any] = {}
         for col in _DECISION_COLUMNS:
             value = decision.get(col)
             if col in ("gates", "diagnostics", "indicator_context", "metadata"):

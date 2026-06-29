@@ -150,9 +150,7 @@ class Instrument(BaseModel):
     secid: Optional[int] = Field(default=None, description="Stable security identifier from secmaster")
     display_symbol: Optional[str] = Field(default=None, description="Preferred display ticker for UI")
     ticker_at_date: Optional[str] = Field(default=None, description="Ticker valid on specific bar date")
-    identity_source: Optional[IdentitySource] = Field(
-        default=None, description="How identity was resolved"
-    )
+    identity_source: Optional[IdentitySource] = Field(default=None, description="How identity was resolved")
 
     model_config = {"frozen": True}
 

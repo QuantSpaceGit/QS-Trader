@@ -106,7 +106,7 @@ def _build_data_loader(
 
     def _clickhouse_loader(identifier: int | str) -> dict[str, Any]:
         """Load OHLCV data from ClickHouse for a secid."""
-        from clickhouse_connect import get_client
+        from clickhouse_connect import get_client  # type: ignore[import-untyped]
 
         # Resolve connection from environment or defaults
         host = __import__("os").environ.get("CLICKHOUSE_HOST", "localhost")
@@ -512,7 +512,9 @@ def scan_candidates_command(
                 console.print(f"[green]✓ InstrumentResolver connected to {host}:{port}[/green]")
             except Exception as e:
                 if all_secids or secid_all:
-                    console.print(f"[bold red]✗ InstrumentResolver required for --secid scans but failed: {e}[/bold red]")
+                    console.print(
+                        f"[bold red]✗ InstrumentResolver required for --secid scans but failed: {e}[/bold red]"
+                    )
                     console.print("[red]  Cannot proceed without secid resolution.[/red]")
                     sys.exit(1)
                 console.print(f"[yellow]Warning: InstrumentResolver not available: {e}[/yellow]")
@@ -520,6 +522,9 @@ def scan_candidates_command(
 
         # Resolve all secids when --secid-all is specified
         if secid_all and universe_as_of_date is not None:
+            if resolver is None:
+                console.print("[bold red]✗ InstrumentResolver required for --secid-all.[/bold red]")
+                sys.exit(1)
             universe_date = universe_as_of_date.date()
             console.print(f"[cyan]Resolving all secids active on {universe_date}...[/cyan]")
             instruments = resolver.resolve_all_secids(universe_date)

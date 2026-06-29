@@ -285,9 +285,7 @@ class DataService:
             and date_range is not None
         ):
             try:
-                resolved = self._instrument_resolver.resolve_by_ticker(
-                    symbol, date_range=date_range
-                )
+                resolved = self._instrument_resolver.resolve_by_ticker(symbol, date_range=date_range)
                 instrument = Instrument(
                     symbol=symbol,
                     secid=resolved.secid,

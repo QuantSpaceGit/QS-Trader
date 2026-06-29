@@ -114,7 +114,7 @@ class ScanRunner:
     def __init__(
         self,
         instrument_resolver: Any,
-        data_loader: Callable[[int], dict[str, Any]],
+        data_loader: Callable[[int | str], dict[str, Any]],
         candidate_rule: Callable[..., Any],
         strategy_id: str,
         horizons: list[int] | None = None,
@@ -332,11 +332,14 @@ class ScanRunner:
             # fall back to legacy tuple-return through adapter.
             # Also detect legacy 3-arg call shape: (secid, date_str, features).
             sig = inspect.signature(self._candidate_rule)
-            param_count = len([
-                p for p in sig.parameters.values()
-                if p.default is inspect.Parameter.empty
-                and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-            ])
+            param_count = len(
+                [
+                    p
+                    for p in sig.parameters.values()
+                    if p.default is inspect.Parameter.empty
+                    and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                ]
+            )
 
             if param_count == 3:
                 # Legacy 3-arg call shape: (secid, date_str, features)
@@ -358,8 +361,7 @@ class ScanRunner:
                 decision = ScanDecision(**raw_result)
             else:
                 raise TypeError(
-                    f"Candidate rule must return ScanDecision, dict, or tuple, "
-                    f"got {type(raw_result).__name__}."
+                    f"Candidate rule must return ScanDecision, dict, or tuple, got {type(raw_result).__name__}."
                 )
 
             # Compute scan metrics (unchanged)
@@ -512,7 +514,9 @@ class ScanRunner:
                     {
                         "secid": getattr(c, "secid", None),
                         "display_symbol": getattr(c, "display_symbol", None),
-                        "overlap_start": str(getattr(c, "overlap_start", "")) if getattr(c, "overlap_start", None) else None,
+                        "overlap_start": str(getattr(c, "overlap_start", ""))
+                        if getattr(c, "overlap_start", None)
+                        else None,
                         "overlap_end": str(getattr(c, "overlap_end", "")) if getattr(c, "overlap_end", None) else None,
                     }
                     for c in candidates

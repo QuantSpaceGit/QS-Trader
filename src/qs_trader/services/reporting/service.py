@@ -10,7 +10,7 @@ Architecture:
 """
 
 import math
-import uuid
+import uuid  # noqa: F401 - kept as a stable test patch target for deterministic legacy reports.
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from qs_trader.events.event_bus import EventBus
-from qs_trader.events.events import BaseEvent, FillEvent, PerformanceMetricsEvent, PortfolioStateEvent, TradeEvent
+from qs_trader.events.events import BaseEvent, PerformanceMetricsEvent, PortfolioStateEvent, TradeEvent
 from qs_trader.events.price_basis import PriceBasis
 
 if TYPE_CHECKING:
@@ -583,7 +583,6 @@ class ReportingService:
             "synthesize_open_trades.complete",
             open_trade_count=len(self._open_trade_records),
         )
-
 
     def _handle_corporate_action(self, event: BaseEvent) -> None:
         """

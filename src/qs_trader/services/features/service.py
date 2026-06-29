@@ -222,6 +222,7 @@ class FeatureService:
             return {k: v for k, v in row.items() if k in effective_columns}
 
         # Use explicit secid when provided; otherwise resolve via ticker
+        resolved_secid: int | None
         if secid is not None:
             resolved_secid = secid
         else:
@@ -300,6 +301,7 @@ class FeatureService:
             return {k: v for k, v in row.items() if k in columns}
 
         # Use explicit secid when provided; otherwise resolve via ticker
+        resolved_secid: int | None
         if secid is not None:
             resolved_secid = secid
         else:

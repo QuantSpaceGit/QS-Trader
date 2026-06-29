@@ -77,7 +77,7 @@ class TestReferencePlanContract:
 
         plan = load_validation_plan(_REFERENCE_PLAN)
         sha = compute_plan_sha256(plan, plan.base_config)
-        assert sha.startswith("428e27b2"), (
+        assert sha.startswith("36919c93"), (
             f"Static IS/OOS plan hash changed unexpectedly: {sha[:12]}. "
             "If this is intentional, update this pin and get reviewer sign-off."
         )

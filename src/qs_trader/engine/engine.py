@@ -306,7 +306,10 @@ class BacktestEngine:
 
     @classmethod
     def from_config(
-        cls, config: BacktestConfig, results_dir: Path | None = None, debugger: Any | None = None,
+        cls,
+        config: BacktestConfig,
+        results_dir: Path | None = None,
+        debugger: Any | None = None,
         system_config: SystemConfig | None = None,
     ) -> "BacktestEngine":
         """
@@ -471,7 +474,7 @@ class BacktestEngine:
         if identity_mode in ("resolve", "secid"):
             ch_client: Any = None
             try:
-                from clickhouse_connect import get_client
+                from clickhouse_connect import get_client  # type: ignore[import-untyped]
 
                 from qs_trader.services.data.instrument_resolver import InstrumentResolver
                 from qs_trader.services.reporting.manifest import (
@@ -485,9 +488,7 @@ class BacktestEngine:
                     from qs_trader.services.data.adapters.resolver import DataSourceResolver
 
                     _tmp_resolver = DataSourceResolver(
-                        system_sources_config=(
-                            system_config.data.sources_config if system_config else None
-                        )
+                        system_sources_config=(system_config.data.sources_config if system_config else None)
                     )
                     _src_cfg = _tmp_resolver.get_source_config(dataset)
                     _ch_cfg = _src_cfg.get("clickhouse", {}) or {}
@@ -520,8 +521,10 @@ class BacktestEngine:
                     )
 
                     # Resolve all symbols in the universe
-                    date_range = (config.start_date.date() if hasattr(config.start_date, "date") else config.start_date,
-                                  config.end_date.date() if hasattr(config.end_date, "date") else config.end_date)
+                    date_range = (
+                        config.start_date.date() if hasattr(config.start_date, "date") else config.start_date,
+                        config.end_date.date() if hasattr(config.end_date, "date") else config.end_date,
+                    )
                     resolved_map = instrument_resolver_for_service.resolve_batch(
                         list(first_source.universe), date_range=date_range
                     )
@@ -776,9 +779,7 @@ class BacktestEngine:
                 price_basis=str(config.price_basis),
             )
         except Exception as e:
-            raise RuntimeError(
-                f"PortfolioService is required but could not be created: {e}"
-            ) from e
+            raise RuntimeError(f"PortfolioService is required but could not be created: {e}") from e
 
         # Initialize ExecutionService (Phase 5)
         # Required: backtest cannot process signals without execution
@@ -796,9 +797,7 @@ class BacktestEngine:
                 price_basis=str(config.price_basis),
             )
         except Exception as e:
-            raise RuntimeError(
-                f"ExecutionService is required but could not be created: {e}"
-            ) from e
+            raise RuntimeError(f"ExecutionService is required but could not be created: {e}") from e
 
         # Initialize ReportingService if reporting configured (optional)
         reporting_service: ReportingService | None = None

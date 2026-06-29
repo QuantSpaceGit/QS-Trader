@@ -247,13 +247,13 @@ def write_ticker_compatibility_view(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     view = build_ticker_compatibility_view(snapshots, ticker_field)
-    paths = []
+    paths: list[Path] = []
 
     for ticker, rows in view.items():
         safe_ticker = ticker.replace("/", "_").replace("\\", "_")
         path = output_dir / f"{filename_prefix}_{safe_ticker}.csv"
 
-        all_columns = set()
+        all_columns: set[str] = set()
         for row in rows:
             all_columns.update(row.keys())
         columns = sorted(all_columns)
@@ -262,7 +262,7 @@ def write_ticker_compatibility_view(
             writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
             writer.writeheader()
             for row in rows:
-                csv_row = {}
+                csv_row: dict[str, Any] = {}
                 for col in columns:
                     value = row.get(col)
                     if isinstance(value, (dict, list)):
@@ -349,15 +349,12 @@ def _build_postgres_url() -> str | None:
     password = os.getenv("RESEARCH_POSTGRES_PASSWORD")
     sslmode = os.getenv("RESEARCH_POSTGRES_SSLMODE", "disable")
 
-    if not all([host, db, user, password]):
+    if host is None or db is None or user is None or password is None:
         return None
 
     from urllib.parse import quote_plus
 
-    return (
-        f"postgresql+psycopg://{user}:{quote_plus(password)}"
-        f"@{host}:{port}/{db}?sslmode={sslmode}"
-    )
+    return f"postgresql+psycopg://{user}:{quote_plus(password)}@{host}:{port}/{db}?sslmode={sslmode}"
 
 
 def _get_engine(connection_url: str | None = None):
@@ -407,8 +404,12 @@ def write_resolved_instruments_db(
             row[col] = inst.get(col)
         row["secid"] = int(inst["secid"]) if inst.get("secid") is not None else None
         row["display_symbol"] = inst.get("display_symbol")
-        row["ticker_history"] = json.dumps(inst.get("ticker_history"), default=_json_default) if inst.get("ticker_history") else None
-        row["resolution"] = json.dumps(inst.get("resolution"), default=_json_default) if inst.get("resolution") else None
+        row["ticker_history"] = (
+            json.dumps(inst.get("ticker_history"), default=_json_default) if inst.get("ticker_history") else None
+        )
+        row["resolution"] = (
+            json.dumps(inst.get("resolution"), default=_json_default) if inst.get("resolution") else None
+        )
         rows.append(row)
 
     with engine.begin() as conn:
@@ -468,18 +469,29 @@ def write_bar_snapshots_db(
         return 0
 
     columns = [
-        "secid", "date", "runtime_symbol", "display_symbol",
-        "ticker_at_date", "identity_source",
-        "open", "high", "low", "close", "volume",
-        "open_adj", "high_adj", "low_adj", "close_adj",
+        "secid",
+        "date",
+        "runtime_symbol",
+        "display_symbol",
+        "ticker_at_date",
+        "identity_source",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "open_adj",
+        "high_adj",
+        "low_adj",
+        "close_adj",
     ]
 
     numeric_cols = {"secid": int, "volume": int}
     float_cols = {"open", "high", "low", "close", "open_adj", "high_adj", "low_adj", "close_adj"}
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for snap in snapshots:
-        row = {}
+        row: dict[str, Any] = {}
         for col in columns:
             value = snap.get(col)
             if value is None:
@@ -559,9 +571,9 @@ def write_feature_snapshots_db(
     if engine is None:
         return 0
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for snap in snapshots:
-        row = {}
+        row: dict[str, Any] = {}
         row["secid"] = int(snap["secid"]) if snap.get("secid") is not None else None
         row["date"] = snap.get("date")
         row["runtime_symbol"] = snap.get("runtime_symbol")

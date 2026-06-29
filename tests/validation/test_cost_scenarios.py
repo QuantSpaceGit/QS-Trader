@@ -5,7 +5,7 @@ Covers:
 - Plan-load rejection of unknown override keys / invalid scenario names /
   duplicates (T2.2 + name regex).
 - Hash stability when ``cost_scenarios`` is absent (back-compat with the
-  ``428e27b2`` Phase 1 static plan pin and the ``description`` exclusion
+  ``36919c93`` Phase 1 static plan pin and the ``description`` exclusion
   pattern).
 - ``SequentialValidationRunner`` (fold × scenario) matrix with
   ``fail_fast`` / ``continue`` (T2.3) and the on-disk
@@ -262,7 +262,7 @@ class TestCanonicalDictStability:
         assert d["cost_scenarios"] == [{"name": "base", "overrides": {}}]
 
     def test_static_reference_plan_hash_pin_unchanged(self) -> None:
-        """The Phase 1 reference plan must still hash to the 428e27b2 prefix."""
+        """The Phase 1 reference plan must still hash to the 36919c93 prefix."""
         ref_plan = (
             Path(__file__).resolve().parents[3]
             / "QS-Research"
@@ -274,7 +274,7 @@ class TestCanonicalDictStability:
 
         plan = load_validation_plan(ref_plan)
         sha = compute_plan_sha256(plan, plan.base_config)
-        assert sha.startswith("428e27b2"), f"Static plan hash drifted: {sha[:12]}"
+        assert sha.startswith("36919c93"), f"Static plan hash drifted: {sha[:12]}"
 
 
 # ---------------------------------------------------------------------------

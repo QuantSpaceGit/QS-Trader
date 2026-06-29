@@ -224,7 +224,9 @@ class SequentialValidationRunner:
                     scenario=scenario_name,
                 )
 
-                with BacktestEngine.from_config(child_config, results_dir=fold_dir, system_config=self._system_config) as engine:
+                with BacktestEngine.from_config(
+                    child_config, results_dir=fold_dir, system_config=self._system_config
+                ) as engine:
                     result = engine.run()
 
                 finished_at = datetime.now().isoformat()
@@ -356,7 +358,9 @@ class SequentialValidationRunner:
                 run_id=run_id,
                 instrument=plan.benchmark.instrument,
             )
-            with BacktestEngine.from_config(child_config, results_dir=bench_dir, system_config=self._system_config) as engine:
+            with BacktestEngine.from_config(
+                child_config, results_dir=bench_dir, system_config=self._system_config
+            ) as engine:
                 result = engine.run()
 
             finished_at = datetime.now().isoformat()

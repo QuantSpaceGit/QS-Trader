@@ -129,9 +129,7 @@ class StrategyDecisionEvent(LifecycleValidatedEvent):
     SCHEMA_BASE: ClassVar[Optional[str]] = "lifecycle/strategy_decision"
     TYPE_FIELD: ClassVar[str] = "decision_type"
     PRICE_BASIS_FIELD: ClassVar[str | None] = "decision_basis"
-    VALID_FINAL_ACTIONS: ClassVar[frozenset[str]] = frozenset(
-        {"open_long", "close_long", "open_short", "close_short"}
-    )
+    VALID_FINAL_ACTIONS: ClassVar[frozenset[str]] = frozenset({"open_long", "close_long", "open_short", "close_short"})
 
     event_type: str = "strategy_decision"
 

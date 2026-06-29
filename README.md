@@ -180,7 +180,7 @@ QS-Trader requires Python 3.13+. We recommend using [uv](https://docs.astral.sh/
 uv add git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.10
+uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.11
 ```
 
 #### Using pip
@@ -190,7 +190,7 @@ uv add git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.10
 pip install git+https://github.com/QuantSpaceGit/QS-Trader.git
 
 # Or install a specific release
-pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.10
+pip install git+https://github.com/QuantSpaceGit/QS-Trader.git@v0.2.0-beta.11
 ```
 
 #### Verify Installation
@@ -474,7 +474,7 @@ qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml
 qs-trader validate experiments/buy_hold/validations/buy_hold_oos_2024.yaml --dry-run
 ```
 
-**Walk-forward (Phase 2A.1):** `ValidationPlan.mode` also accepts `walk_forward` for anchored or rolling split previews via `--dry-run`. Non-dry-run execution of a `walk_forward` plan currently exits `Invalid` (code 3) until Phase 2A.2 runner support lands.
+**Walk-forward validation:** `ValidationPlan.mode` also accepts `walk_forward` for anchored or rolling validation. `--dry-run` previews generated folds, and live execution is supported with fold aggregation and walk-forward decision rules.
 
 **Cost scenarios (Phase 2A.2):** A plan may declare an optional `cost_scenarios` list (`name` + dot-notation `overrides` into `BacktestConfig`). When declared, the runner executes the full `scenario × fold` matrix under `validations/<vid>/scenarios/<name>/folds/...` and emits a per-scenario `cost_scenarios` block in `summary.json`.
 

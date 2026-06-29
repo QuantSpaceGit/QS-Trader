@@ -28,9 +28,9 @@ from qs_trader.services.scan.calculations import (
 from qs_trader.services.scan.models import (
     DEFAULT_PRICE_BASIS,
     PRICE_BASIS_COLUMNS,
+    VALID_STATUSES,
     ScanDecision,
     ScanRuleContext,
-    VALID_STATUSES,
     canonicalize_parameters,
     decision_from_tuple,
     hash_parameters,

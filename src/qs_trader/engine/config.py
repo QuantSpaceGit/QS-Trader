@@ -60,16 +60,13 @@ class DataSourceConfig(BaseModel):
         "When omitted, uses default anchor_first_in_range policy.",
     )
 
-
     @field_validator("identity_mode")
     @classmethod
     def validate_identity_mode(cls, v: str) -> str:
         """Restrict identity_mode to the supported set."""
         allowed = {"legacy", "resolve", "secid"}
         if v not in allowed:
-            raise ValueError(
-                f"identity_mode must be one of {sorted(allowed)}, got {v!r}"
-            )
+            raise ValueError(f"identity_mode must be one of {sorted(allowed)}, got {v!r}")
         return v
 
 
