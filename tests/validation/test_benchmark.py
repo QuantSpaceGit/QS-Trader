@@ -757,6 +757,9 @@ def _make_real_system_config(tmp_path: Path, custom_strategies_dir: Path | None)
 
     mock_config.custom_libraries = Mock()
     mock_config.custom_libraries.strategies = str(custom_strategies_dir) if custom_strategies_dir is not None else None
+    mock_config.custom_libraries.adapters = None
+    mock_config.custom_libraries.indicators = None
+    mock_config.custom_libraries.risk_policies = None
 
     mock_config.logging = Mock()
     logger_cfg = Mock()
@@ -897,6 +900,8 @@ class TestBuiltinStrategyRegistrationEndToEnd:
         stub_bars = [date(2020, 1, 2), date(2020, 6, 30), date(2020, 12, 30)]
 
         with (
+            patch("qs_trader.system.config.get_system_config", return_value=sys_cfg),
+            patch("qs_trader.services.data.adapters.resolver.get_system_config", return_value=sys_cfg),
             patch("qs_trader.engine.engine.get_system_config", return_value=sys_cfg),
             patch(
                 "qs_trader.validation.benchmark._default_benchmark_loader",
