@@ -40,19 +40,19 @@ class DataSourceConfig(BaseModel):
     Example: Load AAPL prices from one source, AAPL news from another.
 
     Identity modes:
-    - ``legacy``: Ticker-only identity (original behavior, no resolution).
+    - ``secid`` (default): Require secid identity; raise if resolution fails (no fallback).
     - ``resolve``: Resolve ticker to secid via InstrumentResolver, then load bars.
       Falls back to ticker-only if resolution fails.
-    - ``secid``: Require secid identity; raise if resolution fails (no fallback).
+    - ``legacy``: Ticker-only identity (original behavior, no resolution).
     """
 
     name: str = Field(..., description="Data source name from data_sources.yaml")
     universe: list[str] = Field(..., description="Symbols to load from this data source")
     identity_mode: str = Field(
-        default="legacy",
-        description="Instrument identity mode: 'legacy' (ticker-only, backward compatible, default), "
+        default="secid",
+        description="Instrument identity mode: 'legacy' (ticker-only, backward compatible), "
         "'resolve' (resolve then load, fallback on failure), "
-        "or 'secid' (require secid, fail if unavailable).",
+        "or 'secid' (require secid, fail if unavailable, default).",
     )
     resolution: ResolutionConfig | None = Field(
         default=None,

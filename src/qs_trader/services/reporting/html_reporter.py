@@ -103,7 +103,7 @@ class HTMLReportGenerator:
 
             # Convert timestamp strings to datetime if present
             if "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
                 # Handle duplicate timestamps by keeping the last value for each timestamp
                 # This can occur when multiple portfolio state events are emitted at the same time
@@ -1122,10 +1122,12 @@ class HTMLReportGenerator:
                 symbol = payload.get("symbol", "")
                 if symbol not in price_data:
                     price_data[symbol] = []
+                # Use adjusted close when available, fall back to raw
+                adj_close = payload.get("close_adj")
                 price_data[symbol].append(
                     {
                         "timestamp": payload.get("timestamp", ""),
-                        "close": float(payload.get("close", 0)),
+                        "close": float(adj_close) if adj_close is not None else float(payload.get("close", 0)),
                     }
                 )
 

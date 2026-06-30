@@ -131,8 +131,31 @@ class ResolvedInstrument:
     requested_start_date: date
     requested_end_date: date
     ticker_history: List[TickerHistory] = field(default_factory=list)
+    secid_segments: List[SecidSegment] = field(default_factory=list)
     ambiguous: bool = False
     candidates: Optional[List[CandidateMapping]] = None
+
+
+@dataclass
+class SecidSegment:
+    """A contiguous period where a ticker maps to a single secid.
+
+    Represents one uninterrupted segment of a ticker's history where the
+    underlying security identity (secid) is stable.  When a ticker transitions
+    from one secid to another (e.g. GOOGL from secid 166006 to 4579561 on
+    2015-10-05), there are two segments.
+
+    Attributes:
+        secid: Stable security identifier during this period.
+        start_date: First date this secid is active for this ticker.
+        end_date: Last date this secid is active (None if current).
+        ticker: Ticker symbol during this period.
+    """
+
+    secid: int
+    start_date: date
+    end_date: Optional[date] = None
+    ticker: str = ""
 
 
 @dataclass
@@ -355,14 +378,18 @@ class InstrumentResolver:
                     ticker=ticker,
                 )
             # Single candidate, proceed normally
+            segments = self._build_secid_segments(candidates, start_date, end_date)
             resolved = self._build_resolved_instrument(
-                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
+                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME,
+                date_range, secid_segments=segments,
             )
         elif policy == "anchor_first_in_range":
             # Sort by first_date and take the earliest
             candidates.sort(key=lambda c: c.first_date)
+            segments = self._build_secid_segments(candidates, start_date, end_date)
             resolved = self._build_resolved_instrument(
-                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
+                candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME,
+                date_range, secid_segments=segments,
             )
         else:
             raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
@@ -603,13 +630,17 @@ class InstrumentResolver:
                         ticker=ticker,
                     )
 
+                segments = self._build_secid_segments(candidates, start_date, end_date)
                 resolved = self._build_resolved_instrument(
-                    candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
+                    candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME,
+                    date_range, secid_segments=segments,
                 )
             elif policy == "anchor_first_in_range":
                 candidates.sort(key=lambda c: c.first_date)
+                segments = self._build_secid_segments(candidates, start_date, end_date)
                 resolved = self._build_resolved_instrument(
-                    candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME, date_range
+                    candidates[0], ticker, IdentitySource.TICKER_POINT_IN_TIME,
+                    date_range, secid_segments=segments,
                 )
             else:
                 raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
@@ -816,12 +847,49 @@ class InstrumentResolver:
             return True
         return ticker_history.end_date >= start
 
+    def _build_secid_segments(
+        self,
+        candidates: List[CandidateMapping],
+        start_date: date,
+        end_date: date,
+    ) -> List[SecidSegment]:
+        """Build chronological secid segments from candidate mappings.
+
+        Flattens all candidates' ticker_history entries that overlap the
+        requested date range into a chronologically sorted list of segments.
+        For a ticker with a single secid this returns one segment.  For a
+        ticker that changed secids (e.g. GOOGL) this returns multiple.
+
+        Args:
+            candidates: Candidate mappings (all secids matching the ticker).
+            start_date: Start of the requested date range.
+            end_date: End of the requested date range.
+
+        Returns:
+            List of SecidSegment sorted by start_date ascending.
+        """
+        segments = []
+        for c in sorted(candidates, key=lambda x: x.first_date):
+            for th in c.ticker_history:
+                if self._overlaps_date_range(th, start_date, end_date):
+                    segments.append(
+                        SecidSegment(
+                            secid=c.secid,
+                            start_date=th.start_date,
+                            end_date=th.end_date if th.end_date else None,
+                            ticker=th.ticker,
+                        )
+                    )
+        segments.sort(key=lambda s: s.start_date)
+        return segments
+
     def _build_resolved_instrument(
         self,
         candidate: CandidateMapping,
         requested_symbol: str,
         identity_source: IdentitySource,
         date_range: Tuple[date, date],
+        secid_segments: Optional[List[SecidSegment]] = None,
     ) -> ResolvedInstrument:
         """Build a ResolvedInstrument from a CandidateMapping.
 
@@ -830,6 +898,9 @@ class InstrumentResolver:
             requested_symbol: Symbol the user originally requested
             identity_source: How identity was resolved
             date_range: (start_date, end_date) to find ticker_at_date and record for audit
+            secid_segments: Optional list of secid segments spanning the date range
+                (all candidates, not just the winner).  When None, built from the
+                candidate's own ticker_history.
 
         Returns:
             ResolvedInstrument with full identity metadata
@@ -849,6 +920,21 @@ class InstrumentResolver:
                 # Use the first active ticker in the range
                 ticker_at_date = active_tickers[0].ticker
 
+        # Fallback: if no cross-candidate segments provided, derive from the
+        # winning candidate's own ticker_history.
+        _segments = secid_segments
+        if not _segments and candidate.ticker_history:
+            _segments = [
+                SecidSegment(
+                    secid=candidate.secid,
+                    start_date=th.start_date,
+                    end_date=th.end_date,
+                    ticker=th.ticker,
+                )
+                for th in candidate.ticker_history
+                if self._overlaps_date_range(th, start_date, end_date)
+            ]
+
         return ResolvedInstrument(
             secid=candidate.secid,
             requested_symbol=requested_symbol,
@@ -860,6 +946,7 @@ class InstrumentResolver:
             requested_start_date=start_date,
             requested_end_date=end_date,
             ticker_history=candidate.ticker_history,
+            secid_segments=_segments or [],
             ambiguous=False,
             candidates=None,
         )
@@ -989,6 +1076,10 @@ class InstrumentResolver:
         else:
             raise ValueError(f"Invalid policy '{policy}'. Must be 'anchor_first_in_range' or 'fail_on_ambiguity'.")
 
+        # Build secid segments from ALL candidates (spanning multiple secids)
+        # before enriching the winning candidate's full history.
+        segments = self._build_secid_segments(candidates, start_date, end_date)
+
         # Second query: fetch ALL ticker history rows for the resolved secid
         # so that ticker_history includes the complete record (e.g. FB→META).
         full_history = self._fetch_full_secid_history(winning.secid)
@@ -1001,7 +1092,8 @@ class InstrumentResolver:
             )
 
         return self._build_resolved_instrument(
-            winning, ticker, IdentitySource.TICKER_POINT_IN_TIME, (start_date, end_date)
+            winning, ticker, IdentitySource.TICKER_POINT_IN_TIME,
+            (start_date, end_date), secid_segments=segments,
         )
 
     def _fetch_full_secid_history(self, secid: int) -> Optional[List[TickerHistory]]:

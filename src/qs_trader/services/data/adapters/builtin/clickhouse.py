@@ -139,6 +139,10 @@ class ClickhouseDataAdapter:
         self._bar_cache: list[ClickhouseBar] = []
         self._cache_range: Optional[tuple[str, str]] = None
 
+        # Secid transition tracking for CorporateActionEvent emission
+        # Maps trade_date -> {from_secid, to_secid, linking_factor, from_ticker, to_ticker}
+        self._secid_transitions: dict[date, dict[str, Any]] = {}
+
         logger.debug(
             "clickhouse_adapter.initialized",
             symbol=instrument.symbol,
@@ -225,11 +229,33 @@ class ClickhouseDataAdapter:
     def to_corporate_action_event(
         self, bar: ClickhouseBar, prev_bar: Optional[ClickhouseBar] = None
     ) -> Optional[CorporateActionEvent]:
-        """AlgoSeek prices are pre-adjusted; no explicit corp action events.
+        """Emit CorporateActionEvent for secid transitions.
+
+        When the adapter has detected a secid transition at bar.trade_date
+        (from multi-segment chaining), emits a CorporateActionEvent with the
+        transition metadata.  For single-segment or legacy paths, returns None.
 
         Returns:
-            Always None — corporate actions are already embedded in adjusted prices.
+            CorporateActionEvent for secid transitions, None otherwise.
         """
+        transition = self._secid_transitions.get(bar.trade_date)
+        if transition is not None:
+            eff_date = bar.trade_date.isoformat() if isinstance(bar.trade_date, (date, datetime)) else str(bar.trade_date)
+            return CorporateActionEvent(
+                symbol=bar.symbol,
+                action_type="symbol_change",
+                announcement_date=eff_date,
+                ex_date=eff_date,
+                effective_date=eff_date,
+                source="qs-trader",
+                price_adjustment_factor=Decimal(str(transition["linking_factor"])),
+                split_ratio=Decimal(str(transition["linking_factor"])),
+                new_symbol=f"secid_{transition['to_secid']}",
+                notes=(
+                    f"Secid transition {transition['from_secid']} -> {transition['to_secid']} "
+                    f"factor={transition['linking_factor']:.6f}"
+                ),
+            )
         return None
 
     def get_timestamp(self, bar: ClickhouseBar) -> datetime:
@@ -239,30 +265,21 @@ class ClickhouseDataAdapter:
     def get_available_date_range(self) -> tuple[Optional[str], Optional[str]]:
         """Query ClickHouse for the min/max tradedate for this symbol.
 
-        Uses secid-based query when instrument.secid is set; falls back to
-        ticker-based query for backward compatibility.
+        Uses secid-based query. Returns (None, None) when secid is not available.
         """
         secid = getattr(self.instrument, "secid", None)
+        if secid is None:
+            return (None, None)
         try:
             client = self._get_client()
-            if secid is not None:
-                query = f"""
-                    SELECT
-                        toString(min(tradedate)) AS min_date,
-                        toString(max(tradedate)) AS max_date
-                    FROM {self._database}.{self._bars_table}
-                    WHERE secid = {{secid:UInt64}}
-                    """
-                result = client.query(query, parameters={"secid": secid})
-            else:
-                query = f"""
-                    SELECT
-                        toString(min(tradedate)) AS min_date,
-                        toString(max(tradedate)) AS max_date
-                    FROM {self._database}.{self._bars_table}
-                    WHERE ticker = {{symbol:String}}
-                    """
-                result = client.query(query, parameters={"symbol": self.instrument.symbol})
+            query = f"""
+                SELECT
+                    toString(min(tradedate)) AS min_date,
+                    toString(max(tradedate)) AS max_date
+                FROM {self._database}.{self._bars_table}
+                WHERE secid = {{secid:UInt64}}
+                """
+            result = client.query(query, parameters={"secid": secid})
             if result.result_rows:
                 row = result.result_rows[0]
                 return (row[0] or None, row[1] or None)
@@ -373,67 +390,29 @@ class ClickhouseDataAdapter:
         """Fetch all bars for this symbol in [start_date, end_date] from ClickHouse.
 
         Returns list sorted by tradedate ascending.
-        Uses secid-based query when instrument.secid is set; falls back to
-        ticker-based query for backward compatibility.
+        When instrument.secid_segments has >1 entry, loads bars per-segment
+        and chains them with linking factors for a continuous adjusted price
+        series.  Single-segment and legacy paths are unchanged.
         """
+        self._secid_transitions = {}
         symbol = self.instrument.symbol
+        segs = getattr(self.instrument, "secid_segments", None)
+
+        # Multi-segment chaining path
+        if segs is not None and len(segs) > 1:
+            return self._fetch_bars_chained(symbol, segs, start_date, end_date)
+
+        # Single-segment path (secid required)
         secid = getattr(self.instrument, "secid", None)
+        assert secid is not None, "ClickHouse adapter requires secid for single-segment fetch"
         try:
             client = self._get_client()
-            if secid is not None:
-                query = f"""
-                    SELECT
-                        tradedate,
-                        toFloat64(open)     AS open,
-                        toFloat64(high)     AS high,
-                        toFloat64(low)      AS low,
-                        toFloat64(close)    AS close,
-                        toFloat64(openadj)  AS openadj,
-                        toFloat64(highadj)  AS highadj,
-                        toFloat64(lowadj)   AS lowadj,
-                        toFloat64(closeadj) AS closeadj,
-                        toInt64(round(dailyvolume)) AS volume_raw,
-                        toInt64(round(dailyvolumeadj)) AS volume_adj
-                    FROM {self._database}.{self._bars_table}
-                    WHERE secid = {{secid:UInt64}}
-                      AND tradedate >= toDate({{start_date:String}})
-                      AND tradedate <= toDate({{end_date:String}})
-                      AND openadj > 0
-                      AND closeadj > 0
-                    ORDER BY tradedate ASC
-                """
-                params: dict[str, Any] = {
-                    "secid": secid,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                }
-            else:
-                query = f"""
-                    SELECT
-                        tradedate,
-                        toFloat64(open)     AS open,
-                        toFloat64(high)     AS high,
-                        toFloat64(low)      AS low,
-                        toFloat64(close)    AS close,
-                        toFloat64(openadj)  AS openadj,
-                        toFloat64(highadj)  AS highadj,
-                        toFloat64(lowadj)   AS lowadj,
-                        toFloat64(closeadj) AS closeadj,
-                        toInt64(round(dailyvolume)) AS volume_raw,
-                        toInt64(round(dailyvolumeadj)) AS volume_adj
-                    FROM {self._database}.{self._bars_table}
-                    WHERE ticker = {{symbol:String}}
-                      AND tradedate >= toDate({{start_date:String}})
-                      AND tradedate <= toDate({{end_date:String}})
-                      AND openadj > 0
-                      AND closeadj > 0
-                    ORDER BY tradedate ASC
-                """
-                params = {
-                    "symbol": symbol,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                }
+            query = self._build_query_by_secid()
+            params: dict[str, Any] = {
+                "secid": secid,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
             result = self._retry_with_backoff("fetch_bars", client.query, query, parameters=params)
         except Exception as exc:
             logger.error(
@@ -445,9 +424,45 @@ class ClickhouseDataAdapter:
             )
             raise
 
+        bars = self._rows_to_bars(result.result_rows, symbol)
+        logger.debug(
+            "clickhouse_adapter.bars_fetched",
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            count=len(bars),
+        )
+        return bars
+
+    def _build_query_by_secid(self) -> str:
+        """Build SQL query to fetch bars by secid."""
+        return f"""
+            SELECT
+                tradedate,
+                toFloat64(open)     AS open,
+                toFloat64(high)     AS high,
+                toFloat64(low)      AS low,
+                toFloat64(close)    AS close,
+                toFloat64(openadj)  AS openadj,
+                toFloat64(highadj)  AS highadj,
+                toFloat64(lowadj)   AS lowadj,
+                toFloat64(closeadj) AS closeadj,
+                toInt64(round(dailyvolume)) AS volume_raw,
+                toInt64(round(dailyvolumeadj)) AS volume_adj
+            FROM {self._database}.{self._bars_table}
+            WHERE secid = {{secid:UInt64}}
+              AND tradedate >= toDate({{start_date:String}})
+              AND tradedate <= toDate({{end_date:String}})
+              AND openadj > 0
+              AND closeadj > 0
+            ORDER BY tradedate ASC
+        """
+
+    def _rows_to_bars(self, rows: list[Any], symbol: str) -> list[ClickhouseBar]:
+        """Convert raw ClickHouse result rows to ClickhouseBar objects."""
         bars: list[ClickhouseBar] = []
         q = self.quantizer
-        for row in result.result_rows:
+        for row in rows:
             (
                 trade_date,
                 raw_o,
@@ -492,12 +507,141 @@ class ClickhouseDataAdapter:
                     volume_adj=volume_adj,
                 )
             )
-
-        logger.debug(
-            "clickhouse_adapter.bars_fetched",
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            count=len(bars),
-        )
         return bars
+
+    def _fetch_bars_chained(
+        self,
+        symbol: str,
+        segments: list[Any],
+        start_date: str,
+        end_date: str,
+    ) -> list[ClickhouseBar]:
+        """Fetch bars per-segment and chain them with linking factors.
+
+        For tickers that transition between secids (e.g. GOOGL from secid
+        166006 to 4579561), this method loads each segment's bars separately,
+        computes a linking factor at each boundary using closeadj, and applies
+        cumulative factors to all adjusted price fields so the resulting series
+        is continuous.
+        """
+        client = self._get_client()
+        start_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+        all_bars: list[ClickhouseBar] = []
+        prev_last_closeadj: Optional[float] = None
+        cumulative_factor: float = 1.0
+        prev_secid: Optional[int] = None
+
+        for seg in segments:
+            seg_secid = seg.secid
+            seg_start = seg.start_date
+            seg_end = seg.end_date
+
+            # Clamp segment date range to the requested [start_d, end_d]
+            query_start = max(seg_start, start_d) if seg_start else start_d
+            query_end = min(seg_end, end_d) if seg_end else end_d
+
+            if query_start > query_end:
+                continue  # segment outside requested range
+
+            query = self._build_query_by_secid()
+            params = {
+                "secid": seg_secid,
+                "start_date": query_start.isoformat(),
+                "end_date": query_end.isoformat(),
+            }
+            try:
+                result = self._retry_with_backoff("fetch_bars_chained", client.query, query, parameters=params)
+            except Exception as exc:
+                logger.error(
+                    "clickhouse_adapter.chained_fetch_failed",
+                    symbol=symbol,
+                    secid=seg_secid,
+                    start_date=query_start.isoformat(),
+                    end_date=query_end.isoformat(),
+                    error=str(exc),
+                )
+                raise
+
+            segment_bars = self._rows_to_bars(result.result_rows, symbol)
+            if not segment_bars:
+                logger.warning(
+                    "clickhouse_adapter.chained_segment_empty",
+                    symbol=symbol,
+                    secid=seg_secid,
+                    start=query_start.isoformat(),
+                    end=query_end.isoformat(),
+                )
+                continue
+
+            # Compute linking factor at the boundary between this segment
+            # and the previous one (for adjusted price continuity).
+            first_closeadj = float(segment_bars[0].close_adj) if segment_bars[0].close_adj else None
+            if prev_last_closeadj is not None and first_closeadj is not None and first_closeadj > 0:
+                linking_factor = prev_last_closeadj / first_closeadj
+                cumulative_factor *= linking_factor
+
+                # Record transition for CorporateActionEvent
+                transition_date = segment_bars[0].trade_date
+                self._secid_transitions[transition_date] = {
+                    "from_secid": prev_secid,
+                    "to_secid": seg_secid,
+                    "linking_factor": linking_factor,
+                    "cumulative_factor": cumulative_factor,
+                }
+
+            # Apply cumulative factor to adjusted prices in this segment
+            if cumulative_factor != 1.0:
+                multiplied_bars = []
+                for bar in segment_bars:
+                    adj_fields = {
+                        "open_adj": bar.open_adj,
+                        "high_adj": bar.high_adj,
+                        "low_adj": bar.low_adj,
+                        "close_adj": bar.close_adj,
+                    }
+                    for field, val in adj_fields.items():
+                        if val is not None:
+                            scaled = float(val) * cumulative_factor
+                            adj_fields[field] = Decimal(str(scaled)).quantize(self.quantizer)
+
+                    multiplied_bars.append(
+                        ClickhouseBar(
+                            symbol=bar.symbol,
+                            trade_date=bar.trade_date,
+                            open=bar.open,
+                            high=bar.high,
+                            low=bar.low,
+                            close=bar.close,
+                            open_adj=adj_fields["open_adj"],
+                            high_adj=adj_fields["high_adj"],
+                            low_adj=adj_fields["low_adj"],
+                            close_adj=adj_fields["close_adj"],
+                            volume=bar.volume,
+                            volume_raw=bar.volume_raw,
+                            volume_adj=bar.volume_adj,
+                        )
+                    )
+                all_bars.extend(multiplied_bars)
+            else:
+                all_bars.extend(segment_bars)
+
+            # Track the last closeadj of this segment for the next boundary
+            last_bar = segment_bars[-1]
+            if cumulative_factor != 1.0:
+                # Find the last bar from the multiplied version
+                last_idx = len(all_bars) - 1
+                last_bar = all_bars[last_idx]
+
+            prev_last_closeadj = float(last_bar.close_adj) if last_bar.close_adj else None
+            prev_secid = seg_secid
+
+        logger.info(
+            "clickhouse_adapter.bars_chained",
+            symbol=symbol,
+            segments=len(segments),
+            total_bars=len(all_bars),
+            transitions=len(self._secid_transitions),
+        )
+        return all_bars

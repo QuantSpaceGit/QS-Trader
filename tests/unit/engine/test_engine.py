@@ -89,6 +89,7 @@ def sample_backtest_config() -> BacktestConfig:
                 DataSourceConfig(
                     name="test-source",
                     universe=["AAPL", "MSFT"],
+                    identity_mode="legacy",
                 )
             ]
         ),
@@ -434,7 +435,7 @@ class TestBacktestEngineFromConfig:
             initial_equity=Decimal("100000"),
             data=DataSelectionConfig(
                 sources=[
-                    DataSourceConfig(name="source1", universe=["AAPL", "MSFT"]),
+                    DataSourceConfig(name="source1", universe=["AAPL", "MSFT"], identity_mode="legacy"),
                 ]
             ),
             strategies=[],

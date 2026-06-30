@@ -460,7 +460,7 @@ class BacktestEngine:
         # e.g., "yahoo-us-equity-1d-csv" -> provider="yahoo"
         first_source = config.data.sources[0]
         dataset = first_source.name
-        identity_mode = getattr(first_source, "identity_mode", "legacy")
+        identity_mode = getattr(first_source, "identity_mode", "secid")
 
         # Build config dict that from_config() expects
         # Provider will be extracted from dataset name inside from_config()
@@ -551,6 +551,7 @@ class BacktestEngine:
                                 resolution={
                                     "identity_source": resolved.identity_source.value,
                                     "ticker_at_date": resolved.ticker_at_date,
+                                    "secid_segments_count": len(resolved.secid_segments),
                                 },
                             )
                         )

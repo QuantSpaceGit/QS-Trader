@@ -93,7 +93,7 @@ class DataService:
         dataset: str,
         resolver: Optional[DataSourceResolver] = None,
         event_bus: Optional[IEventBus] = None,
-        identity_mode: str = "legacy",
+        identity_mode: str = "secid",
         instrument_resolver: Optional["InstrumentResolver"] = None,
     ):
         """
@@ -105,7 +105,7 @@ class DataService:
             resolver: Data source resolver (creates default if None)
             event_bus: Optional EventBus for publishing PriceBarEvent and CorporateActionEvent.
                       If None, DataService operates in non-event mode (pull-based).
-            identity_mode: Instrument identity mode — "legacy" (default, ticker-only),
+            identity_mode: Instrument identity mode — "secid" (default, require secid, fail if unavailable),
                           "resolve" (resolve then load, fallback on failure),
                           or "secid" (require secid, fail if unavailable).
             instrument_resolver: Optional InstrumentResolver for secmaster-backed identity
@@ -143,7 +143,7 @@ class DataService:
         event_bus: Optional[IEventBus] = None,
         timezone: Optional[str] = None,
         system_config: Optional[Any] = None,
-        identity_mode: str = "legacy",
+        identity_mode: str = "secid",
         instrument_resolver: Optional["InstrumentResolver"] = None,
     ) -> "DataService":
         """
@@ -286,12 +286,30 @@ class DataService:
         ):
             try:
                 resolved = self._instrument_resolver.resolve_by_ticker(symbol, date_range=date_range)
+
+                # Map secid_segments from resolver into the Instrument
+                # so the adapter can chain bars across security transitions.
+                seg_list = None
+                if resolved.secid_segments:
+                    from qs_trader.services.data.models import SecidSegment
+
+                    seg_list = [
+                        SecidSegment(
+                            secid=s.secid,
+                            start_date=s.start_date,
+                            end_date=s.end_date,
+                            ticker=s.ticker,
+                        )
+                        for s in resolved.secid_segments
+                    ]
+
                 instrument = Instrument(
                     symbol=symbol,
                     secid=resolved.secid,
                     display_symbol=resolved.display_symbol,
                     ticker_at_date=resolved.ticker_at_date,
                     identity_source=resolved.identity_source,
+                    secid_segments=seg_list,
                 )
                 logger.info(
                     "data_service.instrument_resolved",

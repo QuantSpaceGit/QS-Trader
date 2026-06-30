@@ -186,3 +186,112 @@ class TestResolveAllSecids:
         assert instruments[0] == MinimalInstrument(secid=303, display_symbol="TSLA")
         # Two queries were attempted
         assert mock_client.query.call_count == 2
+
+
+class TestSecidSegments:
+    """Test secid_segments computation in resolve_by_ticker."""
+
+    @pytest.fixture
+    def mock_client(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def resolver(self, mock_client):
+        return InstrumentResolver(
+            clickhouse_client=mock_client,
+            database="market",
+            ticker_history_table="as_secmaster_ticker_history",
+        )
+
+    def test_multi_secid_returns_two_segments(self, resolver, mock_client):
+        """GOOGL-like ticker with two secids returns two segments."""
+        # First query: _resolve_by_ticker_from_history fetches matching rows
+        #   SELECT secid, ticker, start_date, end_date, liststatus  (5 cols)
+        # Second query: _fetch_full_secid_history for winning secid (166006)
+        #   SELECT ticker, start_date, end_date, liststatus  (4 cols)
+        mock_client.query.side_effect = [
+            MockQueryResult([
+                (166006, "GOOGL", date(2014, 4, 3), date(2015, 10, 2), "active"),
+                (4579561, "GOOGL", date(2015, 10, 5), None, "active"),
+            ]),
+            MockQueryResult([
+                ("GOOGL", date(2014, 4, 3), date(2015, 10, 2), "active"),
+            ]),
+        ]
+
+        resolved = resolver.resolve_by_ticker(
+            "GOOGL",
+            date_range=(date(2014, 1, 1), date(2020, 12, 31)),
+        )
+
+        assert len(resolved.secid_segments) == 2
+        assert resolved.secid_segments[0].secid == 166006
+        assert resolved.secid_segments[0].start_date == date(2014, 4, 3)
+        assert resolved.secid_segments[0].end_date == date(2015, 10, 2)
+        assert resolved.secid_segments[0].ticker == "GOOGL"
+        assert resolved.secid_segments[1].secid == 4579561
+        assert resolved.secid_segments[1].start_date == date(2015, 10, 5)
+        assert resolved.secid_segments[1].end_date is None
+        assert resolved.secid_segments[1].ticker == "GOOGL"
+
+    def test_single_secid_returns_one_segment(self, resolver, mock_client):
+        """AAPL-like ticker with one secid returns one segment."""
+        mock_client.query.side_effect = [
+            MockQueryResult([
+                (101, "AAPL", date(1980, 12, 12), None, "active"),
+            ]),
+            MockQueryResult([
+                ("AAPL", date(1980, 12, 12), None, "active"),
+            ]),
+        ]
+
+        resolved = resolver.resolve_by_ticker(
+            "AAPL",
+            date_range=(date(2020, 1, 1), date(2023, 12, 31)),
+        )
+
+        assert len(resolved.secid_segments) == 1
+        assert resolved.secid_segments[0].secid == 101
+
+    def test_segments_chronologically_sorted(self, resolver, mock_client):
+        """Segments are sorted by start_date ascending."""
+        mock_client.query.side_effect = [
+            MockQueryResult([
+                (4579561, "GOOGL", date(2015, 10, 5), None, "active"),
+                (166006, "GOOGL", date(2014, 4, 3), date(2015, 10, 2), "active"),
+            ]),
+            MockQueryResult([
+                ("GOOGL", date(2014, 4, 3), date(2015, 10, 2), "active"),
+            ]),
+        ]
+
+        resolved = resolver.resolve_by_ticker(
+            "GOOGL",
+            date_range=(date(2014, 1, 1), date(2020, 12, 31)),
+        )
+
+        # Even though the DB returned secid 4579561 first, the segments
+        # should be sorted by start_date ascending.
+        assert len(resolved.secid_segments) == 2
+        assert resolved.secid_segments[0].secid == 166006
+        assert resolved.secid_segments[1].secid == 4579561
+
+    def test_secmaster_fallback_populates_segments(self, mock_client):
+        """Fallback path (secmaster array parsing) also computes segments."""
+        resolver_no_history = InstrumentResolver(
+            clickhouse_client=mock_client,
+            database="market",
+        )
+        mock_client.query.return_value = MockQueryResult([
+            (166006, "GOOGL", "20140403-20151002"),
+            (4579561, "GOOGL", "20151005-"),
+        ])
+
+        resolved = resolver_no_history.resolve_by_ticker(
+            "GOOGL",
+            date_range=(date(2014, 1, 1), date(2020, 12, 31)),
+        )
+
+        assert len(resolved.secid_segments) == 2
+        assert resolved.secid_segments[0].secid == 166006
+        assert resolved.secid_segments[1].secid == 4579561

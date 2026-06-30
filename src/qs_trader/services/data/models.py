@@ -28,10 +28,10 @@ Design Principles:
 - Documentation: Clear purpose and usage examples
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, ClassVar, Dict, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -92,6 +92,31 @@ class DataSource(Enum):
     CSV_FILE = "csv_file"
 
 
+class SecidSegment(BaseModel):
+    """
+    CONTRACT: A contiguous period where a ticker maps to a single secid.
+
+    Represents one uninterrupted segment of a ticker's history where the
+    underlying security identity (secid) is stable.  When a ticker transitions
+    from one secid to another (e.g. GOOGL from secid 166006 to 4579561 on
+    2015-10-05), there are two segments.
+
+    Published By: InstrumentResolver (via ResolvedInstrument.secid_segments)
+    Used By: DataService adapters for cross-secid bar chaining
+
+    Attributes:
+        secid: Stable security identifier during this period.
+        start_date: First date this secid is active for this ticker.
+        end_date: Last date this secid is active (None if current).
+        ticker: Ticker symbol during this period.
+    """
+
+    secid: int = Field(..., description="Stable security identifier")
+    start_date: date = Field(..., description="First date this secid is active")
+    end_date: Optional[date] = Field(default=None, description="Last date this secid is active (None if current)")
+    ticker: str = Field(default="", description="Ticker symbol during this period")
+
+
 class Instrument(BaseModel):
     """
     CONTRACT: Tradable instrument specification.
@@ -114,6 +139,7 @@ class Instrument(BaseModel):
         display_symbol: Optional preferred display ticker for UI
         ticker_at_date: Optional ticker valid on a specific bar date
         identity_source: Optional provenance of how identity was resolved
+        secid_segments: Optional list of secid segments for multi-secid chaining
 
     Examples:
         >>> # Basic instrument
@@ -142,6 +168,8 @@ class Instrument(BaseModel):
         - Symbol is the primary identifier
         - Metadata for custom attributes without schema pollution
         - Identity fields are optional for backward compatibility
+        - secid_segments is None for legacy/unresolved instruments, populated
+          when the resolver has multi-secid data
     """
 
     symbol: str = Field(..., description="Ticker symbol")
@@ -151,6 +179,11 @@ class Instrument(BaseModel):
     display_symbol: Optional[str] = Field(default=None, description="Preferred display ticker for UI")
     ticker_at_date: Optional[str] = Field(default=None, description="Ticker valid on specific bar date")
     identity_source: Optional[IdentitySource] = Field(default=None, description="How identity was resolved")
+    secid_segments: Optional[List[SecidSegment]] = Field(
+        default=None,
+        description="List of secid segments for multi-secid bar chaining. "
+        "When None, no cross-secid resolution was performed.",
+    )
 
     model_config = {"frozen": True}
 

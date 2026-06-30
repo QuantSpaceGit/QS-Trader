@@ -118,6 +118,7 @@ def test_read_bars_returns_bars_in_order(adapter):
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
 
     bars = list(adapter.read_bars("2024-01-02", "2024-01-03"))
 
@@ -138,6 +139,7 @@ def test_read_bars_uses_cache_on_repeated_call(adapter):
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
 
     list(adapter.read_bars("2024-01-02", "2024-01-02"))
     list(adapter.read_bars("2024-01-02", "2024-01-02"))
@@ -152,6 +154,7 @@ def test_read_bars_re_fetches_on_different_range(adapter):
     ]
     mock_client = _make_mock_client(rows)
     adapter._client = mock_client
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
 
     list(adapter.read_bars("2024-01-02", "2024-01-02"))
     list(adapter.read_bars("2024-01-03", "2024-01-05"))
@@ -167,6 +170,7 @@ def test_read_bars_invalid_range_raises(adapter):
 
 def test_read_bars_empty_result(adapter):
     adapter._client = _make_mock_client([])
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
     bars = list(adapter.read_bars("2024-01-02", "2024-01-05"))
     assert bars == []
 
@@ -262,6 +266,138 @@ def test_to_price_bar_event_none_adj_fields(adapter):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Multi-segment chaining
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_client_side_effect(response_list: list[list[tuple]]) -> MagicMock:
+    """Return a mock client whose query() returns successive results."""
+    results = [SimpleNamespace(result_rows=rows) for rows in response_list]
+    client = MagicMock()
+    client.query.side_effect = results
+    return client
+
+
+def _googl_segment1_bars() -> list[tuple]:
+    """Simulate GOOGL secid 166006 bars ending at boundary."""
+    return [
+        (date(2014, 4, 3), 571.5, 575.0, 570.0, 573.0, 571.5, 575.0, 570.0, 573.0, 10000000, 10000000),
+        (date(2014, 4, 4), 574.0, 578.0, 572.0, 576.0, 574.0, 578.0, 572.0, 576.0, 11000000, 11000000),
+        (date(2015, 10, 1), 650.0, 660.0, 648.0, 655.0, 650.0, 660.0, 648.0, 655.0, 12000000, 12000000),
+        (date(2015, 10, 2), 653.0, 658.0, 651.0, 656.99, 653.0, 658.0, 651.0, 656.99, 13000000, 13000000),
+    ]
+
+
+def _googl_segment2_bars() -> list[tuple]:
+    """Simulate GOOGL secid 4579561 bars starting after boundary."""
+    return [
+        (date(2015, 10, 5), 33.5, 34.0, 33.2, 33.8, 33.5, 34.0, 33.2, 33.8, 20000000, 20000000),
+        (date(2015, 10, 6), 34.0, 34.5, 33.8, 34.2, 34.0, 34.5, 33.8, 34.2, 21000000, 21000000),
+        (date(2015, 10, 7), 34.2, 34.8, 34.0, 34.5, 34.2, 34.8, 34.0, 34.5, 22000000, 22000000),
+    ]
+
+
+@pytest.fixture
+def multi_seg_adapter(ch_config):
+    """Adapter with multi-segment instrument (GOOGL-like)."""
+    from qs_trader.services.data.models import SecidSegment
+    segments = [
+        SecidSegment(secid=166006, start_date=date(2014, 4, 3), end_date=date(2015, 10, 2), ticker="GOOGL"),
+        SecidSegment(secid=4579561, start_date=date(2015, 10, 5), end_date=None, ticker="GOOGL"),
+    ]
+    inst = Instrument(
+        symbol="GOOGL",
+        secid=166006,
+        secid_segments=segments,
+    )
+    return ClickhouseDataAdapter(ch_config, inst, dataset_name="qs-datamaster-equity-1d")
+
+
+def test_chained_bars_continuous_at_boundary(multi_seg_adapter):
+    """Chained bars have no >1% discontinuity at secid boundary."""
+    mock_client = _make_mock_client_side_effect([
+        _googl_segment1_bars(),
+        _googl_segment2_bars(),
+    ])
+    multi_seg_adapter._client = mock_client
+
+    bars = multi_seg_adapter._fetch_bars("2014-01-01", "2015-12-31")
+
+    assert len(bars) == 7  # 4 from seg1 + 3 from seg2
+
+    # The boundary bar from seg2 (2015-10-05) should be chained
+    # Linking factor: 656.99 / 33.8 ≈ 19.44
+    # Chained closeadj = 33.8 * 19.44 ≈ 656.99
+    boundary_bars = [b for b in bars if b.trade_date >= date(2015, 10, 5)]
+    assert len(boundary_bars) == 3
+
+    # The first boundary bar's close_adj should be close to the last
+    # pre-boundary bar's close_adj (656.99)
+    last_pre = [b for b in bars if b.trade_date <= date(2015, 10, 2)][-1]
+    first_post = boundary_bars[0]
+    assert last_pre.close_adj is not None and first_post.close_adj is not None
+
+    # The ratio between the two should be ~1.0 (continuous)
+    ratio = float(last_pre.close_adj) / float(first_post.close_adj)
+    assert 0.95 < ratio < 1.05, f"Ratio {ratio} indicates discontinuity at boundary"
+
+
+def test_chained_bars_records_transition(multi_seg_adapter):
+    """Secid transition is recorded in _secid_transitions."""
+    mock_client = _make_mock_client_side_effect([
+        _googl_segment1_bars(),
+        _googl_segment2_bars(),
+    ])
+    multi_seg_adapter._client = mock_client
+
+    multi_seg_adapter._fetch_bars("2014-01-01", "2015-12-31")
+
+    assert date(2015, 10, 5) in multi_seg_adapter._secid_transitions
+    transition = multi_seg_adapter._secid_transitions[date(2015, 10, 5)]
+    assert transition["from_secid"] == 166006
+    assert transition["to_secid"] == 4579561
+    assert transition["linking_factor"] > 0
+
+
+def test_chained_bars_emits_corp_action_event(multi_seg_adapter):
+    """to_corporate_action_event returns event at transition boundary."""
+    mock_client = _make_mock_client_side_effect([
+        _googl_segment1_bars(),
+        _googl_segment2_bars(),
+    ])
+    multi_seg_adapter._client = mock_client
+
+    bars = multi_seg_adapter._fetch_bars("2014-01-01", "2015-12-31")
+
+    # Bar at transition date should emit CorporateActionEvent
+    transition_bar = [b for b in bars if b.trade_date == date(2015, 10, 5)][0]
+    event = multi_seg_adapter.to_corporate_action_event(transition_bar)
+    assert event is not None
+    assert event.action_type == "symbol_change"
+    assert event.notes is not None
+    assert "166006" in event.notes
+    assert "4579561" in event.notes
+    assert event.price_adjustment_factor is not None
+
+    # Non-transition bar should return None
+    normal_bar = [b for b in bars if b.trade_date == date(2014, 4, 3)][0]
+    assert multi_seg_adapter.to_corporate_action_event(normal_bar) is None
+
+
+def test_single_segment_path_works_with_secid(adapter):
+    """Single-segment instrument uses secid query path."""
+    mock_client = _make_mock_client_side_effect([
+        _googl_segment1_bars(),
+    ])
+    adapter._client = mock_client
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
+
+    bars = adapter._fetch_bars("2014-01-01", "2015-12-31")
+    assert len(bars) == 4
+    assert adapter._secid_transitions == {}  # No transitions for single segment
+
+
 def test_to_corporate_action_event_always_none(adapter):
     bar = ClickhouseBar(
         symbol="AAPL",
@@ -313,6 +449,7 @@ def test_get_timestamp_returns_midnight_utc(adapter):
 def test_get_available_date_range_returns_from_clickhouse(adapter):
     rows = [("2020-01-02", "2024-12-31")]
     adapter._client = _make_mock_client(rows)
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
 
     min_date, max_date = adapter.get_available_date_range()
     assert min_date == "2020-01-02"
@@ -323,6 +460,7 @@ def test_get_available_date_range_returns_none_on_error(adapter):
     mock_client = MagicMock()
     mock_client.query.side_effect = Exception("connection error")
     adapter._client = mock_client
+    adapter.instrument = Instrument(symbol="AAPL", secid=12345)
 
     min_date, max_date = adapter.get_available_date_range()
     assert min_date is None
@@ -370,25 +508,17 @@ def test_read_bars_uses_secid_when_instrument_has_secid(ch_config):
     assert "symbol" not in sql
 
 
-def test_read_bars_falls_back_to_ticker_when_secid_is_none(ch_config):
-    """When instrument.secid is None, the query should use WHERE ticker = ..."""
+def test_read_bars_raises_assertion_error_when_secid_is_none(ch_config):
+    """When instrument.secid is None, read_bars should raise AssertionError."""
     from qs_trader.services.data.models import Instrument
 
     instrument = Instrument(symbol="AAPL", secid=None)
     adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
 
-    rows = [
-        (date(2024, 1, 2), 185.5, 186.0, 185.0, 185.8, 184.5, 185.0, 184.0, 185.0, 60_000_000, 50_000_000),
-    ]
-    mock_client = _make_mock_client(rows)
-    adapter._client = mock_client
+    adapter._client = _make_mock_client([])
 
-    list(adapter.read_bars("2024-01-02", "2024-01-02"))
-
-    sql = mock_client.query.call_args[1]["parameters"]
-    assert "symbol" in sql
-    assert sql["symbol"] == "AAPL"
-    assert "secid" not in sql
+    with pytest.raises(AssertionError, match="requires secid"):
+        list(adapter.read_bars("2024-01-02", "2024-01-02"))
 
 
 def test_get_available_date_range_uses_secid_when_set(ch_config):
@@ -408,21 +538,16 @@ def test_get_available_date_range_uses_secid_when_set(ch_config):
     assert sql["secid"] == 99999
 
 
-def test_get_available_date_range_falls_back_to_ticker(ch_config):
-    """get_available_date_range should query by ticker when secid is None."""
+def test_get_available_date_range_returns_none_when_secid_is_none(ch_config):
+    """get_available_date_range should return (None, None) when secid is None."""
     from qs_trader.services.data.models import Instrument
 
     instrument = Instrument(symbol="AAPL")
     adapter = ClickhouseDataAdapter(ch_config, instrument, dataset_name="qs-datamaster-equity-1d")
 
-    rows = [("2020-01-02", "2024-12-31")]
-    adapter._client = _make_mock_client(rows)
-
-    adapter.get_available_date_range()
-
-    sql = adapter._client.query.call_args[1]["parameters"]
-    assert "symbol" in sql
-    assert sql["symbol"] == "AAPL"
+    min_date, max_date = adapter.get_available_date_range()
+    assert min_date is None
+    assert max_date is None
 
 
 # ---------------------------------------------------------------------------

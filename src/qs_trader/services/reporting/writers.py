@@ -493,10 +493,11 @@ def write_strategy_chart_data(
                 commission = sum(f.commission for f in fills)
 
             # Use prices directly (already backward-adjusted)
-            bar_open = float(bar.open) if bar else None
-            bar_high = float(bar.high) if bar else None
-            bar_low = float(bar.low) if bar else None
-            bar_close = float(bar.close) if bar else None
+            # Use adjusted prices when available, fall back to raw
+            bar_open = float(bar.open_adj if bar.open_adj is not None else bar.open) if bar else None
+            bar_high = float(bar.high_adj if bar.high_adj is not None else bar.high) if bar else None
+            bar_low = float(bar.low_adj if bar.low_adj is not None else bar.low) if bar else None
+            bar_close = float(bar.close_adj if bar.close_adj is not None else bar.close) if bar else None
             bar_volume = bar.volume if bar else None
 
             # Get trade_id and trade metadata from TradeEvent mapping (not from FillEvent)
